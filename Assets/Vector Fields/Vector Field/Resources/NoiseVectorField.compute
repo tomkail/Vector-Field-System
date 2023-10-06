@@ -1,0 +1,74 @@
+#include "Noise/SimplexNoise3D.hlsl"
+
+#pragma kernel CSMain
+
+// Define thread group dimensions
+#define THREADS_X 16
+#define THREADS_Y 16
+#define THREADS_Z 1
+
+static const float PI = 3.14159265358979323846;
+static const float Deg2Rad = PI / 180.0;
+
+// The result
+RWStructuredBuffer<float2> Result;
+int NumThreadGroupsX;
+int width;
+int height;
+
+float magnitude;
+
+float4x4 gridToWorldMatrix;
+
+float frequency;
+float persistence;
+float lacunarity;
+int numOctaves;
+
+float vortexAngle;
+
+
+static float4 FractalNoise(float4 gridPointFloat) {
+    float amplitude = 1.0;
+    float _frequency = frequency;
+    float4 noiseValue = float4(0,0,0,0);
+    
+    for (int i = 0; i < numOctaves; ++i)
+    {
+        const float3 worldPoint = _frequency * (float3)mul(gridToWorldMatrix, gridPointFloat);
+        noiseValue += amplitude * SimplexNoiseGrad(worldPoint);
+        
+        amplitude *= persistence;
+        _frequency *= lacunarity;
+    }
+    
+    return noiseValue;
+}
+
+// Function to rotate a 2D vector by an angle in degrees
+float2 RotateVector2D(float2 vec, float angleDegrees) {
+    float angleRadians = angleDegrees * Deg2Rad;
+
+    float cosAngle = cos(angleRadians);
+    float sinAngle = sin(angleRadians);
+
+    float2 rotatedVec;
+    rotatedVec.x = vec.x * cosAngle - vec.y * sinAngle;
+    rotatedVec.y = vec.x * sinAngle + vec.y * cosAngle;
+
+    return rotatedVec;
+}
+
+[numthreads(THREADS_X, THREADS_Y, THREADS_Z)]
+void CSMain (uint3 id : SV_DispatchThreadID){
+    // Get the index/coord in the vector field
+    uint flatIndex = id.y * (THREADS_X * NumThreadGroupsX) + id.x;
+    if (flatIndex > (uint)(width * height)) return;
+    uint2 gridPoint = uint2(flatIndex%width, floor(flatIndex/width));
+    
+    const float4 gridPointFloat = float4((float)gridPoint.x, (float)gridPoint.y, 0.0f, 1.0f);
+    float2 force = (float2)FractalNoise(gridPointFloat) * magnitude * (1/6.97);
+    if(vortexAngle != 0) force = RotateVector2D(force, vortexAngle);
+
+    Result[flatIndex] = force;
+}

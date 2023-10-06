@@ -1,0 +1,73 @@
+#pragma kernel CSMain
+
+// Define thread group dimensions
+#define THREADS_X 16
+#define THREADS_Y 16
+#define THREADS_Z 1
+
+static const float PI = 3.14159265358979323846;
+static const float Deg2Rad = PI / 180.0;
+
+// The result
+RWStructuredBuffer<float2> Result;
+int NumThreadGroupsX;
+int width;
+int height;
+
+float magnitude;
+float directionalAngle;
+float vortexAngle;
+
+#pragma multi_compile _ DIRECTIONAL SPOT
+
+Texture2D<float> curveTexture;
+SamplerState sampler_curveTexture;
+
+float EvaluateCurve(float t) {
+    // return 1;
+    return curveTexture.SampleLevel(sampler_curveTexture, t, 0);
+}
+
+// Function to rotate a 2D vector by an angle in degrees
+float2 RotateVector2D(float2 vec, float angleDegrees) {
+    float angleRadians = angleDegrees * Deg2Rad;
+
+    float cosAngle = cos(angleRadians);
+    float sinAngle = sin(angleRadians);
+
+    float2 rotatedVec;
+    rotatedVec.x = vec.x * cosAngle - vec.y * sinAngle;
+    rotatedVec.y = vec.x * sinAngle + vec.y * cosAngle;
+
+    return rotatedVec;
+}
+[numthreads(THREADS_X, THREADS_Y, THREADS_Z)]
+void CSMain (uint3 id : SV_DispatchThreadID){
+    // Get the index/coord in the vector field
+    uint flatIndex = id.y * (THREADS_X * NumThreadGroupsX) + id.x;
+    if (flatIndex > (uint)(width * height)) return;
+    uint2 gridPoint = uint2(flatIndex%width, floor(flatIndex/width));
+
+    
+    float2 _half = float2(0.5, 0.5);
+    // float2 normalizedPosition = float2((float)gridPoint.x / (width - 1), (float)gridPoint.y / (height - 1));
+    float2 normalizedPosition = float2((float)(gridPoint.x+0.5) / (width), (float)(gridPoint.y+0.5) / (height));
+    
+    float2 delta = normalizedPosition - _half;
+    float len = length(delta);
+
+    float2 force = float2(0,0);
+    float strength = EvaluateCurve(max(0,0.5-len)*2) * magnitude;
+    #ifdef DIRECTIONAL
+    force = strength * float2(sin(directionalAngle * Deg2Rad), cos(directionalAngle * Deg2Rad));
+    #endif
+
+    #ifdef SPOT
+    float2 direction = delta / (len + 1e-6f); // Add a small epsilon value to avoid division by zero
+    force = direction * strength;
+    if(vortexAngle != 0) force = RotateVector2D(force, vortexAngle);
+    #endif
+
+    // Write to buffer
+    Result[flatIndex] = force;
+}

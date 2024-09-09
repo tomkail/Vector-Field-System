@@ -16,8 +16,12 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
     const int threadsPerGroupX = 16;
     const int threadsPerGroupY = 16;
 
-    
+
     protected override void RenderInternal() {
+        RenderInternalGPU();
+    }
+
+    void RenderInternalGPU() {
         vectorField = new Vector2Map(gridRenderer.gridSize);
 
         // Initialize ComputeBuffer
@@ -47,6 +51,7 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
         computeShader.SetFloat("vortexAngle", vortexAngle);
 
         computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
+        // This is very slow! We might want to prefer writing to a rendertexture instead.
         computeBuffer.GetData(vectorField.values);
         computeBuffer.Release();
     }

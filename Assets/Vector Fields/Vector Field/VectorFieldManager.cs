@@ -34,8 +34,11 @@ public class VectorFieldManager : MonoSingleton<VectorFieldManager> {
 	
 	protected override void Awake () {
 		base.Awake();
+		
 		// vectorField = new Vector2Map(gridRenderer.gridSize, Vector2.zero);
-		texture = TextureX.Create(vectorField.size, Color.black);
+		texture = new Texture2D(vectorField.size.x, vectorField.size.y, TextureFormat.RGBAFloat, false);
+		Color[] pixels = new Color[texture.width * texture.height].Fill(Color.black);
+		texture.SetPixels(pixels);
 		texture.Apply();
 	}
 

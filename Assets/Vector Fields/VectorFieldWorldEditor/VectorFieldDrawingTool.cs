@@ -218,7 +218,7 @@ class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         var brushRect = RectX.CreateFromCenter(gridPosition, gridBrushSize);
         
         foreach(var point in pointsOnGrid) {
-            var normalizedBrushPos = brushRect.GetNormalizedPositionInsideRect(point);
+            var normalizedBrushPos = Rect.PointToNormalized(brushRect, point);
             var brushForce = brushMap.GetValueAtNormalizedPosition(normalizedBrushPos);
             Vector2 finalForce = brushForce * magnitude;
             yield return new CellBrushAffectorParams() {
@@ -236,7 +236,7 @@ class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         var brushRect = RectX.CreateFromCenter(gridPosition, gridBrushSize);
         
         foreach(var point in pointsOnGrid) {
-            var normalizedBrushPos = brushRect.GetNormalizedPositionInsideRect(point);
+            var normalizedBrushPos = Rect.PointToNormalized(brushRect, point);
             var brushForce = brushMap.GetValueAtNormalizedPosition(normalizedBrushPos);
             Vector2 finalForce = brushForce * vector.magnitude;
             var degrees = Vector2X.Degrees(vector);
@@ -312,7 +312,7 @@ class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
             return true;
         } else {
             Vector3 point = Vector3.zero;
-            if (vectorFieldManager.gridRenderer.floorPlane.TryGetHitPoint(ray, ref point)) {
+            if (vectorFieldManager.gridRenderer.floorPlane.TryGetHitPoint(ray, out point)) {
                 hit = new RaycastHit() {
                     point = point,
                     normal = vectorFieldManager.gridRenderer.floorPlane.normal

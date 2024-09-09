@@ -16,7 +16,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
     public Vector3 planeNormal => transform.forward;
 
     [Space]
-    public Vector2Map vectorField;
+    [HideInInspector] public Vector2Map vectorField;
 	
     public float magnitude = 1;
     // public VectorFieldCookie cookie;
@@ -32,8 +32,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
         Update();
     }
     
-    protected void OnDisable () {
-        group?.Render();
+    protected virtual void OnDisable () {
+        TryRenderGroup();
     }
 
     protected virtual void OnValidate () {
@@ -60,7 +60,11 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
     public virtual void SetDirty() {
         Render();
-        group?.Render();
+        TryRenderGroup();
+    }
+
+    void TryRenderGroup() {
+        if(group != null && group.isActiveAndEnabled) group.Render();
     }
 
     public void Render() {
@@ -88,19 +92,21 @@ public abstract class VectorFieldComponent : MonoBehaviour {
         return BoundsX.CreateEncapsulating(bounds);
     }
     
-    public static Texture2D CreateRampTextureFromAnimationCurve(AnimationCurve curve, int textureWidth = 64) {
+    public static Texture2D CreateRampTextureFromAnimationCurve(AnimationCurve curve, int textureWidth, ref Texture2D texture) {
         // if (curveTexture == null || curveTexture.width != textureWidth || curveTexture.height != 1 || curveTexture.format != TextureFormat.RFloat || curveTexture.wrapMode != TextureWrapMode.Clamp) {
         //     if (curveTexture != null) ObjectX.DestroyAutomatic(curveTexture);
         // }
-        var curveTexture = new Texture2D(textureWidth, 1, TextureFormat.RFloat, false) {
-            wrapMode = TextureWrapMode.Clamp
-        };
+        if (texture == null) {
+            texture = new Texture2D(textureWidth, 1, TextureFormat.RFloat, false) {
+                wrapMode = TextureWrapMode.Clamp
+            };
+        }
         for (int i = 0; i < textureWidth; i++) {
             float t = i / (float) (textureWidth - 1);
             float value = curve.Evaluate(t);
-            curveTexture.SetPixel(i, 0, new Color(value, value, value, value));
+            texture.SetPixel(i, 0, new Color(value, value, value, value));
         }
-        curveTexture.Apply();
-        return curveTexture;
+        texture.Apply();
+        return texture;
     }
 }

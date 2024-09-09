@@ -1,0 +1,74 @@
+#pragma kernel CSMain
+
+// Define thread group dimensions
+#define THREADS_X 8
+#define THREADS_Y 8
+#define THREADS_Z 1
+
+RWTexture2D<float4> Result;
+
+struct LayerData
+{
+    float strength;
+    int blendMode;
+    int components;
+};
+
+LayerData layers[10]; // Assuming a maximum of 10 layers, adjust as needed
+int numLayers;
+// Texture2D<float4> ChildTextures[10]; // Assuming a maximum of 10 layers, adjust as needed
+Texture2DArray Textures;
+
+
+[numthreads(THREADS_X, THREADS_Y, THREADS_Z)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    float2 vectorFieldForce = Result[id.xy].xy;
+    vectorFieldForce.x = 0.5 + numLayers *0.5;
+    vectorFieldForce.y = 0.5;
+    for (int i = 0; i < numLayers; i++)
+    {
+        float2 affectorForce = Textures.Load(int3(id.xy, i)).xy;
+        vectorFieldForce = affectorForce;
+        // float strength = layers[i].strength;
+        // int blendMode = layers[i].blendMode;
+        // int components = layers[i].components;
+        //
+        // float2 finalForce = float2(0, 0);
+        //
+        // if (blendMode == 0) // Add
+        // {
+        //     if ((components & 1) != 0) // All
+        //     {
+        //         finalForce = vectorFieldForce + affectorForce * strength;
+        //     }
+        //     else if ((components & 2) != 0) // Direction
+        //     {
+        //         finalForce = affectorForce + length(vectorFieldForce) * normalize(affectorForce) * strength;
+        //     }
+        //     else if ((components & 4) != 0) // Magnitude
+        //     {
+        //         finalForce = vectorFieldForce + normalize(vectorFieldForce) * length(affectorForce) * strength;
+        //     }
+        // }
+        // else if (blendMode == 1) // Blend
+        // {
+        //     if ((components & 1) != 0) // All
+        //     {
+        //         finalForce = lerp(vectorFieldForce, affectorForce, strength);
+        //     }
+        //     else if ((components & 2) != 0) // Direction
+        //     {
+        //         finalForce = normalize(affectorForce) * strength;
+        //     }
+        //     else if ((components & 4) != 0) // Magnitude
+        //     {
+        //         finalForce = normalize(vectorFieldForce) * strength;
+        //     }
+        // }
+        //
+        // vectorFieldForce = finalForce;
+    }
+
+    Result[id.xy] = float4(vectorFieldForce, 0, 0);
+}

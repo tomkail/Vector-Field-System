@@ -1,6 +1,5 @@
-﻿using UnityEngine;
-using System.Collections;
-using UnityX.Geometry;
+﻿using UnityEditor;
+using UnityEngine;
 
 public abstract class TypeMapScriptableObject<T> : ScriptableObject where T : Grid {
 	public const TextureFormat textureFormat = TextureFormat.RGBAFloat;
@@ -40,26 +39,26 @@ public abstract class TypeMapScriptableObject<T> : ScriptableObject where T : Gr
 
 		string fileName = string.Format("{0}_{1}", name, _fileName);
 		ScreenshotExportSettings exportSettings = null;
-		string pathName = UnityEditor.AssetDatabase.GetAssetPath(this).BeforeLast(name);
+		string pathName = AssetDatabase.GetAssetPath(this).BeforeLast(name);
 		exportSettings = new ScreenshotExportSettings(sourceTexture, pathName, fileName, ScreenshotExportFormat.PNG);
 		ScreenshotExporter.Export(exportSettings);
 
 		var filePath = exportSettings.filePath;
 		Debug.Log(filePath);
 
-		UnityEditor.TextureImporter textureImporter = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(filePath);
-		UnityEditor.TextureImporterSettings importerSettings = new UnityEditor.TextureImporterSettings();
+		TextureImporter textureImporter = (TextureImporter)AssetImporter.GetAtPath(filePath);
+		textureImporter.maxTextureSize = Mathf.Max(width, height);
+		textureImporter.textureCompression = TextureImporterCompression.Compressed;
+		TextureImporterSettings importerSettings = new TextureImporterSettings();
 		importerSettings.readable = true;
 		importerSettings.mipmapEnabled = false;
 		importerSettings.filterMode = FilterMode.Point;
-		importerSettings.textureFormat = UnityEditor.TextureImporterFormat.AutomaticTruecolor;
-		importerSettings.maxTextureSize = Mathf.Max(width, height);
 		textureImporter.SetTextureSettings(importerSettings);
-		UnityEditor.AssetDatabase.ImportAsset(filePath, UnityEditor.ImportAssetOptions.ForceUpdate);
+		AssetDatabase.ImportAsset(filePath, ImportAssetOptions.ForceUpdate);
 
-		outputTextureAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(filePath);
-		UnityEditor.EditorUtility.SetDirty(this);
-		UnityEditor.AssetDatabase.SaveAssets();
+		outputTextureAsset = AssetDatabase.LoadAssetAtPath<Texture2D>(filePath);
+		EditorUtility.SetDirty(this);
+		AssetDatabase.SaveAssets();
 		#endif
 	}
 }

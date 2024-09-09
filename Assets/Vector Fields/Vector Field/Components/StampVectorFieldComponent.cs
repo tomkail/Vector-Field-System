@@ -13,14 +13,23 @@ public class StampVectorFieldComponent : VectorFieldComponent {
 
 
     protected override void RenderInternal() {
-        // CPU version
-        // vectorField = VectorFieldBrush.CreateVectorField(brushParams, gridRenderer.gridSize);
-        
-        vectorField = new Vector2Map(gridRenderer.gridSize);
+        // RenderInternalCPU();
+        RenderInternalGPU();
+    }
+
+    void RenderInternalCPU() {
+        vectorField = VectorFieldBrush.CreateVectorField(brushParams, gridRenderer.gridSize);
+    }
+
+    void RenderInternalGPU() {
+        if(vectorField == null || vectorField.values.Length != gridRenderer.gridSize.x * gridRenderer.gridSize.y)
+            vectorField = new Vector2Map(gridRenderer.gridSize);
 
         // Initialize ComputeBuffer
-        computeBuffer = new ComputeBuffer(vectorField.values.Length, sizeof(float) * 2);
-        computeShader.SetBuffer(0, "Result", computeBuffer);
+        if (computeBuffer == null || computeBuffer.count != vectorField.values.Length) {
+            computeBuffer = new ComputeBuffer(vectorField.values.Length, sizeof(float) * 2);
+            computeShader.SetBuffer(0, "Result", computeBuffer);
+        }
 
         // Calculate the number of thread groups
         int threadGroupsX = Mathf.CeilToInt((float)vectorField.size.x / threadsPerGroupX);
@@ -43,13 +52,17 @@ public class StampVectorFieldComponent : VectorFieldComponent {
             computeShader.DisableKeyword("DIRECTIONAL");
         }
 
-        curveTexture = CreateRampTextureFromAnimationCurve(brushParams.falloffCurve, 32);
+        CreateRampTextureFromAnimationCurve(brushParams.falloffCurve, 32, ref curveTexture);
         computeShader.SetTexture(0, "curveTexture", curveTexture);
         
         computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
+        // This is very slow! We might want to prefer writing to a rendertexture instead.
         computeBuffer.GetData(vectorField.values);
-        computeBuffer.Release();
+        // computeBuffer.Release();
     }
-
     
+    protected override void OnDisable () {
+        computeBuffer?.Release();
+        computeBuffer = null;
+    }
 }

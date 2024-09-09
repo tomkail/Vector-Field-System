@@ -59,7 +59,7 @@ public class VectorFieldEditorMinimapSubWindow : VectorFieldEditorSubWindow {
 				if(Event.current.type == EventType.MouseDown) {
 					Vector2 normalizedGridPosition = Vector2X.Divide(Event.current.mousePosition-minimapRect.position, minimapRect.size);
 					Vector2 normalizedMinimapViewportSize = Vector2X.Divide(minimapViewportRect.size, minimapRect.size);
-					editorWindow.normalizedRect = editorWindow.normalizedRect.CopyWithPosition(normalizedGridPosition - normalizedMinimapViewportSize * 0.5f);
+					editorWindow.normalizedRect = editorWindow.normalizedRect.WithPosition(normalizedGridPosition - normalizedMinimapViewportSize * 0.5f);
 					UpdateViewportRect();
 
 					minimapDragNormalizedStartPoint = Vector2X.Divide(Event.current.mousePosition-minimapViewportRect.position, minimapRect.size);
@@ -72,7 +72,7 @@ public class VectorFieldEditorMinimapSubWindow : VectorFieldEditorSubWindow {
 		if(draggingMinimap) {
 			if(Event.current.type == EventType.MouseDrag) {
 				Vector2 normalizedGridPosition = Vector2X.Divide(Event.current.mousePosition-minimapRect.position, minimapRect.size);
-				editorWindow.normalizedRect = editorWindow.normalizedRect.CopyWithPosition(normalizedGridPosition - minimapDragNormalizedStartPoint);
+				editorWindow.normalizedRect = editorWindow.normalizedRect.WithPosition(normalizedGridPosition - minimapDragNormalizedStartPoint);
 				Event.current.Use();
 			}
 		}

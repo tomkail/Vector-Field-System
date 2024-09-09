@@ -19,10 +19,12 @@ public static class VectorFieldComponentDrawer
         foreach (var obj in Selection.objects) {
             GameObject go = obj as GameObject;
             if (go != null) {
-                VectorFieldComponent component = go.GetComponent<VectorFieldComponent>();
-                if (component != null && component.isActiveAndEnabled) {
-                    VectorFieldDebugRenderer.Draw(component, 1, VectorFieldScriptableObject.GetMaxAbsComponent(component.vectorField.values), sceneView.camera);
-                }
+                var component = go.GetComponent<VectorFieldComponent>();
+                if (component == null || !component.isActiveAndEnabled) return;
+                if (GizmoUtility.TryGetGizmoInfo(component.GetType(), out GizmoInfo info)) 
+                    if (!info.gizmoEnabled) continue;
+                
+                VectorFieldDebugRenderer.Draw(component, 1, VectorFieldScriptableObject.GetMaxAbsComponent(component.vectorField.values), sceneView.camera);
             }
         }
     }

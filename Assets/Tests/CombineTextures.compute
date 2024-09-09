@@ -1,0 +1,34 @@
+#pragma kernel CombineTextures
+
+struct Layer
+{
+    float Property1;
+    float Property2;
+    int TextureIndex;
+    int Width;
+    int Height;
+};
+
+RWTexture2D<float4> ResultTexture;
+StructuredBuffer<Layer> Layers;
+Texture2DArray Textures;
+
+[numthreads(8, 8, 1)]
+void CombineTextures (uint3 id : SV_DispatchThreadID)
+{
+    float4 color = float4(0, 0, 0, 0);
+
+    for (int i = 0; i < Layers.Length; ++i)
+    {
+        Layer layer = Layers[i];
+
+        // Normalize the coordinates for the current layer texture
+        float2 uv = id.xy / float2(ResultTexture.GetDimensions());
+        uv *= float2(layer.Width, layer.Height);
+
+        float4 texColor = Textures.Load(int3(uv * float2(layer.Width, layer.Height), layer.TextureIndex));
+        color += texColor * layer.Property1; // Example combination logic
+    }
+
+    ResultTexture[id.xy] = color;
+}

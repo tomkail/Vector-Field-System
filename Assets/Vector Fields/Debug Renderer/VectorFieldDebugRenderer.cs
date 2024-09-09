@@ -7,8 +7,22 @@ using UnityEngine.Rendering;
 
 [ExecuteAlways, RequireComponent(typeof(VectorFieldComponent))]
 public class VectorFieldDebugRenderer : MonoBehaviour {
-    static Mesh quad;
-    static Texture2D arrowTexture;
+    static Mesh _quad;
+    static Mesh quad { 
+        get {
+            if(_quad == null)
+                _quad = CreateQuad();
+            return _quad;
+        }
+    }
+    static Texture2D _arrowTexture;
+    static Texture2D arrowTexture {
+        get {
+            if(_arrowTexture == null)
+                _arrowTexture = Resources.Load<Texture2D>("VectorFieldDebugRendererArrow");
+            return _arrowTexture;
+        }
+    }
     static Shader arrowShader => Shader.Find("VectorField/InstanceDebugRenderer");
     static readonly int MainTex = Shader.PropertyToID("_MainTex");
     static readonly int MatrixBuffer = Shader.PropertyToID("matrixBuffer");
@@ -33,9 +47,6 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
         }
         vectorFieldComponent.OnRender += VectorFieldComponentOnOnRender;
         
-        if (quad == null) quad = CreateQuad();
-        if (arrowTexture == null) arrowTexture = Resources.Load<Texture2D>("VectorFieldDebugRendererArrow");
-
         ResetBuffers();
 
         
@@ -146,19 +157,19 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
         Mesh mesh = new Mesh();
 
         Vector3[] vertices = {
-            new Vector3(-0.5f, -0.5f, 0),
-            new Vector3(0.5f, -0.5f, 0),
-            new Vector3(-0.5f, 0.5f, 0),
-            new Vector3(0.5f, 0.5f, 0)
+            new(-0.5f, -0.5f, 0),
+            new(0.5f, -0.5f, 0),
+            new(-0.5f, 0.5f, 0),
+            new(0.5f, 0.5f, 0)
         };
 
         int[] triangles = { 0, 2, 1, 2, 3, 1 };
 
         Vector2[] uvs = {
-            new Vector2(0, 0),
-            new Vector2(1, 0),
-            new Vector2(0, 1),
-            new Vector2(1, 1)
+            new(0, 0),
+            new(1, 0),
+            new(0, 1),
+            new(1, 1)
         };
 
         mesh.vertices = vertices;
@@ -191,8 +202,8 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
         argsBuffer.SetData(args);
         
         MyStruct[] structs = new MyStruct[instanceCount];
-        Matrix4x4[] matrices = new Matrix4x4[instanceCount];
-        Color[] colors = new Color[instanceCount];
+        // Matrix4x4[] matrices = new Matrix4x4[instanceCount];
+        // Color[] colors = new Color[instanceCount];
         var gridToWorldMatrix = vectorFieldComponent.gridRenderer.cellCenter.gridToWorldMatrix;
         var scaleFactor = Vector3.one / maxMagnitude;
         // var rotation = vectorFieldComponent.transform.rotation;

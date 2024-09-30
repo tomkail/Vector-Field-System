@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 
+// This code attempted to combine multiple textures into a single texture using a compute shader. It turns out Texture2DArray only works if the textures are the same size.
 [ExecuteAlways]
 public class TextureCombiner : MonoBehaviour
 {

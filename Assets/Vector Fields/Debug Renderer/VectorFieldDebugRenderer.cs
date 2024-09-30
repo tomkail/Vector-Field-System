@@ -5,6 +5,7 @@ using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+// Draws arrows for each vector in the vector field
 [ExecuteAlways, RequireComponent(typeof(VectorFieldComponent))]
 public class VectorFieldDebugRenderer : MonoBehaviour {
     static Mesh _quad;

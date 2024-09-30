@@ -3,11 +3,13 @@ Shader "VectorField/InstanceDebugRenderer" {
         _MainTex ("Texture", 2D) = "white" {}
     }
     SubShader {
-        Tags { "RenderType"="Transparent" }
+        //Tags { "RenderType"="Transparent" }
+        Tags { "Queue" = "Overlay" }
         Pass {
             Blend SrcAlpha OneMinusSrcAlpha // enable transparency
             ZWrite Off
             Cull Off
+            ZTest Always
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag

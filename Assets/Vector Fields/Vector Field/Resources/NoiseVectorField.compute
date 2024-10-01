@@ -10,9 +10,8 @@
 static const float PI = 3.14159265358979323846;
 static const float Deg2Rad = PI / 180.0;
 
-// The result
-RWStructuredBuffer<float2> Result;
-int NumThreadGroupsX;
+// The result texture
+RWTexture2D<float4> Result;
 int width;
 int height;
 
@@ -26,7 +25,6 @@ float lacunarity;
 int numOctaves;
 
 float vortexAngle;
-
 
 static float4 FractalNoise(float4 gridPointFloat) {
     float amplitude = 1.0;
@@ -60,15 +58,17 @@ float2 RotateVector2D(float2 vec, float angleDegrees) {
 }
 
 [numthreads(THREADS_X, THREADS_Y, THREADS_Z)]
-void CSMain (uint3 id : SV_DispatchThreadID){
-    // Get the index/coord in the vector field
-    uint flatIndex = id.y * (THREADS_X * NumThreadGroupsX) + id.x;
-    if (flatIndex > (uint)(width * height)) return;
-    uint2 gridPoint = uint2(flatIndex%width, floor(flatIndex/width));
-    
-    const float4 gridPointFloat = float4((float)gridPoint.x, (float)gridPoint.y, 0.0f, 1.0f);
-    float2 force = (float2)FractalNoise(gridPointFloat) * magnitude * (1/6.97);
-    if(vortexAngle != 0) force = RotateVector2D(force, vortexAngle);
+void CSMain (uint3 id : SV_DispatchThreadID) {
+    // Check if the current thread is within the texture bounds
+    if (id.x < (uint)width && id.y < (uint)height) {
+        uint2 texPos = uint2(id.x, id.y);
+        
+        const float4 gridPointFloat = float4((float)texPos.x, (float)texPos.y, 0.0f, 1.0f);
+        float2 force = (float2)FractalNoise(gridPointFloat) * magnitude * (1/6.97);
+        if(vortexAngle != 0) force = RotateVector2D(force, vortexAngle);
 
-    Result[flatIndex] = force;
+        float2 pixelValue = float2((force.x / 2) + 0.5f, (force.y / 2) + 0.5f);
+        // Write the result to the texture
+        Result[texPos] = float4(pixelValue.x, pixelValue.y, 0, 1);
+    }
 }

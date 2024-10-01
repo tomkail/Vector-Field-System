@@ -1,34 +1,49 @@
+#define MAX_TEXTURES 8 // Example: You can set this to any fixed number that covers your use case
+
 #pragma kernel CombineTextures
 
-struct Layer
-{
-    float Property1;
-    float Property2;
-    int TextureIndex;
-    int Width;
-    int Height;
-};
+// Array of vector field textures
+Texture2D<float2> _VectorFieldTextures[MAX_TEXTURES];
+// Array of transformation matrices
+float4x4 _Transforms[MAX_TEXTURES];
+// Sizes of the textures (width, height)
+int2 _TextureSizes[MAX_TEXTURES];
+// Output texture
+RWTexture2D<float2> _OutputTexture;
 
-RWTexture2D<float4> ResultTexture;
-StructuredBuffer<Layer> Layers;
-Texture2DArray Textures;
+// Size of the output texture
+int2 _OutputTextureSize;
+// Actual number of textures being used
+int _NumTextures;
+
+SamplerState my_point_clamp_sampler;
 
 [numthreads(8, 8, 1)]
-void CombineTextures (uint3 id : SV_DispatchThreadID)
+void CombineTextures(uint3 id : SV_DispatchThreadID)
 {
-    float4 color = float4(0, 0, 0, 0);
+    float2 combinedVector = float2(0.0, 0.0);
+    float2 uvOutput = float2(id.xy) / float2(_OutputTextureSize);
 
-    for (int i = 0; i < Layers.Length; ++i)
+    // Loop through each source texture
+    for (int i = 0; i < _NumTextures; i++)
     {
-        Layer layer = Layers[i];
+        // Calculate scaled UVs based on each texture's size
+        float2 uvScaled = uvOutput * float2(_TextureSizes[i]);
 
-        // Normalize the coordinates for the current layer texture
-        float2 uv = id.xy / float2(ResultTexture.GetDimensions());
-        uv *= float2(layer.Width, layer.Height);
+        // Apply transformation matrix to UVs
+        float4 uvTransformed = mul(_Transforms[i], float4(uvScaled, 0.0, 1.0));
 
-        float4 texColor = Textures.Load(int3(uv * float2(layer.Width, layer.Height), layer.TextureIndex));
-        color += texColor * layer.Property1; // Example combination logic
+        // Normalize UV coordinates for texture sampling
+        float2 uvNormalized = uvTransformed.xy / float2(_TextureSizes[i]);
+
+        // Sample texture if UVs are within bounds
+        if (uvNormalized.x >= 0 && uvNormalized.x <= 1 && uvNormalized.y >= 0 && uvNormalized.y <= 1)
+        {
+            float2 sampledVector = _VectorFieldTextures[i].SampleLevel(my_point_clamp_sampler, uvNormalized, 0);
+            combinedVector += sampledVector;
+        }
     }
 
-    ResultTexture[id.xy] = color;
+    // Write final combined vector to output texture
+    _OutputTexture[id.xy] = combinedVector;
 }

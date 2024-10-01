@@ -3,25 +3,29 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public class GroupVectorFieldComponent : VectorFieldComponent {
+public class GroupVectorFieldComponent : VectorFieldComponent
+{
     [System.Serializable]
-    public class VectorFieldLayer {
+    public class VectorFieldLayer
+    {
         public VectorFieldComponent component;
-        
-        [Range(0,1)]
+
+        [Range(0, 1)]
         public float strength = 1;
-    
+
         public BlendMode blendMode = BlendMode.Add;
-        public enum BlendMode {
+        public enum BlendMode
+        {
             // Add to current value
             Add,
             // Lerp between current and new value based on brush alpha
             Blend
         }
-	
+
         [EnumFlagsButtonGroup] public Component components = Component.All;
         [Flags]
-        public enum Component {
+        public enum Component
+        {
             None = 0,
             All = ~0,
             // Add to current value
@@ -29,179 +33,151 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
             // Lerp between current and new value based on brush alpha
             Direction = 1 << 1,
         }
-        
-        public Texture2D texture;
+
+        // public Texture2D texture;
     }
 
     public List<VectorFieldLayer> layers = new List<VectorFieldLayer>();
-    IEnumerable<VectorFieldComponent> childComponents => this.GetComponentsX(ComponentX.ComponentSearchParams<VectorFieldComponent>.AllDescendentsExcludingSelf(true));
+    IEnumerable<VectorFieldComponent> childComponents => this.GetComponentsX(ComponentX.ComponentSearchParams<VectorFieldComponent>.AllDescendentsExcludingSelf(false));
 
-    void RefreshLayers() {
+    public Mode mode = Mode.CPU;
+    public enum Mode
+    {
+        CPU,
+        GPU
+    }
+    void RefreshLayers()
+    {
         layers.RemoveAll(x => x.component == null);
         List<VectorFieldComponent> added = new List<VectorFieldComponent>();
         List<VectorFieldComponent> removed = new List<VectorFieldComponent>();
         IEnumerableX.GetChanges(childComponents, layers.Select(x => x.component), out added, out removed);
-        foreach (var component in added) {
-            layers.Add(new VectorFieldLayer() {
+        foreach (var component in added)
+        {
+            layers.Add(new VectorFieldLayer()
+            {
                 component = component
             });
         }
-        foreach (var component in removed) {
+        foreach (var component in removed)
+        {
             layers.RemoveAll(x => x.component == component);
         }
         layers = layers.OrderBy(x => x.component.transform.GetHeirarchyIndex()).ToList();
     }
 
-    protected override void RenderInternal() {
+    protected override void RenderInternal()
+    {
         RefreshLayers();
-        
+
         // For performance we should iterate layers first, then iterate points.
         // For each layer we should first determine the points on both canvases that are in the overlap.
         // var points = gridRenderer.GetPointsInWorldBounds(child.transform.GetBounds());
 
-        RenderInternalCPU();
-        // RenderInternalGPU();
+        if (mode == Mode.CPU)
+            RenderInternalCPU();
+        else
+            RenderInternalGPU();
     }
 
-    
-    public ComputeShader computeShader;
-    [PreviewTexture] public RenderTexture vectorFieldTexture;
-    private ComputeBuffer layersDataBuffer;
-    
-    // Must match what's in the compute shader
-    const int threadsPerGroupX = 8;
-    const int threadsPerGroupY = 8;
 
-    void InitializeTextures() {
-        vectorFieldTexture = new RenderTexture(gridRenderer.gridSize.x, gridRenderer.gridSize.y, 0, RenderTextureFormat.RGFloat);
-        vectorFieldTexture.enableRandomWrite = true;
-        vectorFieldTexture.Create();
-    }
-    
-    void InitializeBuffers()
+    public override void Update()
     {
-        LayerData[] layerDataArray = new LayerData[layers.Count];
-        for (int i = 0; i < layers.Count; i++)
-        {
-            layerDataArray[i] = new LayerData
-            {
-                strength = layers[i].strength,
-                blendMode = (int)layers[i].blendMode,
-                components = (int)layers[i].components
-            };
-        }
-
-        layersDataBuffer = new ComputeBuffer(layers.Count, System.Runtime.InteropServices.Marshal.SizeOf(typeof(LayerData)));
-        layersDataBuffer.SetData(layerDataArray);
-    }
-    
-    void OnDestroy() {
-        if (layersDataBuffer != null) {
-            layersDataBuffer.Release();
-            layersDataBuffer = null;
-        }
+        base.Update();
+        SetDirty();
     }
 
-    struct LayerData
-    {
-        public float strength;
-        public int blendMode;
-        public int components;
-    }
+    public Material combineShaderMaterial;
+
     void RenderInternalGPU()
     {
-        if(vectorFieldTexture == null) InitializeTextures();
-        if (layersDataBuffer != null) {
-            layersDataBuffer.Release();
-            layersDataBuffer = null;
-        }
-        if(layersDataBuffer == null) InitializeBuffers();
-        
-        int kernelHandle = computeShader.FindKernel("CSMain");
+        if (layers.Count == 0 || combineShaderMaterial == null)
+            return;
 
-        computeShader.SetTexture(kernelHandle, "Result", vectorFieldTexture);
-
-        // Set the parameters for each layer
-        var validLayers = layers.Where(layer => layer.component.isActiveAndEnabled && layer.strength > 0).ToList();
-        int index = 0;
-        foreach(var layer in validLayers) {
-            if (!layer.component.isActiveAndEnabled) continue;
-            if (layer.strength <= 0) continue;
-            
-            if (layer.texture == null || layer.texture.width != layer.component.vectorField.size.x || layer.texture.height != layer.component.vectorField.size.y) {
-                layer.texture = new Texture2D(layer.component.vectorField.size.x, layer.component.vectorField.size.y, TextureFormat.RGFloat, false);
-                layer.texture.filterMode = FilterMode.Bilinear;
-            }
-            // float calculatedScale = VectorFieldScriptableObject.GetMaxAbsComponent(child.component.vectorField.values);
-            // 1f/calculatedScale
-            var colors = VectorFieldUtils.VectorsToColors(layer.component.vectorField.values, 1);
+        // Create two temporary RenderTextures
+        RenderTexture currentRT = RenderTexture.GetTemporary(gridRenderer.gridSize.x, gridRenderer.gridSize.y, 0, RenderTextureFormat.ARGBFloat);
+        RenderTexture nextRT = RenderTexture.GetTemporary(gridRenderer.gridSize.x, gridRenderer.gridSize.y, 0, RenderTextureFormat.ARGBFloat);
         
-            // Color[] colors = new Color[vectorField.vectorField.values.Length];
-            // for(int i = 0; i < vectorField.vectorField.values.Length; i++) {
-            //     colors[i] = new Color(vectorField.vectorField.values[i].x, vectorField.vectorField.values[i].y, 0);
-            // }
-        
-            layer.texture.SetPixels(colors);
-            layer.texture.Apply();
-            
-            // RenderTexture childTexture = child.component.GetVectorFieldTexture();
-            computeShader.SetTexture(kernelHandle, "ChildTextures[" + index + "]", layer.texture);
-            index++;
-        }
-        computeShader.SetBuffer(kernelHandle, "LayersDataBuffer", layersDataBuffer);
-        computeShader.SetInt("numLayers", validLayers.Count);
-
-        int threadGroupsX = Mathf.CeilToInt((float)vectorField.size.x / threadsPerGroupX);
-        int threadGroupsY = Mathf.CeilToInt((float)vectorField.size.y / threadsPerGroupY);
-        computeShader.Dispatch(kernelHandle, threadGroupsX, threadGroupsY, 1);
-        
-        
-        
-        // Create a Texture2D with the same dimensions as the RenderTexture
-        var tempTexture = new Texture2D(vectorFieldTexture.width, vectorFieldTexture.height, TextureFormat.RGFloat, false);
-
-        // Read the data from the RenderTexture into the Texture2D
-        RenderTexture.active = vectorFieldTexture;
-        tempTexture.ReadPixels(new Rect(0, 0, vectorFieldTexture.width, vectorFieldTexture.height), 0, 0);
-        tempTexture.Apply();
+        RenderTexture.active = currentRT;
+        GL.Clear(true, true, new Color(0.5f, 0.5f, 0, 1));
         RenderTexture.active = null;
 
-        // Get the pixel data from the Texture2D
-        Color[] pixelData = tempTexture.GetPixels();
+        for (int i = 0; i < layers.Count; i++)
+        {
+            if (layers[i] == null || layers[i].component.vectorFieldTexture == null) continue;
+            if(layers[i].components == VectorFieldLayer.Component.None) continue;
+            
+            // Adjust for UV coordinate space (translate UV to object space)
+            Matrix4x4 UVtoObj = Matrix4x4.Translate(new Vector3(-0.5f, -0.5f, 0));
+            // Adjust back from object space to UV space after transformations
+            Matrix4x4 ObjToUV = Matrix4x4.Translate(new Vector3(0.5f, 0.5f, 0));
+            // Compute the matrix that transforms from t1's UV space to t2's UV space
+            Matrix4x4 M = ObjToUV * layers[i].component.transform.worldToLocalMatrix * transform.localToWorldMatrix * UVtoObj;
+            
+            // GetRelativeTransform(layers[i].component.transform, transform)
+            combineShaderMaterial.SetTexture("_VectorField", layers[i].component.vectorFieldTexture);
+            combineShaderMaterial.SetMatrix("_RelativeTransform", M);
+            combineShaderMaterial.SetVector("_TextureSize", new Vector4(layers[i].component.vectorFieldTexture.width, layers[i].component.vectorFieldTexture.height, 0, 0));
+            combineShaderMaterial.SetFloat("_Strength", layers[i].strength);
+            combineShaderMaterial.SetFloat("_BlendMode", (int)layers[i].blendMode);
+            if(layers[i].components == VectorFieldLayer.Component.All) combineShaderMaterial.SetFloat("_Components", 0);
+            else if(layers[i].components == VectorFieldLayer.Component.Magnitude) combineShaderMaterial.SetFloat("_Components", 1);
+            else if(layers[i].components == VectorFieldLayer.Component.Direction) combineShaderMaterial.SetFloat("_Components", 2);
 
-        vectorField = new Vector2Map(gridRenderer.gridSize);
-        // Convert the Color array to a float array
-        for (int i = 0; i < pixelData.Length; i++) {
-            vectorField[i] = VectorFieldUtils.ColorToVector(pixelData[i], 1);
+            RenderTexture.active = nextRT;
+            GL.Clear(true, true, Color.black);
+            RenderTexture.active = null;
+            
+            Graphics.Blit(currentRT, nextRT, combineShaderMaterial);
+
+            // Swap render textures
+            (currentRT, nextRT) = (nextRT, currentRT);
         }
-        
-        ObjectX.DestroyAutomatic(tempTexture);
 
-        // Now you have the vector field data in vectorFieldData array
-        Debug.Log("Vector field data read successfully.");
+        CreateVectorFieldTexture();
+
+        // Convert RenderTexture to Texture2D
+        RenderTexture.active = currentRT;
+        vectorFieldTexture.ReadPixels(new Rect(0, 0, vectorFieldTexture.width, vectorFieldTexture.height), 0, 0);
+        vectorFieldTexture.Apply();
+        RenderTexture.active = null;
+
+        // Release temporary render textures
+        RenderTexture.ReleaseTemporary(currentRT);
+        RenderTexture.ReleaseTemporary(nextRT);
+
+        // Update the vectorField data
+        Color[] colors = vectorFieldTexture.GetPixels();
+        Vector2[] vectors = VectorFieldUtils.ColorsToVectors(colors, 1);
+        vectorField = new Vector2Map(new Point(vectorFieldTexture.width, vectorFieldTexture.height), vectors);
     }
 
-    void RenderInternalCPU() {
+    void RenderInternalCPU()
+    {
         vectorField = new Vector2Map(gridRenderer.gridSize, Vector2.zero);
         // var points = vectorField.Points();
 
         var validLayers = layers.Where(layer => layer.component.isActiveAndEnabled && layer.strength > 0).ToList();
-        foreach (var layer in validLayers) {
+        foreach (var layer in validLayers)
+        {
             var points = gridRenderer.GetPointsInWorldBounds(layer.component.GetBounds());
-            foreach (var point in points) {
+            foreach (var point in points)
+            {
                 Vector2 vectorFieldForce = vectorField.GetValueAtGridPoint(point);
-                
+
                 var pointWorldPosition = gridRenderer.cellCenter.GridToWorldPoint(point);
                 Vector2 affectorForce = transform.InverseTransformDirection(layer.component.EvaluateWorldVector(pointWorldPosition));
                 Vector2 finalForce = Vector2.zero;
-                
-                if (layer.blendMode == VectorFieldLayer.BlendMode.Add) {
+
+                if (layer.blendMode == VectorFieldLayer.BlendMode.Add)
+                {
                     if (layer.components.HasFlag(VectorFieldLayer.Component.All)) finalForce = vectorFieldForce + affectorForce * layer.strength;
                     else if (layer.components.HasFlag(VectorFieldLayer.Component.Direction)) finalForce = affectorForce + vectorFieldForce.magnitude * affectorForce.normalized * layer.strength;
                     else if (layer.components.HasFlag(VectorFieldLayer.Component.Magnitude)) finalForce = vectorFieldForce + vectorFieldForce.normalized * affectorForce.magnitude * layer.strength;
                 }
 
-                if (layer.blendMode == VectorFieldLayer.BlendMode.Blend) {
+                if (layer.blendMode == VectorFieldLayer.BlendMode.Blend)
+                {
                     if (layer.components.HasFlag(VectorFieldLayer.Component.All)) finalForce = Vector2.Lerp(vectorFieldForce, affectorForce, layer.strength);
                     else if (layer.components.HasFlag(VectorFieldLayer.Component.Direction)) finalForce = affectorForce.normalized * layer.strength;
                     else if (layer.components.HasFlag(VectorFieldLayer.Component.Magnitude)) finalForce = vectorFieldForce.normalized * layer.strength;

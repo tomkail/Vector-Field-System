@@ -1,3 +1,4 @@
+/*
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -152,6 +153,9 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
     //     CleanUp();
     // }
     
+    void OnDrawGizmosSelected() {
+        Draw(vectorFieldComponent, opacity, maxMagnitude, Camera.current);
+    }
     
 
     static Mesh CreateQuad() {
@@ -180,17 +184,13 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
 
         return mesh;
     }
+
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    public struct MyStruct
+    public struct DataStruct
     {
         public Vector2Int coord;
         public Vector2 value;
     }
-
-    void OnDrawGizmosSelected() {
-        Draw(vectorFieldComponent, opacity, maxMagnitude, Camera.current);
-    }
-
     public static void Draw(VectorFieldComponent vectorFieldComponent, float opacity = 1, float maxMagnitude = 1, Camera camera = null) {
         uint instanceCount = (uint)vectorFieldComponent.vectorField.values.Length;
         if (instanceCount == 0) return;
@@ -202,7 +202,7 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
         uint[] args = new uint[5] { quad.GetIndexCount(0), instanceCount, 0, 0, 0 };
         argsBuffer.SetData(args);
         
-        MyStruct[] structs = new MyStruct[instanceCount];
+        DataStruct[] data = new DataStruct[instanceCount];
         // Matrix4x4[] matrices = new Matrix4x4[instanceCount];
         // Color[] colors = new Color[instanceCount];
         var gridToWorldMatrix = vectorFieldComponent.gridRenderer.cellCenter.gridToWorldMatrix;
@@ -211,7 +211,7 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
 
         for (var index = 0; index < vectorFieldComponent.vectorField.values.Length; index++) {
             var value = vectorFieldComponent.vectorField.values[index];
-            structs[index].value = value;
+            data[index].value = value;
             // matrices[cell.index] = Matrix4x4.TRS(gridToWorldMatrix.MultiplyPoint3x4(cell.point), rotation * Quaternion.LookRotation(Vector3.forward, (Vector3) cell.value), scaleFactor * cell.value.magnitude);
             // float angle = 90 - Vector2.SignedAngle(cell.value, Vector2.up);
             // colors[cell.index] = new HSLColor(angle, 1, 0.5f, Mathf.Clamp01(cell.value.magnitude / maxMagnitude) * opacity).ToRGBA();
@@ -219,7 +219,7 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
 
         // matrixBuffer.SetData(matrices);
         // colorBuffer.SetData(colors);
-        dataBuffer.SetData(structs);
+        dataBuffer.SetData(data);
 
         var arrowMaterial = new Material(arrowShader);
         arrowMaterial.SetTexture(MainTex, arrowTexture);
@@ -244,5 +244,138 @@ public class VectorFieldDebugRenderer : MonoBehaviour {
             else DestroyImmediate(arrowMaterial);
             arrowMaterial = null;
         };
+    }
+}
+*/
+
+using UnityEngine;
+using UnityEngine.Rendering;
+
+public class VectorFieldDebugRenderer : System.IDisposable
+{
+    static Mesh _quad;
+    static Mesh quad { 
+        get {
+            if(_quad == null)
+                _quad = CreateQuad();
+            return _quad;
+        }
+    }
+    static Texture2D _arrowTexture;
+    static Texture2D arrowTexture {
+        get {
+            if(_arrowTexture == null)
+                _arrowTexture = Resources.Load<Texture2D>("VectorFieldDebugRendererArrow");
+            return _arrowTexture;
+        }
+    }
+    static Shader arrowShader => Shader.Find("VectorField/InstanceDebugRenderer");
+    static readonly int MainTex = Shader.PropertyToID("_MainTex");
+    static readonly int DataBuffer = Shader.PropertyToID("dataBuffer");
+
+    VectorFieldComponent vectorFieldComponent;
+    
+    [Range(0,1)]
+    public float opacity = 1;
+    public float maxMagnitude = 1;
+    
+    Material arrowMaterial;
+    ComputeBuffer matrixBuffer;
+    ComputeBuffer dataBuffer;
+    ComputeBuffer argsBuffer;
+    
+    private bool disposed = false;
+
+    public VectorFieldDebugRenderer() {
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    public struct DataStruct
+    {
+        public Vector2Int coord;
+        public Vector2 value;
+    }
+    
+    public void Draw(VectorFieldComponent vectorFieldComponent, float opacity = 1, float scaleFactor = 1, Camera camera = null) {
+        uint instanceCount = (uint)vectorFieldComponent.vectorField.values.Length;
+        if (instanceCount == 0) return;
+
+        if (dataBuffer == null) {
+            dataBuffer = new ComputeBuffer((int)instanceCount, 2 * sizeof(int) + 2 * sizeof(float));
+        }
+
+        if (argsBuffer == null) {
+            argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
+            uint[] args = new uint[5] { quad.GetIndexCount(0), instanceCount, 0, 0, 0 };
+            argsBuffer.SetData(args);
+        }
+
+        DataStruct[] data = new DataStruct[instanceCount];
+        var gridToWorldMatrix = vectorFieldComponent.gridRenderer.cellCenter.gridToWorldMatrix;
+        
+        for (var index = 0; index < vectorFieldComponent.vectorField.values.Length; index++)
+        {
+            var value = vectorFieldComponent.vectorField.values[index];
+            data[index].value = value;
+        }
+
+        dataBuffer.SetData(data);
+
+        if (arrowMaterial == null)
+        {
+            arrowMaterial = new Material(arrowShader);
+            arrowMaterial.SetTexture(MainTex, arrowTexture);
+            arrowMaterial.SetMatrix("gridToWorldMatrix", gridToWorldMatrix);
+            arrowMaterial.SetVector("scaleFactor", Vector3.one * scaleFactor);
+            arrowMaterial.SetInt("gridWidth", vectorFieldComponent.gridRenderer.gridSize.x);
+            arrowMaterial.SetFloat("maxMagnitude", maxMagnitude);
+            arrowMaterial.SetFloat("_Opacity", opacity);
+            arrowMaterial.SetBuffer(DataBuffer, dataBuffer);
+        }
+
+        Graphics.DrawMeshInstancedIndirect(quad, 0, arrowMaterial, new Bounds(Vector3.zero, new Vector3(100000000, 100000000, 100000000)), argsBuffer, 0, null, ShadowCastingMode.Off, false, 0, camera, LightProbeUsage.Off);
+    }
+    
+    static Mesh CreateQuad() {
+        Mesh mesh = new Mesh();
+
+        Vector3[] vertices = {
+            new(-0.5f, -0.5f, 0),
+            new(0.5f, -0.5f, 0),
+            new(-0.5f, 0.5f, 0),
+            new(0.5f, 0.5f, 0)
+        };
+
+        int[] triangles = { 0, 2, 1, 2, 3, 1 };
+
+        Vector2[] uvs = {
+            new(0, 0),
+            new(1, 0),
+            new(0, 1),
+            new(1, 1)
+        };
+
+        mesh.vertices = vertices;
+        mesh.triangles = triangles;
+        mesh.uv = uvs;
+        mesh.RecalculateNormals();
+
+        return mesh;
+    }
+
+    public void Dispose()
+    {
+        if (disposed) return;
+        matrixBuffer?.Dispose();
+        matrixBuffer = null;
+        argsBuffer?.Dispose();
+        argsBuffer = null;
+                
+        if (arrowMaterial != null) {
+            if (Application.isPlaying) Object.Destroy(arrowMaterial);
+            else Object.DestroyImmediate(arrowMaterial);
+            arrowMaterial = null;
+        }
+        disposed = true;
     }
 }

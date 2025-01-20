@@ -3,22 +3,56 @@ using UnityEditor;
 using UnityEditor.EditorTools;
 using UnityEditor.ShortcutManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+
+public class VectorFieldDrawingToolSettings : SerializedScriptableSingleton<VectorFieldDrawingToolSettings> {
+    public Texture2D customBrushTexture;
+    public BrushSource brushType;
+    public enum BrushSource {
+        Directional,
+        Radial,
+        Noise,
+        Custom,
+    }
+    public BrushMode brushMode;
+    public enum BrushMode {
+    }
+    public VectorFieldBrushSettings brushSettings = new VectorFieldBrushSettings();
+    
+    public float directionalBrushModeAngle;
+    public float directionalBrushModeVortexAngle;
+    
+    public float gridSpaceBrushSize = 5;
+    public float pressure = 1;
+}
+
 
 [EditorTool("Vector Field Tool", typeof(DrawableVectorFieldComponent))]
-class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
+public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
+    
+    private VectorFieldDrawingToolSettingsOverlay m_Overlay;
+    
+    VectorFieldDrawingToolSettings settings => VectorFieldDrawingToolSettings.Instance;
+    
     private double lastTime;
     DrawableVectorFieldComponent vectorFieldManager => target as DrawableVectorFieldComponent;
-    
+
     Vector2 lastGridPosition;
 
-    VectorFieldBrush brush = new VectorFieldBrush();
+    // VectorFieldBrush brush = new VectorFieldBrush();
     Vector2Map brushMap;
-    Texture2D brushTexture;
+    Texture brushTexture;
     float gridDistance = 0;
     float stepDistance = 1f;
-    float pressure = 1f;
-    float gridSpaceBrushSize = 5;
+    public float pressure = 1f;
+    public float gridSpaceBrushSize = 5;
 
+    public VectorFieldBrushTextureCreator brushCreator;
+
+
+    
+    VectorFieldCookieTextureCreator cookieTextureCreator;
+    VectorFieldCookieTextureCreatorSettings cookieTextureCreatorSettings;
     
 
     // The second "context" argument accepts an EditorWindow type.
@@ -35,29 +69,68 @@ class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     // a ToolManager. Component tools (like this example) are instantiated and destroyed with the current selection.
     void OnEnable()
     {
-        // Allocate unmanaged resources or perform one-time set up functions here
-        OnBrushChange();
     }
 
-    void OnDisable() { }
+    void OnDisable() {
+    }
 
     // Called when the active tool is set to this tool instance. Global tools are persisted by the ToolManager,
     // so usually you would use OnEnable and OnDisable to manage native resources, and OnActivated/OnWillBeDeactivated
     // to set up state. See also `EditorTools.{ activeToolChanged, activeToolChanged }` events.
     public override void OnActivated() {
+
         // SceneView.lastActiveSceneView.ShowNotification(new GUIContent("Entering DrawableVectorFieldComponent Tool"), .1f);
+        
+        cookieTextureCreator = new VectorFieldCookieTextureCreator();
+        cookieTextureCreatorSettings = new VectorFieldCookieTextureCreatorSettings() {
+            gridSize = new Vector2Int(32,32),
+            generationMode = VectorFieldCookieTextureCreatorSettings.GenerationMode.Exponent,
+            falloffSoftness = 1,
+        };
+        brushCreator = new VectorFieldBrushTextureCreator(new Vector2Int(32,32), new VectorFieldBrushSettings());
+        // Allocate unmanaged resources or perform one-time set up functions here
+        OnBrushSettingsChange();
+        
+        
+        m_Overlay = new VectorFieldDrawingToolSettingsOverlay();
+        m_Overlay.Init(this);
+        SceneView.AddOverlayToActiveView(m_Overlay);
     }
 
     // Called before the active tool is changed, or destroyed. The exception to this rule is if you have manually
     // destroyed this tool (ex, calling `Destroy(this)` will skip the OnWillBeDeactivated invocation).
     public override void OnWillBeDeactivated() {
         // SceneView.lastActiveSceneView.ShowNotification(new GUIContent("Exiting DrawableVectorFieldComponent Tool"), .1f);
+        
+        cookieTextureCreator.Dispose();
+        
+        brushCreator.Dispose();
+        brushCreator = null;
+        
+        SceneView.RemoveOverlayFromActiveView(m_Overlay);
     }
+
     
-    
-    void OnBrushChange() {
-        brushMap = VectorFieldBrush.CreateVectorField(brush, new Point(32,32));
-        brushTexture = VectorFieldUtils.VectorFieldToTexture(brushMap, 1);
+    public void OnBrushSettingsChange() {
+        // if(VectorFieldDrawingToolSettings.Instance.brushType == VectorFieldDrawingToolSettings.BrushSource.Custom)
+        cookieTextureCreator.Render(cookieTextureCreatorSettings);
+        brushCreator.Render();
+        // brushCreator.ReadIntoCPUImmediate();
+        
+        // // Request GPU readback synchronously
+        var readbackRequest = AsyncGPUReadback.Request(brushCreator.RenderTexture, 0, Callback);
+        readbackRequest.WaitForCompletion();
+        void Callback(AsyncGPUReadbackRequest request) {
+            if (request.hasError) {
+                Debug.LogError("AsyncGPUReadback encountered an error.");
+                return;
+            }
+            var rawData = request.GetData<Color>();
+            Vector2[] vectors = VectorFieldUtils.ColorsToVectors(rawData, 1);
+            brushMap = new Vector2Map(new Point(request.width, request.height), vectors);
+        }
+        
+        VectorFieldDrawingToolSettings.Save();
     }
 
     // Equivalent to Editor.OnSceneGUI.
@@ -67,10 +140,8 @@ class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         float deltaTime = (float)(currentTime - lastTime);
         lastTime = currentTime;
         
-        if (!(window is SceneView sceneView))
+        if (window is not SceneView sceneView)
             return;
-
-        DrawGUI();
 
         Event e = Event.current;
 
@@ -188,18 +259,6 @@ class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         }
 
         return steps;
-    }
-
-    void DrawGUI() {
-        Handles.BeginGUI();
-        using (new GUILayout.HorizontalScope()) {
-            using (new GUILayout.VerticalScope(EditorStyles.helpBox)) {
-                gridSpaceBrushSize = EditorGUILayout.FloatField("Brush Size", gridSpaceBrushSize);
-                pressure = EditorGUILayout.FloatField("Pressure", pressure);
-            }
-            GUILayout.FlexibleSpace();
-        }
-        Handles.EndGUI();
     }
 
     void Move(float gridDistanceMoved) { }
@@ -328,3 +387,21 @@ class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     // has not yet been activated. This allows you to keep MonoBehaviour free of debug and gizmo code.
     public void OnDrawHandles() { }
 }
+
+
+
+// [EditorToolbarElement("VectorFieldToolbar", typeof(SceneView))]
+// class VectorFieldToolbar : EditorToolbarButton
+// {
+//     public VectorFieldToolbar() : base("Vector Field")
+//     {
+//         icon = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Icons/VectorFieldIcon.png");
+//         tooltip = "Activate Vector Field Drawing Tool";
+//         clicked += OnClicked;
+//     }
+//
+//     private void OnClicked()
+//     {
+//         ToolManager.SetActiveTool<VectorFieldDrawingTool>();
+//     }
+// }

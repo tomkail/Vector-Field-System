@@ -38,7 +38,6 @@ Shader "Custom/CombineVectorFields"
             sampler2D _MainTex;
             sampler2D _VectorField;
             float4x4 _RelativeTransform;
-            float4 _TextureSize;
             float _Strength;
             int _BlendMode;
             int _Components;

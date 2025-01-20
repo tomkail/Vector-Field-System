@@ -1,0 +1,66 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> ResultTexture;
+
+// Structured buffer for the animation curve
+
+#ifdef FalloffSoftness
+float falloffSoftness;
+#endif
+
+#ifdef CurvePoints
+StructuredBuffer<float> CurvePoints;
+int CurvePointCount;
+#endif
+
+int textureWidth;  // New parameter for texture width
+int textureHeight; // New parameter for texture height
+
+#pragma multi_compile _ FalloffSoftness CurvePoints
+
+#ifdef CurvePoints
+// Helper function to sample the curve directly from the buffer
+float SampleCurve(float t)
+{
+    // Assuming `CurvePoints` is sampled with normalized values (0 to 1)
+    float curveIndex = t * (CurvePointCount - 1);
+    int lowerIndex = int(floor(curveIndex));
+    int upperIndex = min(lowerIndex + 1, CurvePointCount - 1);
+    float fraction = curveIndex - lowerIndex;
+
+    // Linear interpolation between the two nearest curve points
+    return lerp(CurvePoints[lowerIndex], CurvePoints[upperIndex], fraction);
+}
+#endif
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+    // This does mean that the center is offset by half a pixel - but at least this 
+    float2 uv = (id.xy) / float2(textureWidth, textureHeight);
+    float2 diff = uv - float2(0.5,0.5);
+    float distFromCenter = length(diff);  // Normalize by brush radius
+    
+    // Clamp the distance from 0 to 1 (falloff range)
+    distFromCenter = clamp(distFromCenter*2, 0.0, 1.0);
+
+
+    float falloff = 1.0;
+    #ifdef FalloffSoftness
+
+    // Linear ramp for hardness 0, circle for hardness 1
+    falloff = smoothstep(0, falloffSoftness, 1-distFromCenter);
+    //falloff = 1.0 - smoothstep(falloffSoftness, 0, 1-distFromCenter);
+
+    falloff= saturate(falloff);
+    // Return the final alpha value (0 to 1)
+    // return 1.0 - smoothStepFactor;
+    #endif
+
+    #ifdef CurvePoints
+    // Sample the falloff from the curve buffer
+    falloff = SampleCurve(distFromCenter);
+    #endif
+
+    // Set the result texture based on the falloff
+    ResultTexture[id.xy] = float4(falloff, falloff, falloff, 1.0);
+}

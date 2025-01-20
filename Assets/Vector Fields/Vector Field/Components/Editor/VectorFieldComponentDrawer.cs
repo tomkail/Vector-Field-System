@@ -23,8 +23,9 @@ public static class VectorFieldComponentDrawer
                 if (component == null || !component.isActiveAndEnabled) return;
                 if (GizmoUtility.TryGetGizmoInfo(component.GetType(), out GizmoInfo info)) 
                     if (!info.gizmoEnabled) continue;
-                
-                VectorFieldDebugRenderer.Draw(component, 1, VectorFieldScriptableObject.GetMaxAbsComponent(component.vectorField.values), sceneView.camera);
+
+                var renderer = new VectorFieldDebugRenderer();
+                renderer.Draw(component, 1, 1, sceneView.camera);
             }
         }
     }

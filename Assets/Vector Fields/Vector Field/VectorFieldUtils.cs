@@ -1,7 +1,5 @@
 ﻿using UnityEngine;
-using System.Collections;
-using System.Collections.Generic;
-using UnityX.Geometry;
+using Unity.Collections;
 
 public static class VectorFieldUtils {
 
@@ -67,6 +65,14 @@ public static class VectorFieldUtils {
 	}
 
 
+	public static Vector2[] ColorsToVectors (NativeArray<Color> colors, float maxComponent) {
+		Vector2[] vectors = new Vector2[colors.Length];
+		for(int i = 0; i < colors.Length; i++) {
+			vectors[i] = ColorToVector(colors[i], maxComponent);
+		}
+		return vectors;
+	}
+	
 	public static Vector2[] ColorsToVectors (Color[] colors, float maxComponent) {
 		Vector2[] vectors = new Vector2[colors.Length];
 		for(int i = 0; i < colors.Length; i++) {

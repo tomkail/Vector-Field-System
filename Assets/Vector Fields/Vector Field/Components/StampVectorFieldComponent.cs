@@ -1,136 +1,122 @@
 using UnityEngine;
 
-public class StampVectorFieldComponent : VectorFieldComponent
-{
-    public VectorFieldBrush brushParams;
-    Texture2D curveTexture;
+[ExecuteAlways]
+public class StampVectorFieldComponent : VectorFieldComponent {
 
-    static ComputeShader _computeShader;
-    public static ComputeShader computeShader => _computeShader ?? (_computeShader = Resources.Load<ComputeShader>("StampVectorField"));
+	[SerializeReference]
+	VectorFieldBrushTextureCreator vectorFieldBrushTextureCreator;
+	// VectorFieldCookieTextureCreator cookieTextureCreator;
+	//
+	// VectorFieldCookieTextureCreatorSettings cookieTextureCreatorSettings;
 
-    ComputeBuffer computeBuffer;
+	public VectorFieldBrushSettings brushSettingsParams;
+	// public RenderTexture renderTexture => vectorFieldBrushTextureCreator.RenderTexture;
 
-    // Must match what's in the compute shader
-    const int threadsPerGroupX = 16;
-    const int threadsPerGroupY = 16;
+	protected override void EnsureInitialized() {
+		base.EnsureInitialized();
+		if (vectorFieldBrushTextureCreator == null || vectorFieldBrushTextureCreator.GridSize != new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y) || vectorFieldBrushTextureCreator.BrushSettingsParams != brushSettingsParams) {
+			vectorFieldBrushTextureCreator = new VectorFieldBrushTextureCreator(new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y), brushSettingsParams);
+			vectorFieldBrushTextureCreator.cookieTexture = cookieTexture;
+		}
+	}
 
+	protected override void OnDisable() {
+		// vectorFieldBrushTextureCreator.Dispose();
+		// vectorFieldBrushTextureCreator = null;
+		base.OnDisable();
+	}
 
-    protected override void RenderInternal()
-    {
-        // RenderInternalCPU();
-        RenderInternalGPU();
-    }
+	// #if UNITY_EDITOR
+	// 	protected override void OnValidate() {
+	// 		base.OnValidate();
+	// 		if (!isActiveAndEnabled) return;
+	// 		if (vectorFieldBrushTextureCreator == null) {
+	// 			vectorFieldBrushTextureCreator = new VectorFieldBrushTextureCreator(new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y), brushSettingsParams);
+	// 		}
+	// 	}
+	// #endif
 
-    void RenderInternalCPU()
-    {
-        vectorField = VectorFieldBrush.CreateVectorField(brushParams, gridRenderer.gridSize);
-    }
-    
-    RenderTexture renderTexture;
-    void Awake() {
-	    renderTexture = null;
-    }
+	protected override void RenderInternal() {
+		if (vectorFieldBrushTextureCreator == null) {
+			Debug.Log("VectorFieldBrushTextureCreator is null", this);
+		}
+		vectorFieldBrushTextureCreator.Render();
+		renderTexture = vectorFieldBrushTextureCreator.RenderTexture;
+	}
 
-    public void ReleaseRenderTexture () {
-        if(renderTexture == null) return;
-        if(RenderTexture.active == renderTexture) RenderTexture.active = null;
-        renderTexture.Release();
-    }
-
-    public void DestroyRenderTexture() {
-        if(renderTexture == null) return;
-        if(RenderTexture.active == renderTexture) RenderTexture.active = null;
-        if(Application.isPlaying) Destroy(renderTexture);
-        else DestroyImmediate(renderTexture);
-        renderTexture = null;
-    }
-    
-    void RenderInternalGPU()
-    {
-        var renderTextureDescriptor = new RenderTextureDescriptor(gridRenderer.gridSize.x, gridRenderer.gridSize.y, RenderTextureFormat.ARGBFloat, 0) {
-            enableRandomWrite = true,
-		};
-	    if (renderTexture == null) {
-		    renderTexture = new RenderTexture (renderTextureDescriptor) {
-			    filterMode = FilterMode.Bilinear
-		    };
-	    } else if(!RenderTextureDescriptorsMatch(renderTexture.descriptor, renderTextureDescriptor)) {
-		    var rtFilterMode = renderTexture.filterMode;
-                
-		    if(RenderTexture.active == renderTexture) RenderTexture.active = null;
-		    renderTexture.Release();
-
-		    renderTexture.descriptor = renderTextureDescriptor;
-		    renderTexture.Create();
-		    renderTexture.filterMode = rtFilterMode;
-	    }
-	    static bool RenderTextureDescriptorsMatch(RenderTextureDescriptor descriptorA, RenderTextureDescriptor descriptorB) {
-		    if (descriptorA.depthBufferBits != descriptorB.depthBufferBits) return false;
-		    if (descriptorA.width != descriptorB.width) return false;
-		    if (descriptorA.height != descriptorB.height) return false;
-		    if (descriptorA.depthStencilFormat != descriptorB.depthStencilFormat) return false;
-		    if (descriptorA.enableRandomWrite != descriptorB.enableRandomWrite) return false;
-		    if (descriptorA.colorFormat != descriptorB.colorFormat) return false;
-		    if (descriptorA.dimension != descriptorB.dimension) return false;
-		    return true;
-	    }
-
-        // Initialize ComputeBuffer
-        if (computeBuffer == null || computeBuffer.count != vectorField.values.Length)
-        {
-            computeBuffer = new ComputeBuffer(vectorField.values.Length, sizeof(float) * 2);
-        }
-
-        // Calculate the number of thread groups
-        int threadGroupsX = Mathf.CeilToInt((float)vectorField.size.x / threadsPerGroupX);
-        int threadGroupsY = Mathf.CeilToInt((float)vectorField.size.y / threadsPerGroupY);
-        computeShader.SetInt("NumThreadGroupsX", threadGroupsX);
-
-        computeShader.SetTexture(0, "Result", renderTexture);
-        computeShader.SetInt("width", vectorField.size.x);
-        computeShader.SetInt("height", vectorField.size.y);
-
-        computeShader.SetFloat("magnitude", magnitude);
-        computeShader.SetFloat("directionalAngle", brushParams.directionalAngle);
-        computeShader.SetFloat("vortexAngle", brushParams.vortexAngle);
-
-        if (brushParams.forceType == VectorFieldBrush.ForceEmitterType.Directional)
-        {
-            computeShader.EnableKeyword("DIRECTIONAL");
-            computeShader.DisableKeyword("SPOT");
-        }
-        else if (brushParams.forceType == VectorFieldBrush.ForceEmitterType.Spot)
-        {
-            computeShader.EnableKeyword("SPOT");
-            computeShader.DisableKeyword("DIRECTIONAL");
-        }
-
-        CreateRampTextureFromAnimationCurve(brushParams.falloffCurve, 32, ref curveTexture);
-        computeShader.SetTexture(0, "curveTexture", curveTexture);
-
-        computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
-        // This is very slow! We might want to prefer writing to a rendertexture instead.
-        // computeBuffer.GetData(vectorField.values);
-        // computeBuffer.Release();
-
-        
-        CreateVectorFieldTexture();
-
-        // Convert RenderTexture to Texture2D
-        RenderTexture.active = renderTexture;
-        vectorFieldTexture.ReadPixels(new Rect(0, 0, vectorFieldTexture.width, vectorFieldTexture.height), 0, 0);
-        vectorFieldTexture.Apply();
-        RenderTexture.active = null;
-
-        // Update the vectorField data
-        Color[] colors = vectorFieldTexture.GetPixels();
-        Vector2[] vectors = VectorFieldUtils.ColorsToVectors(colors, 1);
-        vectorField = new Vector2Map(new Point(vectorFieldTexture.width, vectorFieldTexture.height), vectors);
-    }
-
-    protected override void OnDisable()
-    {
-        computeBuffer?.Release();
-        computeBuffer = null;
-    }
+	// static ComputeShader stampVectorFieldComputeShader;
+	// public static ComputeShader StampVectorFieldComputeShader => stampVectorFieldComputeShader ? stampVectorFieldComputeShader : (stampVectorFieldComputeShader = Resources.Load<ComputeShader>("StampVectorField"));
+	//
+	// ComputeShader _computeShader;
+	// public ComputeShader computeShader => _computeShader ? _computeShader : (_computeShader = Instantiate(StampVectorFieldComputeShader));
+	//
+	// public VectorFieldBrush brushParams;
+	// Texture2D curveTexture;
+	//
+	// // Must match what's in the compute shader
+	// const int threadsPerGroupX = 16;
+	// const int threadsPerGroupY = 16;
+	//
+	// protected override void OnEnable() {
+	//     // vectorFieldBrushTextureCreator = new VectorFieldBrushTextureCreator(new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y), brushParams);
+	//     base.OnEnable();
+	// }
+	//
+	// protected override void OnDisable() {
+	//     // computeBuffer?.Release();
+	//     // computeBuffer = null;
+	//     // vectorFieldBrushTextureCreator.Dispose();
+	//     DestroyImmediate(computeShader);
+	//     base.OnDisable();
+	// }
+	//
+	// protected override void RenderInternal() {
+	//     // RenderInternalCPU();
+	//     RenderInternalGPU();
+	// }
+	//
+	// // void RenderInternalCPU() {
+	// //     vectorField = VectorFieldBrush.CreateVectorFieldCPU(brushParams, gridRenderer.gridSize);
+	// // }
+	//
+	// void RenderInternalGPU() {
+	//     EnsureHasValidRenderTexture();
+	//
+	//     // vectorFieldBrushTextureCreator.magnitude = magnitude;
+	//     // vectorFieldBrushTextureCreator.Render();
+	//
+	//     // VectorFieldBrush.CreateVectorFieldGPU(brushParams, ref renderTexture);
+	//
+	//     // Calculate the number of thread groups
+	//     int threadGroupsX = Mathf.CeilToInt((float)gridRenderer.gridSize.x / threadsPerGroupX);
+	//     int threadGroupsY = Mathf.CeilToInt((float)gridRenderer.gridSize.y / threadsPerGroupY);
+	//     computeShader.SetInt("NumThreadGroupsX", threadGroupsX);
+	//
+	//     computeShader.SetTexture(0, "Result", renderTexture);
+	//     computeShader.SetInt("width", gridRenderer.gridSize.x);
+	//     computeShader.SetInt("height", gridRenderer.gridSize.y);
+	//
+	//     computeShader.SetFloat("magnitude", magnitude);
+	//     computeShader.SetFloat("directionalAngle", brushParams.directionalAngle);
+	//     computeShader.SetFloat("vortexAngle", brushParams.vortexAngle);
+	//
+	//     if (brushParams.forceType == VectorFieldBrush.ForceEmitterType.Directional)
+	//     {
+	//         computeShader.EnableKeyword("DIRECTIONAL");
+	//         computeShader.DisableKeyword("SPOT");
+	//     }
+	//     else if (brushParams.forceType == VectorFieldBrush.ForceEmitterType.Spot)
+	//     {
+	//         computeShader.EnableKeyword("SPOT");
+	//         computeShader.DisableKeyword("DIRECTIONAL");
+	//     }
+	//
+	//     // cookieTextureCreator = new VectorFieldCookieTextureCreator(new VectorFieldCookieTextureCreatorSettings())
+	//     // cookieTextureCreator.Render();
+	//     // VectorFieldCookieTextureCreator.CreateCurveWithHardness(0.5f);
+	//     // CreateRampTextureFromAnimationCurve(brushParams.falloffCurve, 32, ref cookie);
+	//     computeShader.SetTexture(0, "cookieTexture", cookieTexture != null ? cookieTexture : Texture2D.whiteTexture);
+	//
+	//     computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
+	// }
 }

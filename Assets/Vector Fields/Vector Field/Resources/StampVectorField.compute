@@ -20,13 +20,8 @@ float vortexAngle;
 
 #pragma multi_compile _ DIRECTIONAL SPOT
 
-Texture2D<float> curveTexture;
-SamplerState sampler_curveTexture;
-
-float EvaluateCurve(float t) {
-    // return 1;
-    return curveTexture.SampleLevel(sampler_curveTexture, t, 0);
-}
+Texture2D<float> cookieTexture;
+SamplerState sampler_cookieTexture;
 
 // Function to rotate a 2D vector by an angle in degrees
 float2 RotateVector2D(float2 vec, float angleDegrees) {
@@ -57,7 +52,7 @@ void CSMain (uint3 id : SV_DispatchThreadID){
     float len = length(delta);
 
     float2 force = float2(0,0);
-    float strength = EvaluateCurve(max(0,0.5-len)*2) * magnitude;
+    float strength = cookieTexture.SampleLevel(sampler_cookieTexture, normalizedPosition, 0).r;
     #ifdef DIRECTIONAL
     force = strength * float2(sin(directionalAngle * Deg2Rad), cos(directionalAngle * Deg2Rad));
     #endif

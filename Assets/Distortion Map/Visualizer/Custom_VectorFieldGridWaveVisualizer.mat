@@ -11,8 +11,10 @@ Material:
   m_Shader: {fileID: 4800000, guid: e05a7c7d2d64a4fedaf32beaa77abcee, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords: []
-  m_InvalidKeywords: []
+  m_ValidKeywords:
+  - _PATTERNTYPE_TEXTURE
+  m_InvalidKeywords:
+  - _ROTATEPATTERN_ON
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
@@ -28,17 +30,26 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _WaveTexture:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 628d278dbb18a42ee83e2805df5fe2cc, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _GridSize: 10
-    - _WaveScale: 1
+    - _CellBlend: 1
+    - _CellOverlap: 1.204
+    - _FlowBlur: 1
+    - _GridSize: 25
+    - _OctaveCount: 4
+    - _OctaveInfluence: 1
+    - _OctaveScale: 2.62
+    - _PatternType: 0
+    - _RotatePattern: 1
+    - _WaveScale: 0.5
     - _WaveSpeed: 1
-    - _WaveStrength: 0.5
+    - _WaveStrength: 1
+    - __CellOverlap: 1.2
     m_Colors:
-    - _BackgroundColor: {r: 0, g: 0, b: 0, a: 1}
-    - _WaveColor: {r: 1, g: 1, b: 1, a: 1}
+    - _BackgroundColor: {r: 0, g: 0.044556767, b: 0.46226418, a: 1}
+    - _WaveColor: {r: 0.5990566, g: 0.8352714, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

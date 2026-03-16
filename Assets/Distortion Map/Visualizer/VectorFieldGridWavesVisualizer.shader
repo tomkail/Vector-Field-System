@@ -12,6 +12,10 @@ Shader "Custom/VectorFieldGridWaveVisualizer"
         _WaveStrength ("Wave Strength", Range(0, 1)) = 0.5
         _WaveColor ("Wave Color", Color) = (1,1,1,1)
         _BackgroundColor ("Background Color", Color) = (0,0,0,1)
+        _OctaveCount ("Octave Count", Range(1, 4)) = 2
+        _OctaveScale ("Octave Scale", Range(1, 4)) = 2
+        _OctaveInfluence ("Octave Influence", Range(0, 1)) = 0.5
+        _CellBlend ("Cell Blend", Range(0, 1)) = 0.1
     }
 
     SubShader
@@ -47,24 +51,36 @@ Shader "Custom/VectorFieldGridWaveVisualizer"
             float4 _WaveColor;
             float4 _BackgroundColor;
             float _RotatePattern;
+            float _OctaveCount;
+            float _OctaveScale;
+            float _OctaveInfluence;
+            float _CellBlend;
 
-            // Simple noise function
+            // Modified noise functions for seamless tiling
             float2 hash(float2 p)
             {
-                p = float2(dot(p,float2(127.1,311.7)),
-                          dot(p,float2(269.5,183.3)));
-                return -1.0 + 2.0 * frac(sin(p) * 43758.5453123);
+                float3 p3 = frac(float3(p.xyx) * float3(.1031, .1030, .0973));
+                p3 += dot(p3, p3.yzx + 33.33);
+                return -1.0 + 2.0 * frac((p3.xx + p3.yz) * p3.zy);
             }
 
             float noise(float2 p)
             {
                 float2 i = floor(p);
                 float2 f = frac(p);
+
+                // Cubic Hermine curve
                 float2 u = f * f * (3.0 - 2.0 * f);
-                return lerp(lerp(dot(hash(i + float2(0,0)), f - float2(0,0)),
-                               dot(hash(i + float2(1,0)), f - float2(1,0)), u.x),
-                          lerp(dot(hash(i + float2(0,1)), f - float2(0,1)),
-                               dot(hash(i + float2(1,1)), f - float2(1,1)), u.x), u.y);
+
+                // Sample the four corners
+                float a = dot(hash(i + float2(0,0)), f - float2(0,0));
+                float b = dot(hash(i + float2(1,0)), f - float2(1,0));
+                float c = dot(hash(i + float2(0,1)), f - float2(0,1));
+                float d = dot(hash(i + float2(1,1)), f - float2(1,1));
+
+                // Bilinear interpolation with smooth curve
+                return lerp(lerp(a, b, u.x),
+                          lerp(c, d, u.x), u.y) * 0.5 + 0.5;
             }
 
             float getPattern(float2 uv)
@@ -74,7 +90,21 @@ Shader "Custom/VectorFieldGridWaveVisualizer"
                 #elif _PATTERNTYPE_STRIPES
                     return frac(uv.x * 5) < 0.5;
                 #elif _PATTERNTYPE_NOISE
-                    return noise(uv * 5) * 0.5 + 0.5;
+                    // Use multiple noise octaves for more natural look
+                    float result = 0;
+                    float amplitude = 1.0;
+                    float frequency = 5.0;
+                    float total = 0;
+
+                    for(int i = 0; i < 3; i++)
+                    {
+                        result += noise(uv * frequency) * amplitude;
+                        total += amplitude;
+                        amplitude *= 0.5;
+                        frequency *= 2.0;
+                    }
+
+                    return result / total;
                 #endif
                 return 0;
             }
@@ -94,6 +124,64 @@ Shader "Custom/VectorFieldGridWaveVisualizer"
                 return mul(rotationMatrix, uv - 0.5) + 0.5;
             }
 
+            float4 calculateCell(float2 cellCenter, float2 localUV, float gridSize)
+            {
+                // Sample vector field at cell center
+                float4 vectorSample = tex2D(_VectorField, cellCenter);
+                float2 flowDir = -((vectorSample.xy - 0.5) * 2.0);
+                float magnitude = length(flowDir);
+                flowDir = magnitude > 0.001 ? flowDir / magnitude : float2(0, 0);
+
+                // Create scrolling wave pattern
+                float2 waveUV = localUV;
+                float2 scrollDir = flowDir;
+
+                if (_RotatePattern > 0)
+                {
+                    waveUV = rotateUV(waveUV, flowDir);
+                    float angle = atan2(flowDir.y, flowDir.x) - UNITY_PI * 0.5;
+                    scrollDir = float2(1,0);
+                }
+
+                // Scale the wave speed inversely with grid size
+                // float speedScale = gridSize/_GridSize;
+                float speedScale = 1;
+                waveUV += scrollDir * _Time.y * _WaveSpeed * magnitude * speedScale;
+                waveUV = waveUV * _WaveScale;
+
+                float wave = getPattern(waveUV);
+                return lerp(_BackgroundColor, _WaveColor, wave * magnitude * _WaveStrength);
+            }
+
+            float4 calculateOctave(float2 uv, float gridSize)
+            {
+                // Calculate grid cell
+                float2 cell = floor(uv * gridSize);
+                float2 localUV = frac(uv * gridSize);
+
+                // Calculate blend factors
+                float2 blend = smoothstep(_CellBlend, 1.0 - _CellBlend, localUV);
+
+                // Sample current cell and neighbors
+                float2 cellCenter = (cell + 0.5) / gridSize;
+                float2 rightCenter = (cell + float2(1.0, 0.0) + 0.5) / gridSize;
+                float2 topCenter = (cell + float2(0.0, 1.0) + 0.5) / gridSize;
+                float2 topRightCenter = (cell + float2(1.0, 1.0) + 0.5) / gridSize;
+
+                // Calculate pattern for each cell
+                float4 current = calculateCell(cellCenter, localUV, gridSize);
+                float4 right = calculateCell(rightCenter, localUV - float2(1.0, 0.0), gridSize);
+                float4 top = calculateCell(topCenter, localUV - float2(0.0, 1.0), gridSize);
+                float4 topRight = calculateCell(topRightCenter, localUV - float2(1.0, 1.0), gridSize);
+
+                // Blend horizontally
+                float4 bottomBlend = lerp(current, right, 1.0 - blend.x);
+                float4 topBlend = lerp(top, topRight, 1.0 - blend.x);
+
+                // Blend vertically
+                return lerp(bottomBlend, topBlend, 1.0 - blend.y);
+            }
+
             v2f vert (appdata v)
             {
                 v2f o;
@@ -104,38 +192,23 @@ Shader "Custom/VectorFieldGridWaveVisualizer"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                // Calculate grid cell
-                float2 cellSize = 1.0 / _GridSize;
-                float2 cell = floor(i.uv * _GridSize);
-                float2 cellUV = cell / _GridSize;
-                float2 cellCenter = (cell + 0.5) / _GridSize;
+                float4 finalColor = float4(0,0,0,0);
+                float totalInfluence = 0;
+                float influence = 1.0;
+                float gridSize = _GridSize;
 
-                // Sample vector field at cell center
-                float4 vectorSample = tex2D(_VectorField, cellCenter);
-                float2 flowDir = -((vectorSample.xy - 0.5) * 2.0); // Negated the flow direction
-                float magnitude = length(flowDir);
-
-                // Normalize flow direction (avoid division by zero)
-                flowDir = magnitude > 0.001 ? flowDir / magnitude : float2(0, 0);
-
-                // Calculate local UV coordinates within the cell
-                float2 localUV = frac(i.uv * _GridSize);
-
-                // Create scrolling wave pattern
-                float2 waveUV = localUV;
-                if (_RotatePattern > 0)
+                // Calculate multiple octaves
+                for(int oct = 0; oct < _OctaveCount; oct++)
                 {
-                    waveUV = rotateUV(waveUV, flowDir);
+                    finalColor += calculateOctave(i.uv, gridSize) * influence;
+                    totalInfluence += influence;
+
+                    gridSize *= _OctaveScale;
+                    influence *= _OctaveInfluence;
                 }
-                waveUV += flowDir * _Time.y * _WaveSpeed * magnitude;
-                waveUV = waveUV * _WaveScale;
 
-                float wave = getPattern(waveUV);
-
-                // Blend between background and wave color based on magnitude
-                float4 finalColor = lerp(_BackgroundColor, _WaveColor, wave * magnitude * _WaveStrength);
-
-                return finalColor;
+                // Normalize the result
+                return finalColor / totalInfluence;
             }
             ENDCG
         }

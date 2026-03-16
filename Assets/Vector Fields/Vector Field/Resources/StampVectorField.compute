@@ -43,16 +43,16 @@ void CSMain (uint3 id : SV_DispatchThreadID){
     if (flatIndex > (uint)(width * height)) return;
     uint2 gridPoint = uint2(flatIndex%width, floor(flatIndex/width));
 
-    
+
     float2 _half = float2(0.5, 0.5);
     // float2 normalizedPosition = float2((float)gridPoint.x / (width - 1), (float)gridPoint.y / (height - 1));
     float2 normalizedPosition = float2((float)(gridPoint.x+0.5) / (width), (float)(gridPoint.y+0.5) / (height));
-    
+
     float2 delta = normalizedPosition - _half;
     float len = length(delta);
 
     float2 force = float2(0,0);
-    float strength = cookieTexture.SampleLevel(sampler_cookieTexture, normalizedPosition, 0).r;
+    float strength = magnitude * cookieTexture.SampleLevel(sampler_cookieTexture, normalizedPosition, 0).r;
     #ifdef DIRECTIONAL
     force = strength * float2(sin(directionalAngle * Deg2Rad), cos(directionalAngle * Deg2Rad));
     #endif

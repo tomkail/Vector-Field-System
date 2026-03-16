@@ -39,7 +39,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _PatternType: 1
-    - _WaveFrequency: 0.02
+    - _WaveFrequency: 0.1
     - _WaveScale: 1
     - _WaveSpeed: 3.43
     - _WaveStrength: 1

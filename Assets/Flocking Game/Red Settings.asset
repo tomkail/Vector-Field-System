@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 07a391875a3d24bf8ad2a7ba31c991fe, type: 3}
+  m_Name: Red Settings
+  m_EditorClassIdentifier: 
+  cohesionWeight: 0.1
+  alignmentWeight: 0.1
+  separationWeight: 3
+  globalCohesionWeight: 2
+  globalForceMultiplier: 0.2
+  timeScale: 0.35
+  minSpeed: 3
+  maxSpeed: 5
+  acceleration: 4
+  turnSpeed: 180
+  maxRotationPerSecond: 180
+  wanderWeight: 2
+  wanderSpeed: 5
+  wanderNoiseSamplerProperties:
+    frequency: 0.1
+    octaves: 1
+    lacunarity: 0
+    persistence: 0
+  maxSpeedLimit: 5
+  minSpeedLimit: 2
+  neighborRadius: 2.5
+  separationRadius: 4
+  fishType: 1
+  pointValue: -10
+  fishColor: {r: 1, g: 0.03030567, b: 0, a: 1}
+  cohesionFalloff: 2
+  alignmentFalloff: 2
+  separationFalloff: 2
+  globalCohesionFalloff: 2

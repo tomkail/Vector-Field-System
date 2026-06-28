@@ -235,12 +235,15 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 	// so a layer tilted out of plane covers the foreshortened projection of its bounds — it shrinks as it tilts,
 	// matching what you see, instead of growing. (The earlier brush.inverse * canvas read stretched it by 1/cos θ.)
 	static Matrix4x4 GetRelativeTransform(Matrix4x4 brushMatrix4x4, Matrix4x4 canvasMatrix4x4) {
-		Vector3 groupNormal = canvasMatrix4x4.MultiplyVector(Vector3.forward).normalized;
-		Vector3 layerOrigin = brushMatrix4x4.GetColumn(3);
-		Vector3 layerNormal = brushMatrix4x4.MultiplyVector(Vector3.forward).normalized;
-		Matrix4x4 worldToLayer = brushMatrix4x4.inverse;
+		// Work entirely in the GROUP's local space (coordinates ~[-0.5, 0.5]) so the projection stays well-conditioned
+		// regardless of how large the fields are, how they're scaled, or where they sit in the world. relLayer maps
+		// layer-local -> group-local; the group plane is z = 0 and its normal is +z here.
+		Matrix4x4 relLayer = canvasMatrix4x4.inverse * brushMatrix4x4;
+		Vector3 layerOrigin = relLayer.GetColumn(3);                              // layer centre, in group-local
+		Vector3 layerNormal = relLayer.MultiplyVector(Vector3.forward).normalized; // layer normal, in group-local
+		Matrix4x4 groupToLayer = relLayer.inverse;
 
-		float denom = Vector3.Dot(groupNormal, layerNormal);
+		float denom = layerNormal.z; // dot((0,0,1), layerNormal)
 		// Near edge-on the layer projects to ~a line (no area); map everything outside [0,1] so it contributes nothing.
 		if (Mathf.Abs(denom) < 1e-4f) {
 			var degenerate = Matrix4x4.identity;
@@ -248,12 +251,13 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 			return degenerate;
 		}
 
-		// Project a group-UV corner onto the layer plane along the group normal, then express it as a layer UV.
+		// Project a group-UV corner (on the group plane) onto the layer plane along the group normal (+z), then
+		// express it as a layer UV.
 		Vector2 ProjectCorner(float u, float v) {
-			Vector3 world = canvasMatrix4x4.MultiplyPoint3x4(new Vector3(u - 0.5f, v - 0.5f, 0));
-			float t = Vector3.Dot(layerOrigin - world, layerNormal) / denom;
-			Vector3 onLayer = world + groupNormal * t;
-			Vector3 layerObject = worldToLayer.MultiplyPoint3x4(onLayer);
+			Vector3 p = new Vector3(u - 0.5f, v - 0.5f, 0);
+			float t = Vector3.Dot(layerOrigin - p, layerNormal) / denom;
+			Vector3 onLayer = new Vector3(p.x, p.y, t); // p + (0,0,1) * t
+			Vector3 layerObject = groupToLayer.MultiplyPoint3x4(onLayer);
 			return new Vector2(layerObject.x + 0.5f, layerObject.y + 0.5f);
 		}
 

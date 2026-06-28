@@ -24,15 +24,22 @@ public class Player : MonoSingleton<Player> {
 	float inputDegrees;
 
 	float angleChangeVelocity;
-	void Update() {
+	void Update()
+	{
 		var deltaTime = Time.deltaTime;
 
-		if (Application.isPlaying) {
-			if (thumbstickUI.held) {
+		if (Application.isPlaying)
+		{
+			if (thumbstickUI.held)
+			{
 				inputVector = thumbstickUI.movementVector;
-			} else if (InputManager.Enabled) {
-				inputVector = InputManager.Devices.Count > 0 ? InputManager.ActiveDevice.LeftStick.Value : KeyboardInput.GetCombinedDirectionFromArrowKeys();
-			} else {
+			}
+			// else if (InputManager.Enabled)
+			// {
+			// inputVector = InputManager.Devices.Count > 0 ? InputManager.ActiveDevice.LeftStick.Value : KeyboardInput.GetCombinedDirectionFromArrowKeys();
+			// }
+			else
+			{
 				inputVector = Vector2.zero;
 			}
 		}

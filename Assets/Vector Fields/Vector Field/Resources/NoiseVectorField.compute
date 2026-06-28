@@ -32,6 +32,9 @@ static float4 FractalNoise(float4 gridPointFloat) {
     float amplitude = 1.0;
     float _frequency = frequency;
     float4 noiseValue = float4(0,0,0,0);
+    // Sum of octave amplitudes, used to normalize so the output range is independent of octave count / persistence
+    // (canonical fBm; matches the CPU Noise.Sum). Octaves then add detail, not gain.
+    float maxValue = 0.0;
 
     int fullOctaves = (int)floor(numOctaves);
     float partialOctave = numOctaves - fullOctaves;
@@ -40,6 +43,7 @@ static float4 FractalNoise(float4 gridPointFloat) {
     {
         const float3 worldPoint = _frequency * (float3)mul(gridToWorldMatrix, gridPointFloat);
         noiseValue += amplitude * SimplexNoiseGrad(worldPoint);
+        maxValue += amplitude;
 
         amplitude *= persistence;
         _frequency *= lacunarity;
@@ -50,9 +54,10 @@ static float4 FractalNoise(float4 gridPointFloat) {
     {
         const float3 worldPoint = _frequency * (float3)mul(gridToWorldMatrix, gridPointFloat);
         noiseValue += amplitude * partialOctave * SimplexNoiseGrad(worldPoint);
+        maxValue += amplitude * partialOctave;
     }
 
-    return noiseValue;
+    return maxValue > 0.0 ? noiseValue / maxValue : noiseValue;
 }
 
 // Function to rotate a 2D vector by an angle in degrees
@@ -76,6 +81,8 @@ void CSMain (uint3 id : SV_DispatchThreadID) {
         uint2 texPos = uint2(id.x, id.y);
         
         const float4 gridPointFloat = float4((float)texPos.x, (float)texPos.y, 0.0f, 1.0f);
+        // FractalNoise is now amplitude-normalized, so this constant only maps a single simplex gradient's range to
+        // roughly unit scale (the octave-count compensation it used to also carry now lives in the normalization).
         float2 force = (float2)FractalNoise(gridPointFloat) * magnitude * (1/6.97);
         if(vortexAngle != 0) force = RotateVector2D(force, vortexAngle);
 

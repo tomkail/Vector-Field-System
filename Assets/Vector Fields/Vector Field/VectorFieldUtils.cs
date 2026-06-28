@@ -27,16 +27,20 @@ public static class VectorFieldUtils {
 		return texture;
 	}
 
-	public static Texture3D CreateTexture3D(Vector2Map vectorField) {
+	public static Texture3D CreateTexture3D(Vector2Map vectorField, float[] amplitudeLut = null) {
 		Texture3D texture3D = null;
-		FillTexture3D(vectorField, ref texture3D);
+		FillTexture3D(vectorField, ref texture3D, amplitudeLut);
 		return texture3D;
 	}
 
 	// Writes the field into a depth-1 Texture3D, reusing the existing texture when its dimensions already match.
 	// This avoids destroying + reallocating the Texture3D (and its GPU storage) every time the field updates,
 	// which previously happened on every render.
-	public static void FillTexture3D(Vector2Map vectorField, ref Texture3D texture3D) {
+	//
+	// amplitudeLut (optional): a precomputed magnitude-response curve, indexed by flow magnitude (0..1) and giving the
+	// remapped magnitude. Baking the AnimationCurve into a LUT keeps this hot loop a cheap lookup + lerp rather than a
+	// per-voxel AnimationCurve.Evaluate. Pass null (or an identity curve) for the unmodified field.
+	public static void FillTexture3D(Vector2Map vectorField, ref Texture3D texture3D, float[] amplitudeLut = null) {
 		const int depth = 1;
 		int width = vectorField.size.x;
 		int height = vectorField.size.y;
@@ -55,11 +59,29 @@ public static class VectorFieldUtils {
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
 				Vector2 vector = vectorField.GetValueAtGridPoint(x, y);
+				if (amplitudeLut != null) vector = ApplyAmplitude(vector, amplitudeLut);
 				colorArray[y * width + x] = new Color(vector.x, vector.y, 0f, 1);
 			}
 		}
 		texture3D.SetPixels(colorArray, 0);
 		texture3D.Apply();
+	}
+
+	// Rescales a vector so its magnitude is remapped through the LUT, preserving direction. The LUT is indexed by the
+	// input magnitude clamped to 0..1 (the field's normalized flow strength) and returns the desired output magnitude.
+	static Vector2 ApplyAmplitude(Vector2 vector, float[] lut) {
+		float mag = vector.magnitude;
+		if (mag < 1e-6f) return vector;
+		float remapped = SampleLut(lut, Mathf.Clamp01(mag));
+		return vector * (remapped / mag);
+	}
+
+	// Linearly-interpolated lookup into a 0..1-domain LUT.
+	static float SampleLut(float[] lut, float t) {
+		float f = t * (lut.Length - 1);
+		int i = (int)f;
+		if (i >= lut.Length - 1) return lut[lut.Length - 1];
+		return Mathf.Lerp(lut[i], lut[i + 1], f - i);
 	}
 	
 	public static Color[] VectorsToColors (Vector2[] vectors, float maxComponentReciprocal) {

@@ -24,6 +24,15 @@ public class ParticleSystemVectorField : MonoBehaviour
 			if (isActiveAndEnabled) Subscribe();
 		}
 	}
+	// Maps flow magnitude (0..1 along the X axis) to a remapped magnitude (Y), reshaping how the field's strength drives
+	// the particles' force. Default is identity (linear 0->1), so the field is unchanged until you edit it; e.g. drop
+	// weak regions to zero with a threshold, or ease the falloff. Baked into a LUT so the per-voxel cost is a cheap
+	// lookup rather than an AnimationCurve.Evaluate, and only re-applied on Refresh (when the field changes), never
+	// per-frame.
+	[SerializeField, CurveRange(0, 0, 1, 1)] AnimationCurve amplitudeCurve = AnimationCurve.Linear(0, 0, 1, 1);
+	const int AmplitudeResolution = 256;
+	float[] amplitudeLut;
+
 	ParticleSystemForceField forceField => GetComponent<ParticleSystemForceField>();
 	PositionConstraint positionConstraint;
 	RotationConstraint rotationConstraint;
@@ -34,6 +43,7 @@ public class ParticleSystemVectorField : MonoBehaviour
 	{
 		SetupConstraints();
 		ConfigureForceField();
+		BakeAmplitudeLut();
 		Subscribe();
 	}
 
@@ -117,14 +127,26 @@ public class ParticleSystemVectorField : MonoBehaviour
 		// texture reference changes, so updating one in place (SetPixels/Apply) leaves the particles on stale data.
 		// Refresh now runs only when the field changes (not every frame), so this allocation is no longer per-frame.
 		if (texture3D != null) ObjectX.DestroyAutomatic(texture3D);
-		texture3D = VectorFieldUtils.CreateTexture3D(_vectorFieldComponent.vectorField);
+		texture3D = VectorFieldUtils.CreateTexture3D(_vectorFieldComponent.vectorField, amplitudeLut);
 
 		forceField.vectorField = texture3D;
 		forceField.vectorFieldSpeed = _vectorFieldComponent.magnitude;
 	}
 
+	// Bake the amplitude curve into a LUT once, so Refresh's per-voxel remap is a cheap lookup. Reuses the array in
+	// place; a null/identity curve leaves amplitudeLut null so CreateTexture3D skips the remap entirely.
+	void BakeAmplitudeLut()
+	{
+		if (amplitudeCurve == null) { amplitudeLut = null; return; }
+		if (amplitudeLut == null || amplitudeLut.Length != AmplitudeResolution) amplitudeLut = new float[AmplitudeResolution];
+		for (int i = 0; i < AmplitudeResolution; i++)
+			amplitudeLut[i] = amplitudeCurve.Evaluate(i / (float)(AmplitudeResolution - 1));
+	}
+
 	void OnValidate()
 	{
 		SetupConstraints();
+		BakeAmplitudeLut();
+		if (isActiveAndEnabled) Refresh();
 	}
 }

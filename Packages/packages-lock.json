@@ -174,17 +174,8 @@
         "com.unity.2d.tooling": "3.0.1"
       }
     },
-    "com.unity.ide.cursor": {
-      "version": "https://github.com/boxqkrtm/com.unity.ide.cursor.git",
-      "depth": 0,
-      "source": "git",
-      "dependencies": {
-        "com.unity.test-framework": "1.1.9"
-      },
-      "hash": "5eab27e315296530f9c66ff7795273394a6464b6"
-    },
     "com.unity.ide.rider": {
-      "version": "3.0.38",
+      "version": "3.0.40",
       "depth": 0,
       "source": "registry",
       "dependencies": {
@@ -193,7 +184,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.ide.visualstudio": {
-      "version": "2.0.26",
+      "version": "2.0.27",
       "depth": 0,
       "source": "registry",
       "dependencies": {

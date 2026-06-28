@@ -56,5 +56,15 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "Vector Field System.sln"
+    "dotnet.defaultSolution": "Vector Field System.slnx",
+    "dotnetAcquisitionExtension.existingDotnetPath": [
+        {
+            "extensionId": "ms-dotnettools.csharp",
+            "path": "/opt/homebrew/opt/dotnet/libexec/dotnet"
+        },
+        {
+            "extensionId": "ms-dotnettools.csdevkit",
+            "path": "/opt/homebrew/opt/dotnet/libexec/dotnet"
+        }
+    ]
 }

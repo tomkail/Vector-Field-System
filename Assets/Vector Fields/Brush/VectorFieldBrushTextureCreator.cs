@@ -91,7 +91,9 @@ public class VectorFieldBrushTextureCreator : VectorFieldTextureCreator
 		}
 		if (needsCreateRenderTexture && gridSize.x > 0 && gridSize.y > 0)
 		{
-			renderTexture = new RenderTexture(gridSize.x, gridSize.y, 0, rtFormat)
+			// Linear read/write: this holds encoded vector data, not colour, so it must not get sRGB conversion
+			// (matters in a linear colour space and survives the Built-in -> URP move).
+			renderTexture = new RenderTexture(gridSize.x, gridSize.y, 0, rtFormat, RenderTextureReadWrite.Linear)
 			{
 				filterMode = rtFilterMode
 			};

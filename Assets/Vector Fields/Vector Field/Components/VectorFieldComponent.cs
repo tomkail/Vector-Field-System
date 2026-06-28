@@ -250,7 +250,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	void ConvertRenderTextureToTexture2D() {
 		if (renderTexture == null) return;
 
-		savedTexture = new Texture2D(renderTexture.width, renderTexture.height, TextureFormat.RGBA32, false);
+		// linear: true — this stores encoded vector data, so it must not be sRGB-converted on read-back.
+		savedTexture = new Texture2D(renderTexture.width, renderTexture.height, TextureFormat.RGBA32, false, true);
 
 		RenderTexture.active = renderTexture;
 		savedTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
@@ -263,7 +264,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	void ConvertTexture2DToRenderTexture() {
 		if (savedTexture == null) return;
 
-		renderTexture = new RenderTexture(savedTexture.width, savedTexture.height, 24);
+		// Linear read/write so the Blit preserves the encoded vectors instead of applying sRGB (Built-in -> URP safe).
+		renderTexture = new RenderTexture(savedTexture.width, savedTexture.height, 24, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
 		RenderTexture.active = renderTexture;
 		Graphics.Blit(savedTexture, renderTexture);
 		RenderTexture.active = null;

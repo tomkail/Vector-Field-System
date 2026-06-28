@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System.Linq;
+using UnityEngine;
 using UnityEditor;
 
 [CustomEditor(typeof(VectorFieldComponent), true), CanEditMultipleObjects]
@@ -32,41 +33,66 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		// 	EditorGUI.EndDisabledGroup();
 		// }
 
-		DrawCpuConsumers();
+		DrawDiagnostics();
 
 		serializedObject.ApplyModifiedProperties();
 	}
 
-	bool showCpuConsumers {
-		get => EditorPrefs.GetBool("VectorFieldComponentEditor_ShowCpuConsumers", false);
-		set => EditorPrefs.SetBool("VectorFieldComponentEditor_ShowCpuConsumers", value);
+	bool showDiagnostics {
+		get => EditorPrefs.GetBool("VectorFieldComponentEditor_ShowDiagnostics", false);
+		set => EditorPrefs.SetBool("VectorFieldComponentEditor_ShowDiagnostics", value);
 	}
 
-	// Read-only diagnostic: which components have registered as CPU consumers (driving the GPU->CPU readback) and
-	// whether each needs the data immediately (synchronous) or async. Tucked in a collapsed foldout so it reads as
-	// info, not controls; each entry is a link you can click to ping the consumer.
-	void DrawCpuConsumers() {
-		if (targets.Length != 1) return; // per-object list; only meaningful for a single selection
+	// Read-only live state of the field: how it's backed, whether a CPU copy exists, whether it's up to date, the
+	// readback mode, and who's consuming the CPU copy. Tucked in a collapsed foldout so it reads as info, not
+	// controls; consumer entries are links you can click to ping them.
+	void DrawDiagnostics() {
+		if (targets.Length != 1) return; // per-object state; only meaningful for a single selection
+
+		EditorGUILayout.Space();
+		showDiagnostics = EditorGUILayout.Foldout(showDiagnostics, "Diagnostics", true);
+		if (!showDiagnostics) return;
 
 		var consumers = data.CpuConsumers;
-		EditorGUILayout.Space();
-		showCpuConsumers = EditorGUILayout.Foldout(showCpuConsumers, $"CPU Consumers ({consumers.Count})", true);
-		if (!showCpuConsumers) return;
-
 		using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox)) {
+			if (data.renderTexture != null)
+				DiagnosticRow("Backing", $"GPU — {data.renderTexture.width}×{data.renderTexture.height} {data.renderTexture.graphicsFormat}");
+			else
+				DiagnosticRow("Backing", "CPU");
+
+			if (data is GroupVectorFieldComponent group)
+				DiagnosticRow("Combine", $"{group.mode} — {group.layers.Count} layer(s)");
+
+			DiagnosticRow("CPU copy", data.vectorField != null ? $"{data.vectorField.size.x}×{data.vectorField.size.y}" : "none");
+			DiagnosticRow("State", data.IsDirty ? "re-render pending" : "up to date");
+
+			if (data.renderTexture != null && consumers.Count > 0) {
+				bool immediate = consumers.Any(c => data.IsImmediateCpuConsumer(c));
+				DiagnosticRow("Readback", immediate ? "synchronous" : (data.IsReadbackPending ? "async (in flight)" : "async (idle)"));
+			}
+
+			GUILayout.Space(4);
+			GUILayout.Label($"CPU consumers ({consumers.Count})", EditorStyles.miniBoldLabel);
 			if (consumers.Count == 0) {
 				GUILayout.Label("Nothing is reading this field's CPU copy — it runs GPU-only.", EditorStyles.wordWrappedMiniLabel);
-				return;
-			}
-			foreach (var consumer in consumers) {
-				EditorGUILayout.BeginHorizontal();
-				if (GUILayout.Button($"{consumer.name}  ({consumer.GetType().Name})", EditorStyles.linkLabel))
-					EditorGUIUtility.PingObject(consumer);
-				GUILayout.FlexibleSpace();
-				GUILayout.Label(data.IsImmediateCpuConsumer(consumer) ? "immediate" : "async", EditorStyles.miniLabel);
-				EditorGUILayout.EndHorizontal();
+			} else {
+				foreach (var consumer in consumers) {
+					EditorGUILayout.BeginHorizontal();
+					if (GUILayout.Button($"{consumer.name}  ({consumer.GetType().Name})", EditorStyles.linkLabel))
+						EditorGUIUtility.PingObject(consumer);
+					GUILayout.FlexibleSpace();
+					GUILayout.Label(data.IsImmediateCpuConsumer(consumer) ? "immediate" : "async", EditorStyles.miniLabel);
+					EditorGUILayout.EndHorizontal();
+				}
 			}
 		}
+	}
+
+	static void DiagnosticRow(string label, string value) {
+		EditorGUILayout.BeginHorizontal();
+		GUILayout.Label(label, EditorStyles.miniLabel, GUILayout.Width(70));
+		GUILayout.Label(value, EditorStyles.miniLabel);
+		EditorGUILayout.EndHorizontal();
 	}
 
 

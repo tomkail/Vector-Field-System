@@ -71,9 +71,11 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	bool WantsCpuData { get { cpuConsumers.RemoveWhere(c => c == null); return cpuConsumers.Count > 0; } }
 	bool WantsImmediateCpuData { get { immediateCpuConsumers.RemoveWhere(c => c == null); return immediateCpuConsumers.Count > 0; } }
 
-	// Read-only view of the components currently requesting the CPU copy, for tooling/inspection.
+	// Read-only state for tooling/diagnostics.
 	public IReadOnlyCollection<Component> CpuConsumers { get { cpuConsumers.RemoveWhere(c => c == null); return cpuConsumers; } }
 	public bool IsImmediateCpuConsumer(Component consumer) => consumer != null && immediateCpuConsumers.Contains(consumer);
+	public bool IsDirty => isDirty;
+	public bool IsReadbackPending => pendingReadback.HasValue && !pendingReadback.Value.done;
 
 	// Set by SetDirty on any change that affects this field's output, consumed by EnsureUpToDate which renders at
 	// most once per dirty episode. Starts true so the first frame renders.
@@ -256,13 +258,16 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// Uploads a CPU-computed vectorField into renderTexture, using the same encoding HandleReadback decodes
 	// (maxComponent 1, i.e. color = vector * 0.5 + 0.5), so a value sampled back equals the original. CPU-only
 	// components (drawable, polygon) call this at the end of RenderInternal so their output participates in the draw
-	// path, GPU group blend, and shader visualizer — all of which sample renderTexture, not the CPU map. The staging
-	// Texture2D is cached and only reallocated on a grid-size change.
+	// path, GPU group blend, and shader visualizer — all of which sample renderTexture, not the CPU map.
+	//
+	// uploadTexture is a persistent CPU-side mirror of the field: the full path rewrites all of it, the region path
+	// rewrites just a sub-rect, and both then Apply + Blit. Reused across calls (only reallocated on a grid-size
+	// change), as is the uploadColors encode buffer, so steady-state painting allocates nothing.
 	Texture2D uploadTexture;
-	protected void WriteVectorFieldToRenderTexture() {
-		if (vectorField == null) return;
+	Color[] uploadColors;
+	bool EnsureUploadTexture() {
+		if (vectorField == null) return false;
 		EnsureHasValidRenderTexture();
-
 		int width = vectorField.size.x;
 		int height = vectorField.size.y;
 		if (uploadTexture == null || uploadTexture.width != width || uploadTexture.height != height) {
@@ -270,9 +275,52 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 			// linear: true — this stores encoded vector data and must not be sRGB-converted on the Blit.
 			uploadTexture = new Texture2D(width, height, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
 		}
+		return true;
+	}
 
-		uploadTexture.SetPixels(VectorFieldUtils.VectorsToColors(vectorField.values, 1));
-		uploadTexture.Apply();
+	protected void WriteVectorFieldToRenderTexture() {
+		if (!EnsureUploadTexture()) return;
+		int count = vectorField.values.Length;
+		if (uploadColors == null || uploadColors.Length != count) uploadColors = new Color[count];
+		VectorFieldUtils.VectorsToColors(vectorField.values, 1, uploadColors);
+		uploadTexture.SetPixels(uploadColors);
+		uploadTexture.Apply(false);
+		Graphics.Blit(uploadTexture, renderTexture);
+	}
+
+	// Uploads only the given grid rect of vectorField, re-encoding just that sub-rect of the persistent mirror
+	// instead of the whole grid (the win for brush painting, where each stroke touches a small region). The rest of
+	// uploadTexture is left intact from prior uploads, so the GPU still receives a complete field. Falls back to the
+	// full path whenever the mirror isn't already a valid full copy (first render / grid resize). Region is in grid
+	// coordinates (origin bottom-left, matching the field and the readback) and is clamped to the field bounds.
+	Color[] regionColors;
+	protected void WriteVectorFieldRegionToRenderTexture(RectInt region) {
+		int width = vectorField != null ? vectorField.size.x : 0;
+		int height = vectorField != null ? vectorField.size.y : 0;
+		// Patching requires both an up-to-date full mirror to layer onto AND a matching renderTexture to blit into;
+		// if either is missing (first render, resize, or renderTexture released across a disable/enable), the full
+		// path rebuilds both. (Checking renderTexture here also keeps us from ever blitting into the backbuffer.)
+		bool canPatch = uploadTexture != null && uploadTexture.width == width && uploadTexture.height == height
+			&& renderTexture != null && renderTexture.width == width && renderTexture.height == height;
+		if (!canPatch) { WriteVectorFieldToRenderTexture(); return; }
+
+		int x0 = Mathf.Clamp(region.xMin, 0, width);
+		int y0 = Mathf.Clamp(region.yMin, 0, height);
+		int x1 = Mathf.Clamp(region.xMax, 0, width);
+		int y1 = Mathf.Clamp(region.yMax, 0, height);
+		int w = x1 - x0, h = y1 - y0;
+		if (w <= 0 || h <= 0) return;
+
+		// SetPixels(block) requires the array length to equal the block exactly, so size it precisely; the region is
+		// brush-sized, so this stays tiny next to the old full-grid encode/upload it replaces.
+		int count = w * h;
+		if (regionColors == null || regionColors.Length != count) regionColors = new Color[count];
+		for (int ry = 0; ry < h; ry++)
+			for (int rx = 0; rx < w; rx++)
+				regionColors[ry * w + rx] = VectorFieldUtils.VectorToColor(vectorField.GetValueAtGridPoint(x0 + rx, y0 + ry), 1);
+
+		uploadTexture.SetPixels(x0, y0, w, h, regionColors);
+		uploadTexture.Apply(false);
 		Graphics.Blit(uploadTexture, renderTexture);
 	}
 

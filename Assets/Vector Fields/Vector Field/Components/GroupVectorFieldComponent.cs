@@ -19,6 +19,20 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 			Blend
 		}
 
+		// The two fields below are per-layer modulators that apply in EVERY blend mode (they're orthogonal to the
+		// mode itself). Their defaults are no-ops, so a plain Add / Blend layer behaves exactly as before.
+
+		// Scales this layer's effective strength by how aligned it is with the field beneath it:
+		// x = (dot(currentDir, incomingDir) + 1) / 2, so 0 = fully opposed, 0.5 = perpendicular, 1 = fully aligned.
+		// Default is a flat 1 (no effect). E.g. a 0->1 ramp applies the layer only where it agrees with the flow.
+		public AnimationCurve alignmentRamp = AnimationCurve.Constant(0, 1, 1);
+		// Multiplies the incoming vector by the underlying field's magnitude before blending, so this layer only acts
+		// where there's already flow and scales with its speed. This is the turbulence coupling: an Add layer with a
+		// 0->1 alignmentRamp and this enabled reproduces the old flow-modulated turbulence.
+		public bool scaleByFieldMagnitude = false;
+		// Cached GPU bake of alignmentRamp, reused across renders (rebaked when the curve changes).
+		[NonSerialized] public Texture2D alignmentRampTexture;
+
 		[EnumFlagsButtonGroup] public Component components = Component.All;
 		[Flags]
 		public enum Component {
@@ -102,6 +116,16 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 			hash.Add(layer.strength);
 			hash.Add((int)layer.blendMode);
 			hash.Add((int)layer.components);
+			hash.Add(layer.scaleByFieldMagnitude);
+			// Indexer (not .keys) so this per-tick hash doesn't allocate a Keyframe[] every call.
+			if (layer.alignmentRamp != null) {
+				hash.Add(layer.alignmentRamp.length);
+				for (int k = 0; k < layer.alignmentRamp.length; k++) {
+					var key = layer.alignmentRamp[k];
+					hash.Add(key.time);
+					hash.Add(key.value);
+				}
+			}
 		}
 		return hash.ToHashCode();
 	}
@@ -122,6 +146,13 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 			if (layers[i] == null || layers[i].component.renderTexture == null) continue;
 			if (layers[i].components == VectorFieldLayer.Component.None) continue;
 
+			// Both modulators default to no-ops; only do the work (and only bake the ramp) when a layer actually uses
+			// one. The shader's modulation path is keyword-gated, so an unmodulated layer pays nothing for either.
+			bool usesAlignment = !IsIdentityRamp(layers[i].alignmentRamp);
+			Texture2D alignmentRamp = usesAlignment
+				? CreateRampTextureFromAnimationCurve(layers[i].alignmentRamp, 256, ref layers[i].alignmentRampTexture)
+				: null;
+
 			CombineVectorFields(new CombineVectorFieldsParams() {
 				vectorFieldALocalToWorldMatrix = transform.localToWorldMatrix,
 				vectorFieldA = currentRT,
@@ -129,7 +160,9 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 				vectorFieldB = layers[i].component.renderTexture,
 				blendMode = layers[i].blendMode,
 				components = layers[i].components,
-				strength = layers[i].strength
+				strength = layers[i].strength,
+				alignmentRamp = alignmentRamp,
+				scaleByFieldMagnitude = layers[i].scaleByFieldMagnitude
 			}, nextRT);
 
 			// Swap render textures
@@ -157,16 +190,36 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		public VectorFieldLayer.BlendMode blendMode;
 		public VectorFieldLayer.Component components;
 		public float strength;
+		// Baked alignmentRamp; non-null only when the ramp isn't the identity (flat 1). Null => no alignment weighting.
+		public Texture2D alignmentRamp;
+		public bool scaleByFieldMagnitude;
 	}
 	public static void CombineVectorFields(CombineVectorFieldsParams combineVectorFieldsParams, RenderTexture targetTarget) {
 		var material = new Material(CombineVectorFieldsComputeShader);
 		// GetRelativeTransform(layers[i].component.transform, transform)
 		material.SetTexture("_VectorField", combineVectorFieldsParams.vectorFieldB);
 		material.SetMatrix("_RelativeTransform", GetRelativeTransform(combineVectorFieldsParams.vectorFieldBLocalToWorldMatrix, combineVectorFieldsParams.vectorFieldALocalToWorldMatrix));
+		// Pure, scale-free rotation taking a direction from the layer's local frame into the group's. Mirrors the CPU
+		// path's InverseTransformDirection(TransformDirection(...)) (rotation only); the shader rotates the sampled
+		// vector with this and projects onto the group plane. (_RelativeTransform still handles the sample position.)
+		var relativeRotation = Quaternion.Inverse(combineVectorFieldsParams.vectorFieldALocalToWorldMatrix.rotation) * combineVectorFieldsParams.vectorFieldBLocalToWorldMatrix.rotation;
+		material.SetMatrix("_VectorRotation", Matrix4x4.Rotate(relativeRotation));
 		material.SetFloat("_Strength", combineVectorFieldsParams.strength);
 		material.SetInt("_BlendMode", (int)combineVectorFieldsParams.blendMode);
 		// Pass the component flags as a bitmask (Magnitude = 1, Direction = 2, All = 3); the shader checks the bits.
 		material.SetInt("_Components", (int)combineVectorFieldsParams.components);
+
+		// The alignment-ramp / field-magnitude modulation is keyword-gated so an unmodulated layer compiles it out
+		// entirely. Enable it only when one of the two is actually in use.
+		bool usesAlignment = combineVectorFieldsParams.alignmentRamp != null;
+		bool modulate = usesAlignment || combineVectorFieldsParams.scaleByFieldMagnitude;
+		if (modulate) {
+			material.EnableKeyword("VF_MODULATION");
+			material.SetTexture("_AlignmentRamp", usesAlignment ? combineVectorFieldsParams.alignmentRamp : Texture2D.whiteTexture);
+			material.SetInt("_ScaleByFieldMagnitude", combineVectorFieldsParams.scaleByFieldMagnitude ? 1 : 0);
+		} else {
+			material.DisableKeyword("VF_MODULATION");
+		}
 
 		// RenderTexture.active = targetTarget;
 		// GL.Clear(true, true, Color.black);
@@ -213,19 +266,40 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 				var pointWorldPosition = gridRenderer.cellCenter.GridToWorldPoint(point);
 				Vector2 incoming = transform.InverseTransformDirection(layer.component.EvaluateWorldVector(pointWorldPosition));
 
-				vectorField.SetValueAtGridPoint(point, BlendVector(current, incoming, layer.strength, layer.blendMode, layer.components));
+				// Pass the ramp only when it's not the identity, so an unmodulated layer skips the per-point evaluation.
+				var ramp = IsIdentityRamp(layer.alignmentRamp) ? null : layer.alignmentRamp;
+				vectorField.SetValueAtGridPoint(point, BlendVector(current, incoming, layer.strength, layer.blendMode, layer.components, ramp, layer.scaleByFieldMagnitude));
 			}
 		}
+	}
+
+	// A ramp does nothing when every key sits at 1 (the flat-1 default). Cheap conservative check — a curve that
+	// bows between equal endpoints would be treated as identity, which only costs a skipped bake, never correctness.
+	// Uses the indexer rather than .keys to avoid allocating a Keyframe[].
+	static bool IsIdentityRamp(AnimationCurve ramp) {
+		if (ramp == null || ramp.length == 0) return true;
+		for (int i = 0; i < ramp.length; i++)
+			if (!Mathf.Approximately(ramp[i].value, 1f)) return false;
+		return true;
 	}
 
 	// The canonical per-vector blend, shared in spirit with BlendVectors() in CombineVectorFields.shader — keep the
 	// two in sync. Magnitude and Direction are independent aspects of the incoming vector that compose, so
 	// Magnitude | Direction (== All) takes both. All normalization is zero-safe (a zero vector normalizes to zero)
 	// to avoid NaNs from the zero base / cancelling sums.
-	public static Vector2 BlendVector(Vector2 current, Vector2 incoming, float strength, VectorFieldLayer.BlendMode blendMode, VectorFieldLayer.Component components) {
+	public static Vector2 BlendVector(Vector2 current, Vector2 incoming, float strength, VectorFieldLayer.BlendMode blendMode, VectorFieldLayer.Component components, AnimationCurve alignmentRamp = null, bool scaleByFieldMagnitude = false) {
 		bool hasMagnitude = (components & VectorFieldLayer.Component.Magnitude) != 0;
 		bool hasDirection = (components & VectorFieldLayer.Component.Direction) != 0;
 		if (!hasMagnitude && !hasDirection) return current;
+
+		// Per-layer modulators that apply in every mode (mirror of the shader's VF_MODULATION path):
+		// the alignment ramp scales effective strength by how aligned this layer is with the field beneath it, and
+		// the field-magnitude coupling scales the incoming vector by the underlying flow speed.
+		if (alignmentRamp != null) {
+			float alignment = Vector2.Dot(SafeNormalize(current), SafeNormalize(incoming));
+			strength *= alignmentRamp.Evaluate(Mathf.Clamp01(alignment * 0.5f + 0.5f));
+		}
+		if (scaleByFieldMagnitude) incoming *= current.magnitude;
 
 		if (blendMode == VectorFieldLayer.BlendMode.Add) {
 			if (hasMagnitude && hasDirection) return current + incoming * strength;

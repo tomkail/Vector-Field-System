@@ -8,7 +8,7 @@ public abstract class MapDebugView : MonoBehaviour {
 	public VectorFieldManager vectorFieldManager;
 	public Vector2Map vectorField => vectorFieldManager.vectorField;
 
-	public new ParticleSystem particleSystem;
+	public ParticleSystem particleSystem;
 
 	public Vector2 spawnSize;
 
@@ -36,16 +36,24 @@ public abstract class MapDebugView : MonoBehaviour {
 	protected ParticleSystem.Particle[] particles;
 	protected Point[] particlePoints;
 
+	// True only when every dependency this view reaches through is present and alive.
+	// Guards against [ExecuteAlways] Update() firing during script-reload / scene-load
+	// transitions, when vectorFieldManager (or its gridRenderer) can be null or a
+	// destroyed ("fake-null") Unity object — which otherwise NREs in GridRenderer.
+	protected bool isReady => particleSystem != null && vectorFieldManager != null && vectorFieldManager.gridRenderer != null;
+
 	protected virtual void Awake () {
 		particleSystem = GetComponent<ParticleSystem>();
 		opacity = opacity;
 	}
 	
 	private void Start () {
+		if(!isReady) return;
 		CreateParticles();
 	}
 
 	void OnEnable () {
+		if(!isReady) return;
 		if(Time.time > 0) {
 			Start();
 		}
@@ -54,11 +62,12 @@ public abstract class MapDebugView : MonoBehaviour {
 	}
 
 	void OnDisable () {
-		particleSystem.Clear();
-		vectorFieldManager.OnRender -= Render;
+		if(particleSystem != null) particleSystem.Clear();
+		if(vectorFieldManager != null) vectorFieldManager.OnRender -= Render;
 	}
 
 	void Update() {
+		if(!isReady) return;
 		Render(Time.deltaTime);
 	}
 	
@@ -80,6 +89,7 @@ public abstract class MapDebugView : MonoBehaviour {
 
 	[EasyButtons.Button("Create Particles")]
 	public void CreateParticles () {
+		if(!isReady) return;
 		particleSystem.Clear();
 
 		particlePoints = new Point[vectorFieldManager.vectorField.cellCount];

@@ -18,7 +18,7 @@ public class VectorFieldParticleRenderer : MonoBehaviour {
 
 	public float speedMultiplier = 1;
 
-	private new ParticleSystem particleSystem;
+	private ParticleSystem particleSystem;
 	private ParticleSystem.Particle[] particles;
 
 	

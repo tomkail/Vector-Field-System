@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Unity.Collections;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -276,6 +278,107 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	public Quaternion EvaluateRotation(Vector3 position) {
 		// return transform.rotation * Quaternion.LookRotation(Vector3.forward, (Vector3) cell.value)
 		return Quaternion.LookRotation(EvaluateWorldVector(position), planeNormal);
+	}
+
+	// --- GPU sampling -------------------------------------------------------------------------------------------
+	// Sample the field straight from the GPU render texture, reading only the handful of texels a query needs,
+	// instead of mirroring the whole grid to the CPU (keepCPUUpdated). Decoding matches ReadIntoCPU exactly so
+	// these agree with EvaluateVector. The synchronous variants stall for the readback (fine for occasional use);
+	// use the async variant on hot paths. All return false / skip when the platform can't do GPU readback or
+	// nothing has been rendered yet.
+
+	public static bool SupportsGPUSampling => SystemInfo.supportsAsyncGPUReadback;
+
+	// Local-space vector (matches EvaluateVector), sampled bilinearly. Blocks until the readback completes.
+	public bool TrySampleVector(Vector3 worldPosition, out Vector2 localVector) {
+		localVector = Vector2.zero;
+		if (renderTexture == null || !SupportsGPUSampling) return false;
+
+		var gridPosition = gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+		var region = GetSampleRegion(gridPosition);
+		var request = AsyncGPUReadback.Request(renderTexture, 0, region.x, region.width, region.y, region.height, 0, 1, TextureFormat.RGBAFloat);
+		request.WaitForCompletion();
+		if (request.hasError) return false;
+
+		localVector = SampleRegion(request.GetData<Color>(), region, gridPosition) * magnitude;
+		return true;
+	}
+
+	// World-space vector (matches EvaluateWorldVector). Blocks until the readback completes.
+	public bool TrySampleWorldVector(Vector3 worldPosition, out Vector3 worldVector) {
+		worldVector = Vector3.zero;
+		if (!TrySampleVector(worldPosition, out var local)) return false;
+		worldVector = transform.TransformDirection(local);
+		return true;
+	}
+
+	// Non-blocking world-space sample. Invokes onComplete with the world vector once the GPU readback returns,
+	// or does nothing if the platform/render texture can't satisfy the request.
+	public void SampleWorldVectorAsync(Vector3 worldPosition, Action<Vector3> onComplete) {
+		if (renderTexture == null || !SupportsGPUSampling || onComplete == null) return;
+
+		var gridPosition = gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+		var region = GetSampleRegion(gridPosition);
+		AsyncGPUReadback.Request(renderTexture, 0, region.x, region.width, region.y, region.height, 0, 1, TextureFormat.RGBAFloat, request => {
+			if (request.hasError || this == null) return;
+			var local = SampleRegion(request.GetData<Color>(), region, gridPosition) * magnitude;
+			onComplete(transform.TransformDirection(local));
+		});
+	}
+
+	// Batched local-space sample. Reads one region covering all query points, then interpolates each from it,
+	// so N clustered queries cost a single readback. Writes into results (which must be at least worldPositions
+	// long) and returns false without touching results if the field can't be sampled.
+	public bool TrySampleVectors(IReadOnlyList<Vector3> worldPositions, Vector2[] results) {
+		if (renderTexture == null || !SupportsGPUSampling || worldPositions.Count == 0) return false;
+
+		var gridPositions = new Vector2[worldPositions.Count];
+		float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+		for (int i = 0; i < worldPositions.Count; i++) {
+			var gp = gridRenderer.cellCenter.WorldToGridPosition(worldPositions[i]);
+			gridPositions[i] = gp;
+			minX = Mathf.Min(minX, gp.x); minY = Mathf.Min(minY, gp.y);
+			maxX = Mathf.Max(maxX, gp.x); maxY = Mathf.Max(maxY, gp.y);
+		}
+
+		var region = GetSampleRegion(new Vector2(minX, minY), new Vector2(maxX, maxY));
+		var request = AsyncGPUReadback.Request(renderTexture, 0, region.x, region.width, region.y, region.height, 0, 1, TextureFormat.RGBAFloat);
+		request.WaitForCompletion();
+		if (request.hasError) return false;
+
+		var data = request.GetData<Color>();
+		for (int i = 0; i < gridPositions.Length; i++)
+			results[i] = SampleRegion(data, region, gridPositions[i]) * magnitude;
+		return true;
+	}
+
+	// The clamped texel rectangle (in render-texture space) that covers the bilinear footprint of the given grid
+	// position range. Always at least 1x1; 2x2 for an interior point.
+	RectInt GetSampleRegion(Vector2 gridPositionMin, Vector2 gridPositionMax) {
+		int maxTexelX = renderTexture.width - 1;
+		int maxTexelY = renderTexture.height - 1;
+		int left = Mathf.Clamp(Mathf.FloorToInt(gridPositionMin.x), 0, maxTexelX);
+		int bottom = Mathf.Clamp(Mathf.FloorToInt(gridPositionMin.y), 0, maxTexelY);
+		int right = Mathf.Clamp(Mathf.FloorToInt(gridPositionMax.x) + 1, 0, maxTexelX);
+		int top = Mathf.Clamp(Mathf.FloorToInt(gridPositionMax.y) + 1, 0, maxTexelY);
+		return new RectInt(left, bottom, right - left + 1, top - bottom + 1);
+	}
+
+	RectInt GetSampleRegion(Vector2 gridPosition) => GetSampleRegion(gridPosition, gridPosition);
+
+	// Bilinearly interpolate a single grid position out of an already-read texel region.
+	static Vector2 SampleRegion(NativeArray<Color> data, RectInt region, Vector2 gridPosition) {
+		int left = Mathf.Clamp(Mathf.FloorToInt(gridPosition.x), region.x, region.xMax - 1);
+		int bottom = Mathf.Clamp(Mathf.FloorToInt(gridPosition.y), region.y, region.yMax - 1);
+		int right = Mathf.Min(left + 1, region.xMax - 1);
+		int top = Mathf.Min(bottom + 1, region.yMax - 1);
+
+		Vector2 Texel(int x, int y) => VectorFieldUtils.ColorToVector(data[(y - region.y) * region.width + (x - region.x)], 1);
+
+		Vector2 frac = new Vector2(gridPosition.x - Mathf.Floor(gridPosition.x), gridPosition.y - Mathf.Floor(gridPosition.y));
+		Vector2 x1 = Vector2.Lerp(Texel(left, bottom), Texel(right, bottom), frac.x);
+		Vector2 x2 = Vector2.Lerp(Texel(left, top), Texel(right, top), frac.x);
+		return Vector2.Lerp(x1, x2, frac.y);
 	}
 
 	public Bounds GetBounds() {

@@ -1,0 +1,25 @@
+#pragma kernel CSMain
+
+// Multiplies a vector field's strength by a cookie/falloff mask, in place.
+//
+// Vectors are stored encoded as colour = vector * 0.5 + 0.5 (see VectorFieldUtils), so scaling the vector by the
+// mask is just scaling the *centred* colour: c' = (c - 0.5) * mask + 0.5. That keeps this independent of the
+// magnitude/maxComponent the field was encoded with.
+
+RWTexture2D<float4> Result;
+Texture2D<float4> Cookie;
+SamplerState sampler_Cookie;
+int width;
+int height;
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+	if (id.x >= (uint)width || id.y >= (uint)height) return;
+
+	float2 uv = (float2(id.xy) + 0.5) / float2(width, height);
+	float mask = Cookie.SampleLevel(sampler_Cookie, uv, 0).r;
+
+	float4 c = Result[id.xy];
+	c.xy = (c.xy - 0.5) * mask + 0.5;
+	Result[id.xy] = c;
+}

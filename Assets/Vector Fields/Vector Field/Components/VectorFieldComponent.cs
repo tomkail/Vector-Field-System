@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using Unity.Collections;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -177,49 +176,47 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
 	protected abstract void RenderInternal();
 
-	AsyncGPUReadbackRequest? readbackRequest;
+	bool readbackInFlight;
 
-	// Reads the vector field texture into the VectorField object. Will only run if not already running.
-	public async Task ReadIntoCPU(bool forceImmediate = false) {
-		// Ensure the RenderTexture is not null
+	// Reads the render texture into the CPU vectorField, then fires OnRender. Uses the callback-based AsyncGPUReadback
+	// API (not await) so completion is reliably pumped by the engine in both edit and play mode — important now that
+	// we only render on change: a single dropped continuation would otherwise leave consumers (the particle force
+	// field) stuck on stale data. Pass forceImmediate to block until the readback completes (e.g. before sampling).
+	public void ReadIntoCPU(bool forceImmediate = false) {
 		if (renderTexture == null) {
 			Debug.LogError("RenderTexture is not assigned.");
 			return;
 		}
 
-		try {
-			if (readbackRequest == null || ((AsyncGPUReadbackRequest)readbackRequest).done) {
-				// Perform async readback for better performance
-				// AsyncGPUReadback.Request(renderTexture, 0, Callback);
-				readbackRequest = await AsyncGPUReadback.RequestAsync(renderTexture, 0);
-				Callback((AsyncGPUReadbackRequest)readbackRequest);
-			}
-
-			if (forceImmediate || vectorField == null) {
-				((AsyncGPUReadbackRequest)readbackRequest).WaitForCompletion();
-			}
-		} catch (OperationCanceledException) {
-			// Expected when a domain/script reload interrupts the in-flight GPU readback. Safe to ignore.
-		} catch (Exception e) {
-			Debug.LogError(e);
-		} finally {
-			readbackRequest = null;
+		if (forceImmediate) {
+			var request = AsyncGPUReadback.Request(renderTexture, 0);
+			request.WaitForCompletion();
+			HandleReadback(request);
+			return;
 		}
 
-		void Callback(AsyncGPUReadbackRequest request) {
-			if (request.hasError) {
-				Debug.LogError("AsyncGPUReadback encountered an error.");
-				return;
-			}
-			var rawData = request.GetData<Color>();
-			// Reuse the existing map (and its array) when the size is unchanged; only reallocate on a resize.
-			if (vectorField == null || vectorField.size.x != request.width || vectorField.size.y != request.height)
-				vectorField = new Vector2Map(new Point(request.width, request.height));
-			VectorFieldUtils.ColorsToVectors(rawData, 1, vectorField.values);
+		if (readbackInFlight) return; // a newer readback will be kicked off by the next render
+		readbackInFlight = true;
+		AsyncGPUReadback.Request(renderTexture, 0, request => {
+			readbackInFlight = false;
+			if (this == null) return; // destroyed / reloaded while in flight
+			HandleReadback(request);
+		});
+	}
 
-			// CPU copy is now current — notify consumers that read vectorField.
-			OnRender?.Invoke();
+	void HandleReadback(AsyncGPUReadbackRequest request) {
+		if (request.hasError) {
+			Debug.LogError("AsyncGPUReadback encountered an error.");
+			return;
 		}
+		var rawData = request.GetData<Color>();
+		// Reuse the existing map (and its array) when the size is unchanged; only reallocate on a resize.
+		if (vectorField == null || vectorField.size.x != request.width || vectorField.size.y != request.height)
+			vectorField = new Vector2Map(new Point(request.width, request.height));
+		VectorFieldUtils.ColorsToVectors(rawData, 1, vectorField.values);
+
+		// CPU copy is now current — notify consumers that read vectorField.
+		OnRender?.Invoke();
 	}
 
 	public void ReleaseRenderTexture() {

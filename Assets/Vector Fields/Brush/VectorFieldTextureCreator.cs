@@ -102,7 +102,7 @@ public abstract class VectorFieldTextureCreator : IDisposable {
 
     public void Render() {
         RenderInternal();
-        if(keepCPUUpdated && renderTexture != null) ReadIntoCPUAsync();
+        if(keepCPUUpdated && renderTexture != null) _ = ReadIntoCPUAsync();
         // OnRender?.Invoke();
     }
     protected abstract void RenderInternal();
@@ -142,12 +142,14 @@ public abstract class VectorFieldTextureCreator : IDisposable {
             // if (vectorField == null) {
             //     ((AsyncGPUReadbackRequest) readbackRequest).WaitForCompletion();
             // }
+        } catch (OperationCanceledException) {
+            // Expected when a domain/script reload interrupts the in-flight GPU readback. Safe to ignore.
         } catch (Exception e) {
             Debug.LogError(e);
         } finally {
             readbackRequest = null;
         }
-        
+
     }
     
     void ReadFromGPUCallback(AsyncGPUReadbackRequest request) {

@@ -22,7 +22,9 @@ float4x4 gridToWorldMatrix;
 float frequency;
 float persistence;
 float lacunarity;
-int numOctaves;
+// Fractional octave count: the integer part is summed at full amplitude, the fractional part fades in the next
+// octave so the slider is continuous (e.g. 3.5 = three octaves plus half of the fourth).
+float numOctaves;
 
 float vortexAngle;
 
@@ -30,16 +32,26 @@ static float4 FractalNoise(float4 gridPointFloat) {
     float amplitude = 1.0;
     float _frequency = frequency;
     float4 noiseValue = float4(0,0,0,0);
-    
-    for (int i = 0; i < numOctaves; ++i)
+
+    int fullOctaves = (int)floor(numOctaves);
+    float partialOctave = numOctaves - fullOctaves;
+
+    for (int i = 0; i < fullOctaves; ++i)
     {
         const float3 worldPoint = _frequency * (float3)mul(gridToWorldMatrix, gridPointFloat);
         noiseValue += amplitude * SimplexNoiseGrad(worldPoint);
-        
+
         amplitude *= persistence;
         _frequency *= lacunarity;
     }
-    
+
+    // Final partial octave, weighted by the fractional part so detail ramps in smoothly rather than popping.
+    if (partialOctave > 0.0)
+    {
+        const float3 worldPoint = _frequency * (float3)mul(gridToWorldMatrix, gridPointFloat);
+        noiseValue += amplitude * partialOctave * SimplexNoiseGrad(worldPoint);
+    }
+
     return noiseValue;
 }
 

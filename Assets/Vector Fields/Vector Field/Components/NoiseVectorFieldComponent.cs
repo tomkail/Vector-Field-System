@@ -58,7 +58,7 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
         NoiseVectorFieldComputeShader.SetFloat("frequency", noiseSampler.properties.frequency);
         NoiseVectorFieldComputeShader.SetFloat("persistence", noiseSampler.properties.persistence);
         NoiseVectorFieldComputeShader.SetFloat("lacunarity", noiseSampler.properties.lacunarity);
-        NoiseVectorFieldComputeShader.SetInt("numOctaves", noiseSampler.properties.octaves);
+        NoiseVectorFieldComputeShader.SetFloat("numOctaves", noiseSampler.properties.octaves);
         NoiseVectorFieldComputeShader.SetFloat("vortexAngle", vortexAngle);
 
         // Calculate the number of thread groups

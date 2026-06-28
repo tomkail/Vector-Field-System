@@ -23,6 +23,11 @@ public static class VectorFieldComponentDrawer
     }
 
     private static void OnSceneGUI(SceneView sceneView) {
+        // duringSceneGui fires for every event (Layout, mouse, Repaint...). Issuing the instanced draw on more than
+        // one of them stacks transparent draws in the same render, doubling the opacity (the flicker on zoom/pan).
+        // Draw only on Repaint so each scene view renders the arrows exactly once.
+        if (Event.current.type != EventType.Repaint) return;
+
         drawnThisFrame.Clear();
         foreach (var obj in Selection.objects) {
             GameObject go = obj as GameObject;

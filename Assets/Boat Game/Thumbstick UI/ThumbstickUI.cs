@@ -5,7 +5,7 @@ using UnityEngine.EventSystems;
 
 public class ThumbstickUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IBeginDragHandler, IEndDragHandler, IDragHandler {
     public ThumbstickUISettings settings;
-    public new Camera camera;
+    public Camera camera;
     public RectTransform rectTransform {get {return (RectTransform)transform;}}
     public CanvasGroup canvasGroup;
 

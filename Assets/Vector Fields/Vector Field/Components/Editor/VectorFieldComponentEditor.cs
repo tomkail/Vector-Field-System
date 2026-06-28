@@ -32,7 +32,32 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		// 	EditorGUI.EndDisabledGroup();
 		// }
 
+		DrawCpuConsumers();
+
 		serializedObject.ApplyModifiedProperties();
+	}
+
+	// Shows which components have registered as CPU consumers (so they drive the GPU->CPU readback), and whether
+	// each needs the data immediately (synchronous) or can take it async. Click an entry to ping/select it.
+	void DrawCpuConsumers() {
+		if (targets.Length != 1) return; // per-object list; only meaningful for a single selection
+
+		var consumers = data.CpuConsumers;
+		EditorGUILayout.Space();
+		if (consumers.Count == 0) {
+			EditorGUILayout.LabelField("CPU consumers", "None — GPU only");
+			return;
+		}
+
+		EditorGUILayout.LabelField($"CPU consumers ({consumers.Count})", EditorStyles.boldLabel);
+		EditorGUI.indentLevel++;
+		foreach (var consumer in consumers) {
+			EditorGUILayout.BeginHorizontal();
+			EditorGUILayout.ObjectField(consumer, typeof(Component), true);
+			GUILayout.Label(data.IsImmediateCpuConsumer(consumer) ? "immediate" : "async", GUILayout.Width(70));
+			EditorGUILayout.EndHorizontal();
+		}
+		EditorGUI.indentLevel--;
 	}
 
 

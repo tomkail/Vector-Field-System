@@ -71,6 +71,10 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	bool WantsCpuData { get { cpuConsumers.RemoveWhere(c => c == null); return cpuConsumers.Count > 0; } }
 	bool WantsImmediateCpuData { get { immediateCpuConsumers.RemoveWhere(c => c == null); return immediateCpuConsumers.Count > 0; } }
 
+	// Read-only view of the components currently requesting the CPU copy, for tooling/inspection.
+	public IReadOnlyCollection<Component> CpuConsumers { get { cpuConsumers.RemoveWhere(c => c == null); return cpuConsumers; } }
+	public bool IsImmediateCpuConsumer(Component consumer) => consumer != null && immediateCpuConsumers.Contains(consumer);
+
 	// Set by SetDirty on any change that affects this field's output, consumed by EnsureUpToDate which renders at
 	// most once per dirty episode. Starts true so the first frame renders.
 	[NonSerialized] bool isDirty = true;
@@ -247,6 +251,29 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
 		// CPU copy is now current — notify consumers that read vectorField.
 		OnCpuDataReady?.Invoke();
+	}
+
+	// Uploads a CPU-computed vectorField into renderTexture, using the same encoding HandleReadback decodes
+	// (maxComponent 1, i.e. color = vector * 0.5 + 0.5), so a value sampled back equals the original. CPU-only
+	// components (drawable, polygon) call this at the end of RenderInternal so their output participates in the draw
+	// path, GPU group blend, and shader visualizer — all of which sample renderTexture, not the CPU map. The staging
+	// Texture2D is cached and only reallocated on a grid-size change.
+	Texture2D uploadTexture;
+	protected void WriteVectorFieldToRenderTexture() {
+		if (vectorField == null) return;
+		EnsureHasValidRenderTexture();
+
+		int width = vectorField.size.x;
+		int height = vectorField.size.y;
+		if (uploadTexture == null || uploadTexture.width != width || uploadTexture.height != height) {
+			if (uploadTexture != null) ObjectX.DestroyAutomatic(uploadTexture);
+			// linear: true — this stores encoded vector data and must not be sRGB-converted on the Blit.
+			uploadTexture = new Texture2D(width, height, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
+		}
+
+		uploadTexture.SetPixels(VectorFieldUtils.VectorsToColors(vectorField.values, 1));
+		uploadTexture.Apply();
+		Graphics.Blit(uploadTexture, renderTexture);
 	}
 
 	public void ReleaseRenderTexture() {

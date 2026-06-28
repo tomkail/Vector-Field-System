@@ -1,0 +1,142 @@
+// 2D incompressible fluid solver (Stam, "Stable Fluids"). Operates on raw-float velocity ping-pong textures held by
+// SimulatedVectorFieldComponent — NOT on the shared encoded field texture. The component encodes the final velocity
+// into the pipeline's renderTexture itself (so this solver stays in physical velocity units, free of the
+// color = vector*0.5 + 0.5 packing the rest of the toolset uses).
+//
+// Grid is texel-aligned with cell size dx = 1, so all the finite differences below drop the 1/dx factors.
+// Velocity is stored as float2 in the RG channels; pressure and divergence are single-channel scratch fields.
+
+#pragma kernel AddForces
+#pragma kernel Advect
+#pragma kernel Divergence
+#pragma kernel PressureJacobi
+#pragma kernel Project
+#pragma kernel Encode
+
+#define THREADS_X 8
+#define THREADS_Y 8
+
+int width;
+int height;
+float dt;
+
+// --- shared bindings (each kernel uses the subset it needs) -------------------------------------------------------
+Texture2D<float2>   VelocityIn;     // read side of the velocity ping-pong (bilinear sampler for advection)
+RWTexture2D<float2> VelocityOut;    // write side
+SamplerState        sampler_VelocityIn;
+
+Texture2D<float>    PressureIn;
+RWTexture2D<float>  PressureOut;
+RWTexture2D<float>  DivergenceOut;
+Texture2D<float>    DivergenceIn;
+
+// Obstacle mask: >0.5 means solid. Optional — when hasObstacles == 0 it's ignored.
+Texture2D<float>    Obstacles;
+int                 hasObstacles;
+
+// Forcing field: the *encoded* renderTexture of another VectorFieldComponent (noise gust, stamp emitter, drawn
+// strokes...). Decoded here as (c - 0.5)*2. Optional — gated by hasForce.
+Texture2D<float4>   ForceField;
+int                 hasForce;
+float               forceStrength;
+
+// Encoded output: the pipeline's renderTexture. Encode writes velocity*outputScale*0.5 + 0.5 into it.
+RWTexture2D<float4> Result;
+float               outputScale;
+
+float viscosityDamp;    // per-step multiplicative velocity damping (1 = inviscid, <1 bleeds energy / fakes viscosity)
+
+bool InBounds(int2 p)  { return p.x >= 0 && p.y >= 0 && p.x < width && p.y < height; }
+bool IsSolid(int2 p) {
+    if (hasObstacles == 0) return false;
+    if (!InBounds(p)) return true;                 // domain border is treated as solid (no-slip walls)
+    return Obstacles[p] > 0.5;
+}
+
+// --- inject external forces ---------------------------------------------------------------------------------------
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void AddForces(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+
+    float2 v = VelocityIn[p];
+    if (hasForce != 0) {
+        float2 f = (ForceField[p].xy - 0.5) * 2.0;     // decode pipeline packing
+        v += f * forceStrength * dt;
+    }
+    v *= viscosityDamp;
+    if (IsSolid(p)) v = 0;
+    VelocityOut[p] = v;
+}
+
+// --- semi-Lagrangian advection: trace each cell backward and resample --------------------------------------------
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void Advect(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+    if (IsSolid(p)) { VelocityOut[p] = 0; return; }
+
+    float2 pos  = float2(p) + 0.5;                     // cell centre, texel units
+    float2 vel  = VelocityIn[p];
+    float2 back  = pos - dt * vel;                     // where this parcel came from
+    float2 uv   = back / float2(width, height);        // bilinear sampler reads the prior field
+    VelocityOut[p] = VelocityIn.SampleLevel(sampler_VelocityIn, uv, 0);
+}
+
+// --- divergence of the (advected, forced) velocity ----------------------------------------------------------------
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void Divergence(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+
+    // Solid neighbours contribute zero normal velocity (free-slip-ish boundary).
+    float2 l = IsSolid(p + int2(-1, 0)) ? 0 : VelocityIn[p + int2(-1, 0)];
+    float2 r = IsSolid(p + int2( 1, 0)) ? 0 : VelocityIn[p + int2( 1, 0)];
+    float2 b = IsSolid(p + int2( 0,-1)) ? 0 : VelocityIn[p + int2( 0,-1)];
+    float2 t = IsSolid(p + int2( 0, 1)) ? 0 : VelocityIn[p + int2( 0, 1)];
+
+    DivergenceOut[p] = 0.5 * ((r.x - l.x) + (t.y - b.y));
+}
+
+// --- one Jacobi relaxation sweep of  ∇²p = div  (run N times, ping-ponging pressure) ------------------------------
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void PressureJacobi(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+
+    // Neumann boundary: a solid neighbour reflects this cell's pressure (∂p/∂n = 0).
+    float pc = PressureIn[p];
+    float l = IsSolid(p + int2(-1, 0)) ? pc : PressureIn[p + int2(-1, 0)];
+    float r = IsSolid(p + int2( 1, 0)) ? pc : PressureIn[p + int2( 1, 0)];
+    float b = IsSolid(p + int2( 0,-1)) ? pc : PressureIn[p + int2( 0,-1)];
+    float t = IsSolid(p + int2( 0, 1)) ? pc : PressureIn[p + int2( 0, 1)];
+
+    PressureOut[p] = (l + r + b + t - DivergenceIn[p]) * 0.25;
+}
+
+// --- subtract pressure gradient → divergence-free velocity --------------------------------------------------------
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void Project(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+    if (IsSolid(p)) { VelocityOut[p] = 0; return; }
+
+    float pc = PressureIn[p];
+    float l = IsSolid(p + int2(-1, 0)) ? pc : PressureIn[p + int2(-1, 0)];
+    float r = IsSolid(p + int2( 1, 0)) ? pc : PressureIn[p + int2( 1, 0)];
+    float b = IsSolid(p + int2( 0,-1)) ? pc : PressureIn[p + int2( 0,-1)];
+    float t = IsSolid(p + int2( 0, 1)) ? pc : PressureIn[p + int2( 0, 1)];
+
+    float2 v = VelocityIn[p];
+    v -= 0.5 * float2(r - l, t - b);
+    VelocityOut[p] = v;
+}
+
+// --- encode final velocity into the shared pipeline texture -------------------------------------------------------
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void Encode(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+    float2 v = VelocityIn[p] * outputScale;
+    Result[p] = float4(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, 0, 1);   // matches VectorFieldUtils packing
+}

@@ -37,27 +37,36 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		serializedObject.ApplyModifiedProperties();
 	}
 
-	// Shows which components have registered as CPU consumers (so they drive the GPU->CPU readback), and whether
-	// each needs the data immediately (synchronous) or can take it async. Click an entry to ping/select it.
+	bool showCpuConsumers {
+		get => EditorPrefs.GetBool("VectorFieldComponentEditor_ShowCpuConsumers", false);
+		set => EditorPrefs.SetBool("VectorFieldComponentEditor_ShowCpuConsumers", value);
+	}
+
+	// Read-only diagnostic: which components have registered as CPU consumers (driving the GPU->CPU readback) and
+	// whether each needs the data immediately (synchronous) or async. Tucked in a collapsed foldout so it reads as
+	// info, not controls; each entry is a link you can click to ping the consumer.
 	void DrawCpuConsumers() {
 		if (targets.Length != 1) return; // per-object list; only meaningful for a single selection
 
 		var consumers = data.CpuConsumers;
 		EditorGUILayout.Space();
-		if (consumers.Count == 0) {
-			EditorGUILayout.LabelField("CPU consumers", "None — GPU only");
-			return;
-		}
+		showCpuConsumers = EditorGUILayout.Foldout(showCpuConsumers, $"CPU Consumers ({consumers.Count})", true);
+		if (!showCpuConsumers) return;
 
-		EditorGUILayout.LabelField($"CPU consumers ({consumers.Count})", EditorStyles.boldLabel);
-		EditorGUI.indentLevel++;
-		foreach (var consumer in consumers) {
-			EditorGUILayout.BeginHorizontal();
-			EditorGUILayout.ObjectField(consumer, typeof(Component), true);
-			GUILayout.Label(data.IsImmediateCpuConsumer(consumer) ? "immediate" : "async", GUILayout.Width(70));
-			EditorGUILayout.EndHorizontal();
+		using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox)) {
+			if (consumers.Count == 0) {
+				GUILayout.Label("Nothing is reading this field's CPU copy — it runs GPU-only.", EditorStyles.wordWrappedMiniLabel);
+				return;
+			}
+			foreach (var consumer in consumers) {
+				EditorGUILayout.BeginHorizontal();
+				if (GUILayout.Button($"{consumer.name}  ({consumer.GetType().Name})", EditorStyles.linkLabel))
+					EditorGUIUtility.PingObject(consumer);
+				GUILayout.FlexibleSpace();
+				GUILayout.Label(data.IsImmediateCpuConsumer(consumer) ? "immediate" : "async", EditorStyles.miniLabel);
+				EditorGUILayout.EndHorizontal();
+			}
 		}
-		EditorGUI.indentLevel--;
 	}
 
 

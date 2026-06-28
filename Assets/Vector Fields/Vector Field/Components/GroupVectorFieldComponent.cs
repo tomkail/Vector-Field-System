@@ -230,22 +230,42 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		DestroyImmediate(material);
 	}
 
-	static Matrix4x4 GetRelativeTransform(Transform brushTransform, Transform canvasTransform) {
-		// Adjust for UV coordinate space (translate UV to object space)
-		Matrix4x4 UVtoObj = Matrix4x4.Translate(new Vector3(-0.5f, -0.5f, 0));
-		// Adjust back from object space to UV space after transformations
-		Matrix4x4 ObjToUV = Matrix4x4.Translate(new Vector3(0.5f, 0.5f, 0));
-		// Compute the matrix that transforms from t1's UV space to t2's UV space
-		return ObjToUV * brushTransform.worldToLocalMatrix * canvasTransform.localToWorldMatrix * UVtoObj;
-	}
-
+	// Affine map group-UV -> layer-UV, applied in the shader as mul(M, float4(uv, 0, 1)).xy. Each group cell is
+	// orthographically projected onto the layer's plane ALONG THE GROUP'S NORMAL (not read as oblique coordinates),
+	// so a layer tilted out of plane covers the foreshortened projection of its bounds — it shrinks as it tilts,
+	// matching what you see, instead of growing. (The earlier brush.inverse * canvas read stretched it by 1/cos θ.)
 	static Matrix4x4 GetRelativeTransform(Matrix4x4 brushMatrix4x4, Matrix4x4 canvasMatrix4x4) {
-		// Adjust for UV coordinate space (translate UV to object space)
-		Matrix4x4 UVtoObj = Matrix4x4.Translate(new Vector3(-0.5f, -0.5f, 0));
-		// Adjust back from object space to UV space after transformations
-		Matrix4x4 ObjToUV = Matrix4x4.Translate(new Vector3(0.5f, 0.5f, 0));
-		// Compute the matrix that transforms from t1's UV space to t2's UV space
-		return ObjToUV * brushMatrix4x4.inverse * canvasMatrix4x4 * UVtoObj;
+		Vector3 groupNormal = canvasMatrix4x4.MultiplyVector(Vector3.forward).normalized;
+		Vector3 layerOrigin = brushMatrix4x4.GetColumn(3);
+		Vector3 layerNormal = brushMatrix4x4.MultiplyVector(Vector3.forward).normalized;
+		Matrix4x4 worldToLayer = brushMatrix4x4.inverse;
+
+		float denom = Vector3.Dot(groupNormal, layerNormal);
+		// Near edge-on the layer projects to ~a line (no area); map everything outside [0,1] so it contributes nothing.
+		if (Mathf.Abs(denom) < 1e-4f) {
+			var degenerate = Matrix4x4.identity;
+			degenerate.SetColumn(3, new Vector4(10, 10, 0, 1));
+			return degenerate;
+		}
+
+		// Project a group-UV corner onto the layer plane along the group normal, then express it as a layer UV.
+		Vector2 ProjectCorner(float u, float v) {
+			Vector3 world = canvasMatrix4x4.MultiplyPoint3x4(new Vector3(u - 0.5f, v - 0.5f, 0));
+			float t = Vector3.Dot(layerOrigin - world, layerNormal) / denom;
+			Vector3 onLayer = world + groupNormal * t;
+			Vector3 layerObject = worldToLayer.MultiplyPoint3x4(onLayer);
+			return new Vector2(layerObject.x + 0.5f, layerObject.y + 0.5f);
+		}
+
+		// The projection between two planes is affine, so three corners define it exactly.
+		Vector2 a = ProjectCorner(0, 0);
+		Vector2 b = ProjectCorner(1, 0);
+		Vector2 c = ProjectCorner(0, 1);
+
+		var m = Matrix4x4.identity;
+		m.SetRow(0, new Vector4(b.x - a.x, c.x - a.x, 0, a.x));
+		m.SetRow(1, new Vector4(b.y - a.y, c.y - a.y, 0, a.y));
+		return m;
 	}
 
 	void RenderInternalCPU() {

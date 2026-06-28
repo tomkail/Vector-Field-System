@@ -93,8 +93,11 @@ public class ParticleSystemVectorField : MonoBehaviour
 	void Refresh()
 	{
 		if (_vectorFieldComponent == null || _vectorFieldComponent.vectorField == null) return;
-		// Reuse the existing Texture3D instead of destroying + reallocating it on every render.
-		VectorFieldUtils.FillTexture3D(_vectorFieldComponent.vectorField, ref texture3D);
+		// Allocate a fresh Texture3D each refresh. ParticleSystemForceField only re-reads its vector field when the
+		// texture reference changes, so updating one in place (SetPixels/Apply) leaves the particles on stale data.
+		// Refresh now runs only when the field changes (not every frame), so this allocation is no longer per-frame.
+		if (texture3D != null) ObjectX.DestroyAutomatic(texture3D);
+		texture3D = VectorFieldUtils.CreateTexture3D(_vectorFieldComponent.vectorField);
 
 		forceField.vectorField = texture3D;
 		forceField.vectorFieldSpeed = _vectorFieldComponent.magnitude;

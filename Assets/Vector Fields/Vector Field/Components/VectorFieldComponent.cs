@@ -35,12 +35,41 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	public Texture2D cookieTexture;
 	// public VectorFieldCookieTextureCreator cookieTextureCreator;
 
-	public delegate void OnUpdateDelegate();
-	public event OnUpdateDelegate OnRender;
+	// Fired synchronously when the field has been rendered (the GPU renderTexture is current). For consumers that
+	// read the texture directly.
+	public event Action OnRendered;
+	// Fired when the CPU vectorField has been populated and is fresh. For consumers that read vectorField (the
+	// particle force field, CPU sampling). In CPU mode this fires synchronously with the render; in GPU mode it
+	// fires after the readback (synchronously if any consumer requested immediate, otherwise from the async callback).
+	public event Action OnCpuDataReady;
 
 	SerializableTransform lastTransform;
 
-	public bool keepCPUUpdated = true;
+	// Consumers register that they need the CPU vectorField; the readback only runs while at least one is registered,
+	// and runs synchronously (same frame) if any of them needs the data immediately. One readback per render serves
+	// them all via OnCpuDataReady. Registrants must unregister (typically in OnDisable) — destroyed ones are pruned
+	// defensively, but leaking keeps the CPU copy alive needlessly.
+	HashSet<Component> _cpuConsumers;
+	HashSet<Component> _immediateCpuConsumers;
+	HashSet<Component> cpuConsumers => _cpuConsumers ??= new HashSet<Component>();
+	HashSet<Component> immediateCpuConsumers => _immediateCpuConsumers ??= new HashSet<Component>();
+
+	public void RegisterCpuConsumer(Component consumer, bool immediate) {
+		if (consumer == null) return;
+		cpuConsumers.Add(consumer);
+		if (immediate) immediateCpuConsumers.Add(consumer);
+		else immediateCpuConsumers.Remove(consumer);
+		SetDirty(); // make sure the CPU copy gets produced
+	}
+
+	public void UnregisterCpuConsumer(Component consumer) {
+		if (consumer == null) return;
+		cpuConsumers.Remove(consumer);
+		immediateCpuConsumers.Remove(consumer);
+	}
+
+	bool WantsCpuData { get { cpuConsumers.RemoveWhere(c => c == null); return cpuConsumers.Count > 0; } }
+	bool WantsImmediateCpuData { get { immediateCpuConsumers.RemoveWhere(c => c == null); return immediateCpuConsumers.Count > 0; } }
 
 	// Set by SetDirty on any change that affects this field's output, consumed by EnsureUpToDate which renders at
 	// most once per dirty episode. Starts true so the first frame renders.
@@ -163,25 +192,26 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
 	public void Render() {
 		RenderInternal();
-		if (keepCPUUpdated && renderTexture != null) {
-			// Populate the CPU vectorField synchronously so OnRender fires this frame with fresh data, matching the
-			// CPU-combine path. The async readback didn't reliably notify consumers (e.g. the particle force field);
-			// since we now render only on change rather than every frame, the readback stall is affordable.
-			ReadIntoCPU(forceImmediate: true);
-		} else {
-			// CPU-mode (or no GPU texture): vectorField is already current.
-			OnRender?.Invoke();
+		OnRendered?.Invoke();
+
+		if (renderTexture == null) {
+			// CPU-mode: RenderInternal already built vectorField, so it's ready now.
+			OnCpuDataReady?.Invoke();
+		} else if (WantsCpuData) {
+			// GPU-mode with a registered CPU consumer: read the texture back into vectorField (synchronously if any
+			// consumer needs it this frame, otherwise async with no stall). HandleReadback fires OnCpuDataReady.
+			ReadIntoCPU(forceImmediate: WantsImmediateCpuData);
 		}
+		// GPU-mode with no CPU consumer: skip the readback entirely — nobody needs the CPU copy.
 	}
 
 	protected abstract void RenderInternal();
 
-	bool readbackInFlight;
+	AsyncGPUReadbackRequest? pendingReadback;
 
-	// Reads the render texture into the CPU vectorField, then fires OnRender. Uses the callback-based AsyncGPUReadback
-	// API (not await) so completion is reliably pumped by the engine in both edit and play mode — important now that
-	// we only render on change: a single dropped continuation would otherwise leave consumers (the particle force
-	// field) stuck on stale data. Pass forceImmediate to block until the readback completes (e.g. before sampling).
+	// Reads the render texture into the CPU vectorField, then fires OnCpuDataReady. forceImmediate blocks until the
+	// readback completes (data ready this frame); otherwise it's async (no stall). One readback serves every
+	// registered consumer.
 	public void ReadIntoCPU(bool forceImmediate = false) {
 		if (renderTexture == null) {
 			Debug.LogError("RenderTexture is not assigned.");
@@ -195,10 +225,10 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 			return;
 		}
 
-		if (readbackInFlight) return; // a newer readback will be kicked off by the next render
-		readbackInFlight = true;
-		AsyncGPUReadback.Request(renderTexture, 0, request => {
-			readbackInFlight = false;
+		// Coalesce overlapping requests, but key off .done rather than a sticky flag: a dropped completion callback
+		// can never wedge this permanently — the next render simply issues a fresh request.
+		if (pendingReadback.HasValue && !pendingReadback.Value.done) return;
+		pendingReadback = AsyncGPUReadback.Request(renderTexture, 0, request => {
 			if (this == null) return; // destroyed / reloaded while in flight
 			HandleReadback(request);
 		});
@@ -216,7 +246,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		VectorFieldUtils.ColorsToVectors(rawData, 1, vectorField.values);
 
 		// CPU copy is now current — notify consumers that read vectorField.
-		OnRender?.Invoke();
+		OnCpuDataReady?.Invoke();
 	}
 
 	public void ReleaseRenderTexture() {
@@ -279,7 +309,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
 	// --- GPU sampling -------------------------------------------------------------------------------------------
 	// Sample the field straight from the GPU render texture, reading only the handful of texels a query needs,
-	// instead of mirroring the whole grid to the CPU (keepCPUUpdated). Decoding matches ReadIntoCPU exactly so
+	// instead of mirroring the whole grid to the CPU. Decoding matches ReadIntoCPU exactly so
 	// these agree with EvaluateVector. The synchronous variants stall for the readback (fine for occasional use);
 	// use the async variant on hot paths. All return false / skip when the platform can't do GPU readback or
 	// nothing has been rendered yet.

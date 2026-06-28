@@ -201,6 +201,11 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 
 		var validLayers = layers.Where(layer => layer.component.isActiveAndEnabled && layer.strength > 0).ToList();
 		foreach (var layer in validLayers) {
+			// CPU combine samples each child's CPU vectorField (via EvaluateWorldVector). The pull in RenderInternal
+			// already re-rendered the child, but a GPU-backed child only fills its CPU copy when something needs it —
+			// so force its readback here. (CPU-backed children have no renderTexture and are already current.)
+			if (layer.component.renderTexture != null) layer.component.ReadIntoCPU(forceImmediate: true);
+
 			var points = gridRenderer.GetPointsInWorldBounds(layer.component.GetBounds());
 			foreach (var point in points) {
 				Vector2 current = vectorField.GetValueAtGridPoint(point);

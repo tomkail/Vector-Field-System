@@ -17,8 +17,11 @@ public class ParticleSystemVectorField : MonoBehaviour
 		get => _vectorFieldComponent;
 		set
 		{
+			if (_vectorFieldComponent == value) return;
+			if (isActiveAndEnabled) Unsubscribe();
 			_vectorFieldComponent = value;
 			SetupConstraints();
+			if (isActiveAndEnabled) Subscribe();
 		}
 	}
 	ParticleSystemForceField forceField => GetComponent<ParticleSystemForceField>();
@@ -31,8 +34,25 @@ public class ParticleSystemVectorField : MonoBehaviour
 	{
 		SetupConstraints();
 		ConfigureForceField();
-		Refresh();
-		_vectorFieldComponent.OnRender += Refresh;
+		Subscribe();
+	}
+
+	// Tell the field we need its CPU copy (it won't produce one otherwise), and refresh whenever it's ready. We
+	// don't need it the same frame it changes, so register as a non-immediate consumer — that keeps GPU-combine
+	// fields on the async readback (no per-frame stall) even when they change every frame.
+	void Subscribe()
+	{
+		if (_vectorFieldComponent == null) return;
+		_vectorFieldComponent.OnCpuDataReady += Refresh;
+		_vectorFieldComponent.RegisterCpuConsumer(this, immediate: false);
+		Refresh(); // pick up data that's already available
+	}
+
+	void Unsubscribe()
+	{
+		if (_vectorFieldComponent == null) return;
+		_vectorFieldComponent.OnCpuDataReady -= Refresh;
+		_vectorFieldComponent.UnregisterCpuConsumer(this);
 	}
 
 	// The force field's shape/range/gravity/etc. never change at runtime, so set them once rather than on every Refresh.
@@ -87,7 +107,7 @@ public class ParticleSystemVectorField : MonoBehaviour
 
 	void OnDisable()
 	{
-		_vectorFieldComponent.OnRender -= Refresh;
+		Unsubscribe();
 	}
 
 	void Refresh()

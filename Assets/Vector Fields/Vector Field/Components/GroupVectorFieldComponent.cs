@@ -239,9 +239,11 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		// regardless of how large the fields are, how they're scaled, or where they sit in the world. relLayer maps
 		// layer-local -> group-local; the group plane is z = 0 and its normal is +z here.
 		Matrix4x4 relLayer = canvasMatrix4x4.inverse * brushMatrix4x4;
-		Vector3 layerOrigin = relLayer.GetColumn(3);                              // layer centre, in group-local
-		Vector3 layerNormal = relLayer.MultiplyVector(Vector3.forward).normalized; // layer normal, in group-local
 		Matrix4x4 groupToLayer = relLayer.inverse;
+		Vector3 layerOrigin = relLayer.GetColumn(3);                              // layer centre, in group-local
+		// A normal transforms by the inverse-transpose, so this stays the true plane normal even under non-uniform
+		// scale/shear (whereas transforming the forward axis directly would not).
+		Vector3 layerNormal = groupToLayer.transpose.MultiplyVector(Vector3.forward).normalized;
 
 		float denom = layerNormal.z; // dot((0,0,1), layerNormal)
 		// Near edge-on the layer projects to ~a line (no area); map everything outside [0,1] so it contributes nothing.

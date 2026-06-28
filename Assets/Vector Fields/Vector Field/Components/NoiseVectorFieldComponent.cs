@@ -1,12 +1,8 @@
 using UnityEngine;
 
+// Editor-facing wrapper around the code-callable NoiseVectorField generator: holds the sampler settings, detects
+// changes, builds the grid->sample matrix from the grid/transform, and dispatches into the base render texture.
 public class NoiseVectorFieldComponent : VectorFieldComponent {
-    static ComputeShader noiseVectorFieldComputeShader;
-    public static ComputeShader NoiseVectorFieldComputeShader => noiseVectorFieldComputeShader ? noiseVectorFieldComputeShader : (noiseVectorFieldComputeShader = Resources.Load<ComputeShader>("NoiseVectorField"));
-    
-    ComputeShader _computeShader;
-    public ComputeShader computeShader => _computeShader ? _computeShader : (_computeShader = Instantiate(NoiseVectorFieldComputeShader));
-    
     public enum Space {
         Local,
         World
@@ -15,13 +11,19 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
     public NoiseSampler noiseSampler;
     public float vortexAngle = 90;
 
-
-    // Must match what's in the compute shader
-    const int threadsPerGroupX = 16;
-    const int threadsPerGroupY = 16;
-
     protected override void RenderInternal() {
-        RenderInternalGPU();
+        EnsureHasValidRenderTexture();
+        var gridSize = new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y);
+        NoiseVectorField.Dispatch(renderTexture, gridSize, GridToSampleMatrix(), noiseSampler.properties, vortexAngle, magnitude);
+    }
+
+    // Maps a grid cell into the space the noise is sampled in. World mode samples in world space (so the field
+    // flows past a moving grid); Local mode samples in the grid's own space, offset far away so different fields
+    // don't sample the same noise region.
+    Matrix4x4 GridToSampleMatrix() {
+        if (space == Space.Local)
+            return Matrix4x4.Translate(new Vector3(1000f, 0, 0)) * gridRenderer.cellCenter.gridToLocalMatrix * Matrix4x4.Translate(noiseSampler.position);
+        return gridRenderer.cellCenter.gridToWorldMatrix * Matrix4x4.Translate(noiseSampler.position);
     }
 
     // Re-render when any noise parameter changes. If something animates noiseSampler.position over time, this
@@ -37,35 +39,5 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
         if (lastVortexAngle != vortexAngle) { lastVortexAngle = vortexAngle; changed = true; }
         if (lastProperties != noiseSampler.properties) { lastProperties = noiseSampler.properties; changed = true; }
         return changed;
-    }
-    
-    void RenderInternalGPU() {
-	    EnsureHasValidRenderTexture();
-        
-        // Set compute shader parameters
-        NoiseVectorFieldComputeShader.SetTexture(0, "Result", renderTexture);
-        NoiseVectorFieldComputeShader.SetInt("width", gridRenderer.gridSize.x);
-        NoiseVectorFieldComputeShader.SetInt("height", gridRenderer.gridSize.y);
-        NoiseVectorFieldComputeShader.SetFloat("magnitude", magnitude);
-
-        Matrix4x4 gridToWorldMatrix = Matrix4x4.identity;
-        if (space == Space.Local)
-            gridToWorldMatrix = Matrix4x4.Translate(new Vector3(1000f, 0, 0)) * gridRenderer.cellCenter.gridToLocalMatrix * Matrix4x4.Translate(noiseSampler.position);
-        else if (space == Space.World)
-            gridToWorldMatrix = gridRenderer.cellCenter.gridToWorldMatrix * Matrix4x4.Translate(noiseSampler.position);
-        NoiseVectorFieldComputeShader.SetMatrix("gridToWorldMatrix", gridToWorldMatrix);
-
-        NoiseVectorFieldComputeShader.SetFloat("frequency", noiseSampler.properties.frequency);
-        NoiseVectorFieldComputeShader.SetFloat("persistence", noiseSampler.properties.persistence);
-        NoiseVectorFieldComputeShader.SetFloat("lacunarity", noiseSampler.properties.lacunarity);
-        NoiseVectorFieldComputeShader.SetFloat("numOctaves", noiseSampler.properties.octaves);
-        NoiseVectorFieldComputeShader.SetFloat("vortexAngle", vortexAngle);
-
-        // Calculate the number of thread groups
-        int threadGroupsX = Mathf.CeilToInt((float)gridRenderer.gridSize.x / threadsPerGroupX);
-        int threadGroupsY = Mathf.CeilToInt((float)gridRenderer.gridSize.y / threadsPerGroupY);
-
-        // Dispatch the compute shader
-        NoiseVectorFieldComputeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
     }
 }

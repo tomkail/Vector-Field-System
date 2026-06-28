@@ -10,12 +10,22 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		set => EditorPrefs.SetBool("VectorFieldComponentEditor_AutomaticScale", value);
 	}
 	float maxComponent;
-	float calculatedScale => automaticScale ? VectorFieldScriptableObject.GetMaxAbsComponent(data.vectorField.values) : maxComponent;
+	float calculatedScale => automaticScale ? (PreviewField != null ? VectorFieldScriptableObject.GetMaxAbsComponent(PreviewField.values) : 1f) : maxComponent;
+
+	// The CPU field to preview. Drawable authors into its own PaintField (base.vectorField is its readback target,
+	// which is null until a CPU consumer is attached); every other component exposes its CPU copy via vectorField.
+	Vector2Map PreviewField => data is DrawableVectorFieldComponent drawable ? drawable.PaintField : data.vectorField;
+
+	// Texture2D throws on a zero/negative size, so clamp to at least 1×1. A field can be empty (size 0×0)
+	// when its component hasn't rendered yet on the frame the editor is enabled.
+	static Point PreviewTextureSize(Vector2Map field) => field != null
+		? new Point(Mathf.Max(1, field.size.x), Mathf.Max(1, field.size.y))
+		: new Point(1, 1);
 
 	public override void OnEnable() {
 		base.OnEnable();
-		texture = TextureX.Create(data.vectorField.size, Color.black);
-		maxComponent = 1f;//VectorFieldScriptableObject.GetMaxAbsComponent(data.vectorField.values);
+		texture = TextureX.Create(PreviewTextureSize(PreviewField), Color.black);
+		maxComponent = 1f;
 	}
 
 	void OnDisable() {
@@ -61,7 +71,7 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 				DiagnosticRow("Backing", "CPU");
 
 			if (data is GroupVectorFieldComponent group)
-				DiagnosticRow("Combine", $"{group.mode} — {group.layers.Count} layer(s)");
+				DiagnosticRow("Combine", $"{group.layers.Count} layer(s)");
 
 			DiagnosticRow("CPU copy", data.vectorField != null ? $"{data.vectorField.size.x}×{data.vectorField.size.y}" : "none");
 			DiagnosticRow("State", data.IsDirty ? "re-render pending" : "up to date");
@@ -129,12 +139,13 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 
 	public override void OnPreviewGUI(Rect r, GUIStyle background) {
 		if (Event.current.type == EventType.Repaint) {
-			if (data is DrawableVectorFieldComponent) {
-				if (texture.width != data.vectorField.size.x || texture.height != data.vectorField.size.y) {
+			if (data is DrawableVectorFieldComponent && PreviewField != null && PreviewField.size.x > 0 && PreviewField.size.y > 0) {
+				var previewField = PreviewField;
+				if (texture.width != previewField.size.x || texture.height != previewField.size.y) {
 					DestroyImmediate(texture);
-					texture = TextureX.Create(data.vectorField.size, Color.black);
+					texture = TextureX.Create(previewField.size, Color.black);
 				}
-				var colors = VectorFieldUtils.VectorsToColors(data.vectorField.values, 1f / calculatedScale);
+				var colors = VectorFieldUtils.VectorsToColors(previewField.values, 1f / calculatedScale);
 				texture.SetPixels(colors);
 				texture.Apply();
 				EditorGUI.DrawPreviewTexture(r, texture, null, ScaleMode.ScaleToFit);

@@ -6,22 +6,13 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 public class VectorFieldDrawingToolSettings : SerializedScriptableSingleton<VectorFieldDrawingToolSettings> {
-    public Texture2D customBrushTexture;
-    public BrushSource brushType;
-    public enum BrushSource {
-        Directional,
-        Radial,
-        Noise,
-        Custom,
-    }
-    public BrushMode brushMode;
-    public enum BrushMode {
-    }
+    // The emitter (directional/spot) that the brush stamps. Shape comes from the cookie below.
     public VectorFieldBrushSettings brushSettings = new VectorFieldBrushSettings();
-    
-    public float directionalBrushModeAngle;
-    public float directionalBrushModeVortexAngle;
-    
+
+    // The brush's shape/softness. Defaults to a soft radial Falloff so brushes are round out of the box — the
+    // stamp shader has no inherent falloff (strength == magnitude * cookie.r), so None gives a hard square.
+    public VectorFieldCookieSource brushCookie = new VectorFieldCookieSource { mode = VectorFieldCookieSource.Mode.Falloff };
+
     public float gridSpaceBrushSize = 5;
     public float pressure = 1;
 }
@@ -39,21 +30,25 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
 
     Vector2 lastGridPosition;
 
-    // VectorFieldBrush brush = new VectorFieldBrush();
     Vector2Map brushMap;
-    Texture brushTexture;
     float gridDistance = 0;
     float stepDistance = 1f;
-    public float pressure = 1f;
-    public float gridSpaceBrushSize = 5;
+
+    // Persisted in the settings singleton so they survive tool re-activation and domain reloads.
+    public float pressure {
+        get => settings.pressure;
+        set => settings.pressure = value;
+    }
+    public float gridSpaceBrushSize {
+        get => settings.gridSpaceBrushSize;
+        set => settings.gridSpaceBrushSize = value;
+    }
+
+    // Resolution of the generated brush map (the cookie-shaped stamp readback). Independent of the field grid.
+    const int brushResolution = 32;
 
     public VectorFieldBrushTextureCreator brushCreator;
 
-
-    
-    VectorFieldCookieTextureCreator cookieTextureCreator;
-    VectorFieldCookieTextureCreatorSettings cookieTextureCreatorSettings;
-    
 
     // The second "context" argument accepts an EditorWindow type.
     [Shortcut("Activate DrawableVectorFieldComponent Tool", typeof(SceneView), KeyCode.P)]
@@ -61,8 +56,8 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     {
         if (Selection.GetFiltered<DrawableVectorFieldComponent>(SelectionMode.TopLevel).Length > 0)
             ToolManager.SetActiveTool<VectorFieldDrawingTool>();
-        else
-            Debug.Log("No platforms selected!");
+        else if (SceneView.lastActiveSceneView != null)
+            SceneView.lastActiveSceneView.ShowNotification(new GUIContent("Select a Drawable Vector Field to paint"));
     }
     
     // Global tools (tools that do not specify a target type in the attribute) are lazy initialized and persisted by
@@ -78,20 +73,9 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     // so usually you would use OnEnable and OnDisable to manage native resources, and OnActivated/OnWillBeDeactivated
     // to set up state. See also `EditorTools.{ activeToolChanged, activeToolChanged }` events.
     public override void OnActivated() {
-
-        // SceneView.lastActiveSceneView.ShowNotification(new GUIContent("Entering DrawableVectorFieldComponent Tool"), .1f);
-        
-        cookieTextureCreator = new VectorFieldCookieTextureCreator();
-        cookieTextureCreatorSettings = new VectorFieldCookieTextureCreatorSettings() {
-            gridSize = new Vector2Int(32,32),
-            generationMode = VectorFieldCookieTextureCreatorSettings.GenerationMode.Exponent,
-            falloffSoftness = 1,
-        };
-        brushCreator = new VectorFieldBrushTextureCreator(new Vector2Int(32,32), new VectorFieldBrushSettings());
-        // Allocate unmanaged resources or perform one-time set up functions here
+        brushCreator = new VectorFieldBrushTextureCreator(new Vector2Int(brushResolution, brushResolution), settings.brushSettings);
         OnBrushSettingsChange();
-        
-        
+
         m_Overlay = new VectorFieldDrawingToolSettingsOverlay();
         m_Overlay.Init(this);
         SceneView.AddOverlayToActiveView(m_Overlay);
@@ -100,24 +84,26 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     // Called before the active tool is changed, or destroyed. The exception to this rule is if you have manually
     // destroyed this tool (ex, calling `Destroy(this)` will skip the OnWillBeDeactivated invocation).
     public override void OnWillBeDeactivated() {
-        // SceneView.lastActiveSceneView.ShowNotification(new GUIContent("Exiting DrawableVectorFieldComponent Tool"), .1f);
-        
-        cookieTextureCreator.Dispose();
-        
-        brushCreator.Dispose();
+        brushCreator.DisposeAndDestroyRenderTexture();
         brushCreator = null;
-        
+
+        // Release the cookie's generated mask texture (rebuilt on demand the next time the tool activates).
+        settings.brushCookie?.Dispose();
+
         SceneView.RemoveOverlayFromActiveView(m_Overlay);
     }
 
     
     public void OnBrushSettingsChange() {
-        // if(VectorFieldDrawingToolSettings.Instance.brushType == VectorFieldDrawingToolSettings.BrushSource.Custom)
-        cookieTextureCreator.Render(cookieTextureCreatorSettings);
-        brushCreator.Render();
-        // brushCreator.ReadIntoCPUImmediate();
-        
-        // // Request GPU readback synchronously
+        // Build the brush: a directional/spot emitter (brushSettings) shaped by the cookie's mask. Resolve() returns
+        // null for cookie mode None, in which case Dispatch falls back to a solid white mask (a hard square stamp).
+        // magnitude is 1 here — the brush map is shape-only; the actual pressure is applied per-paint.
+        var size = brushCreator.GridSize;
+        var mask = settings.brushCookie != null ? settings.brushCookie.Resolve(size) : null;
+        brushCreator.EnsureHasValidRenderTexture();
+        VectorFieldBrushTextureCreator.Dispatch(brushCreator.RenderTexture, size, 1f, settings.brushSettings, mask);
+
+        // Read the generated brush back to the CPU so painting can sample it (GetBrushPaint reads brushMap).
         var readbackRequest = AsyncGPUReadback.Request(brushCreator.RenderTexture, 0, Callback);
         readbackRequest.WaitForCompletion();
         void Callback(AsyncGPUReadbackRequest request) {
@@ -145,62 +131,101 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
 
         Event e = Event.current;
 
-        GetHitPoint(e.mousePosition, out RaycastHit hit);
-        
+        // Own the default control so clicks paint instead of deselecting / starting a rubber-band selection.
+        int controlId = GUIUtility.GetControlID(FocusType.Passive);
+
+        bool hasHit = GetHitPoint(e.mousePosition, out RaycastHit hit);
+
         var shiftHeld = e.modifiers.HasFlag(EventModifiers.Shift);
         var controlHeld = e.modifiers.HasFlag(EventModifiers.Control);
         var altHeld = e.modifiers.HasFlag(EventModifiers.Alt);
         var commandHeld = e.modifiers.HasFlag(EventModifiers.Command);
-        
-        // Debug.Log(shiftHeld+" "+controlHeld+" "+altHeld+" "+commandHeld);
+
+        // Cmd+Scroll resizes the brush.
         if (commandHeld && e.type == EventType.ScrollWheel) {
             e.Use();
-            gridSpaceBrushSize += e.delta.y * gridSpaceBrushSize * 3.5f * deltaTime;
+            gridSpaceBrushSize = Mathf.Max(0.01f, gridSpaceBrushSize + e.delta.y * gridSpaceBrushSize * 3.5f * deltaTime);
+            m_Overlay?.SyncFromTool();
+            sceneView.Repaint();
         }
 
-        if (e.type == EventType.MouseDown) {
-            Undo.RegisterCompleteObjectUndo(vectorFieldManager, "Edited Vector Field");
-            
+        if (hasHit && e.type == EventType.MouseDown && e.button == 0 && !altHeld) {
+            // One undo entry per stroke: snapshot the component (incl. the painted field) before the first edit.
+            Undo.RegisterCompleteObjectUndo(vectorFieldManager, "Paint Vector Field");
+
             var gridPosition = lastGridPosition = vectorFieldManager.gridRenderer.cellCenter.WorldToGridPosition(hit.point);
-            
-            if (shiftHeld) {
-                // This is to compensate for the effect of having larger brushes, or of using brushes with different hardness. It's far from perfect, but it's better than nothing. Far worse with very small brushes.
-                float sizeHardnessFactor = 1;//Mathf.Clamp(Mathf.Clamp((1.75f-brush.brushHardness), 1, 1.75f)/brush.size, 0,1);
-                    
-                List<Point> editedPoints = new List<Point>();
-                editedPoints.AddRange(Stamp(gridPosition, 1, brushMap, gridSpaceBrushSize));
-                EditVectorField(editedPoints);
-                e.Use();
-            }
+            gridDistance = 0;
+
+            if (shiftHeld)
+                EditVectorField(new List<Point>(Stamp(gridPosition, 1, brushMap, gridSpaceBrushSize)));
+
+            GUIUtility.hotControl = controlId;
+            e.Use();
         }
-        
-        if(e.type == EventType.MouseDrag && e.button == 0 && !altHeld) {
+
+        if (hasHit && e.type == EventType.MouseDrag && e.button == 0 && !altHeld) {
             var gridPosition = vectorFieldManager.gridRenderer.cellCenter.WorldToGridPosition(hit.point);
-            
+
             Move((gridPosition - lastGridPosition).magnitude);
 
-            if (commandHeld) {
+            if (commandHeld)
                 UpdateEraser(gridPosition, lastGridPosition);
-                e.Use();
-            } else if (controlHeld) {
+            else if (controlHeld)
                 UpdateAdditiveDrawing(gridPosition, lastGridPosition);
-                e.Use();
-            } else {
+            else
                 UpdateDrawing(gridPosition, lastGridPosition);
-                e.Use();
-            }
+
             lastGridPosition = gridPosition;
+            e.Use();
         }
-        
-        Handles.color = Color.green;
-        var lastMatrix = Handles.matrix; 
-        Handles.matrix = Matrix4x4.TRS(hit.point, Quaternion.identity, vectorFieldManager.gridRenderer.cellCenter.GridToWorldVector(gridSpaceBrushSize * Vector3.one * 0.5f));
-        Handles.DrawWireDisc(Vector3.zero, hit.normal, 1);
+
+        if (e.type == EventType.MouseUp && e.button == 0 && GUIUtility.hotControl == controlId) {
+            GUIUtility.hotControl = 0;
+            e.Use();
+        }
+
+        if (hasHit && (e.type == EventType.Repaint || e.type == EventType.Layout))
+            DrawBrushGizmo(hit, commandHeld, controlHeld);
+
+        // Repaint only while the cursor is moving over the scene so the brush gizmo tracks it, instead of forcing a
+        // full repaint of every scene view on every event.
+        if (hasHit && (e.type == EventType.MouseMove || e.type == EventType.MouseDrag))
+            sceneView.Repaint();
+
+        HandleUtility.AddDefaultControl(controlId);
+    }
+
+    // Brush cursor: an outer disc at the brush radius plus a faded inner disc hinting at the falloff core, and (for a
+    // directional emitter) a short arrow showing the stamp direction. Colour-coded by the active paint mode.
+    void DrawBrushGizmo(RaycastHit hit, bool commandHeld, bool controlHeld) {
+        var cellCenter = vectorFieldManager.gridRenderer.cellCenter;
+        Color color = commandHeld ? new Color(1f, 0.4f, 0.3f)      // erase
+                    : controlHeld ? new Color(0.4f, 0.7f, 1f)      // additive
+                    : Color.green;                                  // draw
+
+        var lastMatrix = Handles.matrix;
+        Handles.matrix = Matrix4x4.TRS(hit.point, Quaternion.identity, cellCenter.GridToWorldVector(gridSpaceBrushSize * Vector3.one * 0.5f));
+
+        // Inner core radius shrinks as the Falloff softens (soft brush -> small solid core). Only meaningful for Falloff.
+        var cookie = settings.brushCookie;
+        if (cookie != null && cookie.mode == VectorFieldCookieSource.Mode.Falloff) {
+            Handles.color = new Color(color.r, color.g, color.b, 0.25f);
+            Handles.DrawWireDisc(Vector3.zero, hit.normal, Mathf.Clamp01(1f - cookie.falloffSoftness));
+        }
+
+        Handles.color = color;
+        Handles.DrawWireDisc(Vector3.zero, hit.normal, 1f);
         Handles.matrix = lastMatrix;
-        
-        SceneView.RepaintAll();
-        
-        HandleUtility.AddDefaultControl(0);
+
+        // Direction arrow for a directional emitter.
+        if (settings.brushSettings.forceType == VectorFieldBrushSettings.ForceEmitterType.Directional) {
+            float angle = settings.brushSettings.directionalAngle * Mathf.Deg2Rad;
+            Vector2 dir = new Vector2(Mathf.Sin(angle), Mathf.Cos(angle));
+            Vector3 worldDir = cellCenter.GridToWorldVector(dir).normalized;
+            float length = cellCenter.GridToWorldVector(gridSpaceBrushSize * Vector3.one * 0.5f).magnitude;
+            if (worldDir.sqrMagnitude > 0f)
+                Handles.ArrowHandleCap(0, hit.point, Quaternion.LookRotation(worldDir, hit.normal), length, EventType.Repaint);
+        }
     }
 
     void UpdateEraser(Vector2 gridPosition, Vector2 lastGridPosition) {
@@ -314,7 +339,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         List<Point> editedPoints = new List<Point>();
 
         foreach(var cellBrushAffectorParams in GetBrushPaint(gridPosition, magnitude, brushMap, gridSpaceBrushSize)) {
-            vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, cellBrushAffectorParams.finalForce);
+            vectorFieldManager.PaintField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, cellBrushAffectorParams.finalForce);
             editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;
@@ -324,10 +349,10 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         List<Point> editedPoints = new List<Point>();
 
         foreach(var cellBrushAffectorParams in GetBrushPaint(drawingStepParams.gridPosition, drawingStepParams.drawForce, brushMap, gridSpaceBrushSize)) {
-            var oldValue = vectorFieldManager.vectorField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint);
+            var oldValue = vectorFieldManager.PaintField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint);
             var newValue = drawingStepParams.drawForce * pressure;
             newValue = Vector2.ClampMagnitude(newValue, Mathf.Lerp(oldValue.magnitude, pressure, cellBrushAffectorParams.brushForce.magnitude));
-            vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, newValue);
+            vectorFieldManager.PaintField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, newValue);
             editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;
@@ -337,7 +362,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         List<Point> editedPoints = new List<Point>();
 
         foreach(var cellBrushAffectorParams in GetBrushPaint(drawingStepParams.gridPosition, drawingStepParams.drawForce, brushMap, gridSpaceBrushSize)) {
-            vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.vectorField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) + cellBrushAffectorParams.finalForce * pressure);
+            vectorFieldManager.PaintField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.PaintField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) + cellBrushAffectorParams.finalForce * pressure);
             editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;
@@ -347,7 +372,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     //     List<Point> editedPoints = new List<Point>();
     //
     //     foreach(var cellBrushAffectorParams in GetBrushPaint(drawingStepParams.gridPosition, drawingStepParams.drawForce, brushMap, gridSpaceBrushSize)) {
-    //         vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.vectorField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) + cellBrushAffectorParams.finalForce * pressure);
+    //         vectorFieldManager.PaintField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.PaintField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) + cellBrushAffectorParams.finalForce * pressure);
     //     }
     //     return editedPoints;
     // }
@@ -356,7 +381,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         List<Point> editedPoints = new List<Point>();
 
         foreach(var cellBrushAffectorParams in GetBrushPaint(drawingStepParams.gridPosition, drawingStepParams.drawForce, brushMap, gridSpaceBrushSize)) {
-            vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.vectorField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) * cellBrushAffectorParams.finalForce.magnitude * pressure);
+            vectorFieldManager.PaintField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.PaintField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) * cellBrushAffectorParams.finalForce.magnitude * pressure);
             editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;

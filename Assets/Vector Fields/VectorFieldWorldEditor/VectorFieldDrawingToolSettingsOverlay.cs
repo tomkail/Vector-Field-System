@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.EditorTools;
 using UnityEditor.Overlays;
@@ -8,80 +6,91 @@ using UnityEngine;
 using UnityEngine.UIElements;
 
 [Overlay(typeof(SceneView), "Vector Field Editor Settings")]
-// [Icon("Assets/Icons/VectorFieldIcon.png")] // Set your icon path here
-public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay
-{
-    private VectorFieldDrawingTool _tool;
+public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay {
+    VectorFieldDrawingTool _tool;
 
-    public VectorFieldDrawingToolSettingsOverlay()
-    {
-        // _tool = tool;
-    }
-    
-    public void Init (VectorFieldDrawingTool tool) {
+    // Re-synced when the tool changes a setting outside the overlay (e.g. Cmd+Scroll resizing the brush).
+    Slider _brushSizeSlider;
+    Slider _pressureSlider;
+    Image _preview;
+
+    VectorFieldDrawingToolSettings settings => VectorFieldDrawingToolSettings.Instance;
+
+    public void Init(VectorFieldDrawingTool tool) {
         _tool = tool;
-        
     }
 
     public bool visible => ToolManager.IsActiveTool(_tool);
 
-    public override VisualElement CreatePanelContent()
-    {
-        var root = new VisualElement();
-        
-        Label title = new Label("Vector Field Drawing Tool Settings");
-        title.style.unityFontStyleAndWeight = FontStyle.Bold;
-        root.Add(title);
-    
-        // Brush Size Slider
-        Slider brushSizeSlider = new Slider("Brush Size", 0.1f, 10.0f);
-        brushSizeSlider.value = _tool.gridSpaceBrushSize;
-        brushSizeSlider.RegisterValueChangedCallback(evt =>
-        {
+    public override VisualElement CreatePanelContent() {
+        var root = new VisualElement { style = { minWidth = 220 } };
+
+        // Bind to the settings singleton so the cookie PropertyField reads/writes it directly.
+        var so = new SerializedObject(settings);
+        root.Bind(so);
+
+        // --- Brush -------------------------------------------------------------------------------------------------
+        root.Add(Header("Brush"));
+
+        _brushSizeSlider = new Slider("Size", 0.1f, 30f) { value = _tool.gridSpaceBrushSize };
+        _brushSizeSlider.RegisterValueChangedCallback(evt => {
             _tool.gridSpaceBrushSize = evt.newValue;
             _tool.OnBrushSettingsChange();
+            RefreshPreview();
         });
-        root.Add(brushSizeSlider);
-        
-        // Brush Strength Slider
-        Slider brushStrengthSlider = new Slider("Pressure", 0.1f, 1.0f);
-        brushStrengthSlider.value = _tool.pressure;
-        brushStrengthSlider.RegisterValueChangedCallback(evt =>
-        {
+        root.Add(_brushSizeSlider);
+
+        _pressureSlider = new Slider("Pressure", 0f, 1f) { value = _tool.pressure };
+        _pressureSlider.RegisterValueChangedCallback(evt => {
             _tool.pressure = evt.newValue;
+            VectorFieldDrawingToolSettings.Save();
+        });
+        root.Add(_pressureSlider);
+
+        // --- Shape (cookie) ----------------------------------------------------------------------------------------
+        root.Add(Header("Shape"));
+
+        var cookieField = new PropertyField(so.FindProperty("brushCookie"), "Cookie");
+        // Rebuild + persist the brush whenever any cookie sub-field changes (uses the existing IMGUI drawer).
+        cookieField.TrackPropertyValue(so.FindProperty("brushCookie"), _ => {
+            so.ApplyModifiedProperties();
             _tool.OnBrushSettingsChange();
+            VectorFieldDrawingToolSettings.Save();
+            RefreshPreview();
         });
-        root.Add(brushStrengthSlider);
-        
-        // PropertyField gridSizeField = new PropertyField(gridSizeProp, "Grid Size");
-        // root.Add(gridSizeField);
-        
-        // Create an ObjectField for a RenderTexture
-        var objectField = new ObjectField("Cookie Texture") {
-            objectType = typeof(Texture2D), // Specify the type of object that can be dragged into the field
-            value = _tool.brushCreator.RenderTexture // Set the initial value (if any)
+        root.Add(cookieField);
+
+        // Live preview of the generated brush.
+        _preview = new Image {
+            scaleMode = ScaleMode.ScaleToFit,
+            style = { width = 64, height = 64, marginTop = 4, alignSelf = Align.Center }
         };
+        RefreshPreview();
+        root.Add(_preview);
 
-        // Set up a callback for when the user assigns a new texture
-        objectField.RegisterValueChangedCallback(evt =>
-        {
-            // Update the render texture when the user drags in a new one
-            _tool.brushCreator.cookieTexture = evt.newValue as Texture2D;
-    
-            // Optionally update the Image to display the new texture
-            // renderTextureImage.image = _tool.brushCreator.RenderTexture;
-        });
+        // --- Help --------------------------------------------------------------------------------------------------
+        root.Add(Header("Shortcuts"));
+        var help = new Label("Drag: draw\nCtrl+Drag: add\nCmd+Drag: erase\nShift+Click: stamp\nCmd+Scroll: size") {
+            style = { whiteSpace = WhiteSpace.Normal, opacity = 0.7f, fontSize = 11 }
+        };
+        root.Add(help);
 
-// Add the ObjectField to the UI
-        root.Add(objectField);
-
-// Continue with your Image display
-        var renderTextureImage = new Image();
-        renderTextureImage.image = _tool.brushCreator.RenderTexture;
-        renderTextureImage.style.width = 64;
-        renderTextureImage.style.height = 64;
-
-        root.Add(renderTextureImage);
         return root;
     }
+
+    // Push tool-side changes (e.g. Cmd+Scroll brush resize) back into the slider values.
+    public void SyncFromTool() {
+        if (_tool == null) return;
+        _brushSizeSlider?.SetValueWithoutNotify(_tool.gridSpaceBrushSize);
+        _pressureSlider?.SetValueWithoutNotify(_tool.pressure);
+    }
+
+    void RefreshPreview() {
+        if (_preview != null && _tool?.brushCreator != null)
+            _preview.image = _tool.brushCreator.RenderTexture;
+    }
+
+    static Label Header(string text) => new Label(text) {
+        style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 6, marginBottom = 2 }
+    };
 }

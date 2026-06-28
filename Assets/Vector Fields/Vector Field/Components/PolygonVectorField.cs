@@ -1,31 +1,18 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
-// Creates a vector field from a polygon: every cell points toward (or away from) the nearest polygon edge.
+// Editor-facing wrapper around the code-callable PolygonVectorFieldGenerator: every cell points toward (or away
+// from) the nearest polygon edge. Holds the settings, detects changes, and feeds the grid/transform into the core.
 // I'd be interested in having this work using Unity's spline system too.
 [ExecuteAlways]
 public class PolygonVectorField : VectorFieldComponent {
     public PolygonRenderer polygonRenderer;
-    // public DrawableVectorFieldComponent vectorFieldComponent => GetComponent<>()
 
     // Which sides of the shape get a vector. Drawn as Inside/Outside toggle buttons; enable both for the whole grid.
-    [EnumFlagsButtonGroup] public Sides sides = Sides.Outside;
-    [System.Flags]
-    public enum Sides {
-        None = 0,
-        Inside = 1 << 0,
-        Outside = 1 << 1,
-    }
+    [EnumFlagsButtonGroup] public PolygonVectorFieldGenerator.Sides sides = PolygonVectorFieldGenerator.Sides.Outside;
 
     // By default inside and outside flow the same way (outward, away from the shape) — continuous across the
     // boundary. Reverse one side to make the field diverge from (FlipInside) or converge on (FlipOutside) the outline.
-    public BoundaryFlip boundaryFlip = BoundaryFlip.None;
-    public enum BoundaryFlip {
-        None,
-        FlipInside,
-        FlipOutside,
-    }
+    public PolygonVectorFieldGenerator.BoundaryFlip boundaryFlip = PolygonVectorFieldGenerator.BoundaryFlip.None;
 
     // Distance from the edge (in polygon-local units) over which the vector fades from full strength (at the
     // edge) to zero. Inner controls the inside region, outer the outside region. 0 = no falloff, constant
@@ -43,8 +30,8 @@ public class PolygonVectorField : VectorFieldComponent {
     PolygonRenderer lastPolygonRenderer;
     SerializableTransform lastPolygonTransform;
     string lastPolygonJson;
-    Sides lastSides;
-    BoundaryFlip lastBoundaryFlip;
+    PolygonVectorFieldGenerator.Sides lastSides;
+    PolygonVectorFieldGenerator.BoundaryFlip lastBoundaryFlip;
     float lastInnerFalloff = float.NaN;
     float lastOuterFalloff = float.NaN;
     float lastAngle = float.NaN;
@@ -70,49 +57,14 @@ public class PolygonVectorField : VectorFieldComponent {
         // Driven by an external PolygonRenderer that may be unassigned (or have no polygon yet); leave the field zeroed.
         if (polygonRenderer == null || polygonRenderer.polygon == null) return;
 
-        var polygon = polygonRenderer.polygon;
-        bool wantInside = (sides & Sides.Inside) != 0;
-        bool wantOutside = (sides & Sides.Outside) != 0;
-        // Precompute the rotation (around the plane normal) applied to every vector.
-        float rad = angle * Mathf.Deg2Rad;
-        float cos = Mathf.Cos(rad), sin = Mathf.Sin(rad);
-
-        foreach (var cell in vectorField) {
-            var worldPoint = gridRenderer.cellCenter.GridToWorldPoint(cell.point);
-            var polygonPoint = (Vector2)polygonRenderer.transform.InverseTransformPoint(worldPoint);
-
-            // Restrict to the chosen side(s) of the shape; cells on an inactive side stay zeroed.
-            bool inside = polygon.ContainsPoint(polygonPoint);
-            if (inside ? !wantInside : !wantOutside) {
-                vectorField[cell.index] = Vector2.zero;
-                continue;
-            }
-
-            var closestPoint = polygon.FindClosestPointOnPolygon(polygonPoint);
-            var toEdge = closestPoint - polygonPoint; // points toward the nearest edge
-            float distance = toEdge.magnitude;
-            // Outward (away from the shape) is continuous across the boundary: inside points toward its nearest edge,
-            // outside points away from it, so both sides flow the same way by default.
-            Vector2 outward = inside ? toEdge : -toEdge;
-            Vector2 direction = distance > 1e-5f ? outward / distance : Vector2.zero;
-
-            // Reverse one side to converge on / diverge from the outline.
-            if ((inside && boundaryFlip == BoundaryFlip.FlipInside) || (!inside && boundaryFlip == BoundaryFlip.FlipOutside))
-                direction = -direction;
-            // Rotate around the plane normal (2D rotation in polygon space).
-            if (angle != 0f) direction = new Vector2(direction.x * cos - direction.y * sin, direction.x * sin + direction.y * cos);
-
-            // Full strength at the edge, fading to zero `falloff` units away (0 = constant strength). Inside and
-            // outside regions use their own falloff distance.
-            float falloff = inside ? innerFalloff : outerFalloff;
-            float strength = falloff > 0f ? Mathf.Clamp01(1f - distance / falloff) : 1f;
-            var vector = direction * (strength * magnitude);
-
-            var worldVector = polygonRenderer.transform.TransformVector(vector);
-            var vectorFieldVector = transform.InverseTransformVector(worldVector);
-
-            vectorField[cell.index] = vectorFieldVector;
-        }
+        PolygonVectorFieldGenerator.Generate(
+            vectorField,
+            p => gridRenderer.cellCenter.GridToWorldPoint(p),
+            polygonRenderer.polygon,
+            polygonRenderer.transform.worldToLocalMatrix,
+            polygonRenderer.transform.localToWorldMatrix,
+            transform.worldToLocalMatrix,
+            sides, boundaryFlip, innerFalloff, outerFalloff, angle, magnitude);
 
         // This field is computed on the CPU, but the draw path, GPU group blend, and shader visualizer all sample
         // renderTexture now (not the CPU vectorField), so a CPU-only component would render to nothing. Encode the

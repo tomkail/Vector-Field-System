@@ -1,16 +1,17 @@
-using InControl;
 using UnityEngine;
 
 [System.Serializable]
-public struct DragParams {
+public struct DragParams
+{
 	public float dragCoefficient;
 	public float quadraticDragCoefficient;
 }
 
 [ExecuteAlways]
-public class Player : MonoSingleton<Player> {
+public class Player : MonoSingleton<Player>
+{
 	public Rigidbody2D rigidbody2D => GetComponent<Rigidbody2D>();
-	public float speed => rigidbody2D.velocity.magnitude;
+	public float speed => rigidbody2D.linearVelocity.magnitude;
 	public VectorFieldComponent vectorField;
 
 	// public Camera camera;
@@ -45,7 +46,8 @@ public class Player : MonoSingleton<Player> {
 		}
 
 
-		if (Application.isPlaying) {
+		if (Application.isPlaying)
+		{
 			// rigidbody2D.rotation = Mathf.MoveTowardsAngle(rigidbody2D.rotation, Vector2.SignedAngle(Vector2.up, inputVector), settings.angleChangeSpeed * deltaTime);
 
 			// var dragParams = settings.fullBrakeDragParams;
@@ -53,7 +55,7 @@ public class Player : MonoSingleton<Player> {
 
 			var baseThrust = settings.thrustAcceleration * settings.thrustAccelerationOverSpeed.Evaluate(speed);
 
-			var velocity = rigidbody2D.velocity;
+			var velocity = rigidbody2D.linearVelocity;
 			var velocityAngle = Vector2.SignedAngle(Vector2.up, velocity);
 
 
@@ -71,23 +73,25 @@ public class Player : MonoSingleton<Player> {
 
 
 			// velocity += baseThrust * inputVector * Time.deltaTime;
-			if (vectorField) {
+			if (vectorField)
+			{
 				velocity += (Vector2)vectorField.EvaluateWorldVector(transform.position) * Time.deltaTime;
 			}
 
-			var movementDirection = rigidbody2D.velocity.normalized;
-			var dragForce = (-movementDirection * (rigidbody2D.velocity.magnitude * settings.dragParams.dragCoefficient)) + -movementDirection * (rigidbody2D.velocity.magnitude * rigidbody2D.velocity.magnitude * settings.dragParams.quadraticDragCoefficient * Time.deltaTime);
+			var movementDirection = rigidbody2D.linearVelocity.normalized;
+			var dragForce = (-movementDirection * (rigidbody2D.linearVelocity.magnitude * settings.dragParams.dragCoefficient)) + -movementDirection * (rigidbody2D.linearVelocity.magnitude * rigidbody2D.linearVelocity.magnitude * settings.dragParams.quadraticDragCoefficient * Time.deltaTime);
 			velocity += dragForce * Time.deltaTime;
 
-			rigidbody2D.velocity = velocity;
+			rigidbody2D.linearVelocity = velocity;
 
-			rigidbody2D.position += rigidbody2D.velocity * Time.deltaTime;
+			rigidbody2D.position += rigidbody2D.linearVelocity * Time.deltaTime;
 
 			rigidbody2D.rotation = Mathf.MoveTowardsAngle(rigidbody2D.rotation, Vector2.SignedAngle(Vector2.up, velocity), settings.angleChangeSpeed * deltaTime);
 		}
 
 		// transform.position += rigidbody2D.velocity;
-		if (inputVector.magnitude > 0) {
+		if (inputVector.magnitude > 0)
+		{
 			// transform.rotation = Quaternion.AngleAxis(inputDegrees-90, Vector3.back);
 			// inputDegrees = Mathf.SmoothDampAngle(inputDegrees, rawInputDegrees, ref angleChangeVelocity, settings.angleChangeSmoothTime);
 			// transform.rotation = Quaternion.AngleAxis(inputDegrees-90, Vector3.back);

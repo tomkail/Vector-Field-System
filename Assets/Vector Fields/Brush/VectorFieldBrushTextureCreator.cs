@@ -1,152 +1,80 @@
 using UnityEngine;
 
+// Generates a "stamp" vector field (a single directional or spot/vortex emitter, shaped by a cookie/falloff) into
+// an ARGBFloat render texture on the GPU.
+//
+// Two ways to use it, both routing through the same Dispatch:
+//   * Statically — VectorFieldBrushTextureCreator.Dispatch(...) — for code that already owns its target texture
+//     (e.g. StampVectorFieldComponent writes straight into the component's renderTexture).
+//   * As an instance — for callers that want a creator object owning its own texture (e.g. the scene drawing tool).
+//     The instance inherits its texture lifecycle from VectorFieldTextureCreator.
 [System.Serializable]
 public class VectorFieldBrushTextureCreator : VectorFieldTextureCreator
 {
 	static ComputeShader stampVectorFieldComputeShader;
 	public static ComputeShader StampVectorFieldComputeShader => stampVectorFieldComputeShader ? stampVectorFieldComputeShader : (stampVectorFieldComputeShader = Resources.Load<ComputeShader>("StampVectorField"));
 
+	// One instantiated copy of the compute shader, shared by every static dispatch. Dispatches are serial on the
+	// main thread and every parameter/keyword is set per dispatch, so a single shared instance is safe and saves
+	// instantiating+destroying a shader on every render.
+	static ComputeShader sharedStampShader;
+	static ComputeShader SharedStampShader => sharedStampShader ? sharedStampShader : (sharedStampShader = Object.Instantiate(StampVectorFieldComputeShader));
 
-	ComputeShader computeShader;
+	// Must match what's in the compute shader
+	const int threadsPerGroupX = 16;
+	const int threadsPerGroupY = 16;
 
 	VectorFieldBrushSettings _brushSettingsParams;
 	public VectorFieldBrushSettings BrushSettingsParams
 	{
 		get => _brushSettingsParams;
-		set
-		{
-			_brushSettingsParams = value;
-			// Render();
-		}
+		set => _brushSettingsParams = value;
 	}
 
 	public VectorFieldBrushTextureCreator(Vector2Int gridSize, VectorFieldBrushSettings brushSettingsParams) : base(gridSize)
 	{
-		computeShader = Object.Instantiate(StampVectorFieldComputeShader);
 		this._brushSettingsParams = brushSettingsParams;
-	}
-
-	public override void Dispose()
-	{
-		base.Dispose();
-		Object.DestroyImmediate(computeShader);
 	}
 
 	protected override void RenderInternal()
 	{
 		EnsureHasValidRenderTexture();
+		Dispatch(renderTexture, gridSize, magnitude, _brushSettingsParams, cookieTexture);
+	}
 
-		// Must match what's in the compute shader
-		const int threadsPerGroupX = 16;
-		const int threadsPerGroupY = 16;
+	// The single dispatch routine. `target` must already be a valid ARGBFloat random-write texture of gridSize;
+	// `cookieTexture` shapes the stamp (a Texture2D or RenderTexture); null falls back to a solid white cookie.
+	public static void Dispatch(RenderTexture target, Vector2Int gridSize, float magnitude, VectorFieldBrushSettings brushSettings, Texture cookieTexture)
+	{
+		if (target == null || gridSize.x <= 0 || gridSize.y <= 0) return;
 
-		// Calculate the number of thread groups
+		var computeShader = SharedStampShader;
+
 		int threadGroupsX = Mathf.CeilToInt((float)gridSize.x / threadsPerGroupX);
 		int threadGroupsY = Mathf.CeilToInt((float)gridSize.y / threadsPerGroupY);
 		computeShader.SetInt("NumThreadGroupsX", threadGroupsX);
 
-		computeShader.SetTexture(0, "Result", renderTexture);
+		computeShader.SetTexture(0, "Result", target);
 		computeShader.SetInt("width", gridSize.x);
 		computeShader.SetInt("height", gridSize.y);
 
 		computeShader.SetFloat("magnitude", magnitude);
-		computeShader.SetFloat("directionalAngle", _brushSettingsParams.directionalAngle);
-		computeShader.SetFloat("vortexAngle", _brushSettingsParams.vortexAngle);
+		computeShader.SetFloat("directionalAngle", brushSettings.directionalAngle);
+		computeShader.SetFloat("vortexAngle", brushSettings.vortexAngle);
 
-		if (_brushSettingsParams.forceType == VectorFieldBrushSettings.ForceEmitterType.Directional)
+		if (brushSettings.forceType == VectorFieldBrushSettings.ForceEmitterType.Directional)
 		{
 			computeShader.EnableKeyword("DIRECTIONAL");
 			computeShader.DisableKeyword("SPOT");
 		}
-		else if (_brushSettingsParams.forceType == VectorFieldBrushSettings.ForceEmitterType.Spot)
+		else if (brushSettings.forceType == VectorFieldBrushSettings.ForceEmitterType.Spot)
 		{
 			computeShader.EnableKeyword("SPOT");
 			computeShader.DisableKeyword("DIRECTIONAL");
 		}
 
-		// CreateRampTextureFromAnimationCurve(brushParams.falloffCurve, 32, ref curveTexture);
-		// computeShader.SetTexture(0, "curveTexture", curveTexture);
 		computeShader.SetTexture(0, "cookieTexture", cookieTexture != null ? cookieTexture : Texture2D.whiteTexture);
 
 		computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
-	}
-
-
-
-
-
-	public static void CreateVectorField(Vector2Int gridSize, float magnitude, VectorFieldBrushSettings _brushSettingsParams, Texture2D cookieTexture, ref RenderTexture renderTexture)
-	{
-		// Create a render texture.
-		bool needsCreateRenderTexture = renderTexture == null;
-		// Potential upgrade: take RenderTextureDescriptor as a parameter and use those settings if the RenderTexture is null, rather than prescribing the settings
-		RenderTextureFormat rtFormat = RenderTextureFormat.ARGB32;
-		FilterMode rtFilterMode = FilterMode.Bilinear;
-		if (renderTexture != null && (renderTexture.width != gridSize.x || renderTexture.height != gridSize.y || renderTexture.format != rtFormat))
-		{
-			rtFormat = renderTexture.format;
-			rtFilterMode = renderTexture.filterMode;
-			renderTexture.Release();
-			needsCreateRenderTexture = true;
-		}
-		if (needsCreateRenderTexture && gridSize.x > 0 && gridSize.y > 0)
-		{
-			// Linear read/write: this holds encoded vector data, not colour, so it must not get sRGB conversion
-			// (matters in a linear colour space and survives the Built-in -> URP move).
-			renderTexture = new RenderTexture(gridSize.x, gridSize.y, 0, rtFormat, RenderTextureReadWrite.Linear)
-			{
-				filterMode = rtFilterMode
-			};
-		}
-
-
-		var computeShader = Object.Instantiate(StampVectorFieldComputeShader);
-
-		// Must match what's in the compute shader
-		const int threadsPerGroupX = 16;
-		const int threadsPerGroupY = 16;
-
-		// Calculate the number of thread groups
-		int threadGroupsX = Mathf.CeilToInt((float)gridSize.x / threadsPerGroupX);
-		int threadGroupsY = Mathf.CeilToInt((float)gridSize.y / threadsPerGroupY);
-		computeShader.SetInt("NumThreadGroupsX", threadGroupsX);
-
-		computeShader.SetTexture(0, "Result", renderTexture);
-		computeShader.SetInt("width", gridSize.x);
-		computeShader.SetInt("height", gridSize.y);
-
-		computeShader.SetFloat("magnitude", magnitude);
-		computeShader.SetFloat("directionalAngle", _brushSettingsParams.directionalAngle);
-		computeShader.SetFloat("vortexAngle", _brushSettingsParams.vortexAngle);
-
-		if (_brushSettingsParams.forceType == VectorFieldBrushSettings.ForceEmitterType.Directional)
-		{
-			computeShader.EnableKeyword("DIRECTIONAL");
-			computeShader.DisableKeyword("SPOT");
-		}
-		else if (_brushSettingsParams.forceType == VectorFieldBrushSettings.ForceEmitterType.Spot)
-		{
-			computeShader.EnableKeyword("SPOT");
-			computeShader.DisableKeyword("DIRECTIONAL");
-		}
-
-		// CreateRampTextureFromAnimationCurve(brushParams.falloffCurve, 32, ref curveTexture);
-		// computeShader.SetTexture(0, "curveTexture", curveTexture);
-		computeShader.SetTexture(0, "cookieTexture", cookieTexture != null ? cookieTexture : Texture2D.whiteTexture);
-
-		computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
-
-		Object.DestroyImmediate(computeShader);
-	}
-
-	public static RenderTexture CreateVectorField(Vector2Int gridSize, float magnitude, VectorFieldBrushSettings _brushSettingsParams, Texture2D cookieTexture)
-	{
-		RenderTexture renderTexture = new RenderTexture(gridSize.x, gridSize.y, 0, RenderTextureFormat.ARGBFloat, 0)
-		{
-			enableRandomWrite = true,
-			filterMode = FilterMode.Bilinear
-		};
-		CreateVectorField(gridSize, magnitude, _brushSettingsParams, cookieTexture, ref renderTexture);
-		return renderTexture;
 	}
 }

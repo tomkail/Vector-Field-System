@@ -55,33 +55,7 @@ public abstract class VectorFieldTextureCreator : IDisposable {
     }
     
     public void EnsureHasValidRenderTexture() {
-        var renderTextureDescriptor = new RenderTextureDescriptor(gridSize.x, gridSize.y, RenderTextureFormat.ARGBFloat, 0) {
-            enableRandomWrite = true,
-        };
-        if (renderTexture == null) {
-            renderTexture = new RenderTexture (renderTextureDescriptor) {
-                filterMode = FilterMode.Bilinear
-            };
-        } else if(!RenderTextureDescriptorsMatch(renderTexture.descriptor, renderTextureDescriptor)) {
-            var rtFilterMode = renderTexture.filterMode;
-                
-            if(RenderTexture.active == renderTexture) RenderTexture.active = null;
-            renderTexture.Release();
-
-            renderTexture.descriptor = renderTextureDescriptor;
-            renderTexture.Create();
-            renderTexture.filterMode = rtFilterMode;
-        }
-        static bool RenderTextureDescriptorsMatch(RenderTextureDescriptor descriptorA, RenderTextureDescriptor descriptorB) {
-            if (descriptorA.depthBufferBits != descriptorB.depthBufferBits) return false;
-            if (descriptorA.width != descriptorB.width) return false;
-            if (descriptorA.height != descriptorB.height) return false;
-            if (descriptorA.depthStencilFormat != descriptorB.depthStencilFormat) return false;
-            if (descriptorA.enableRandomWrite != descriptorB.enableRandomWrite) return false;
-            if (descriptorA.colorFormat != descriptorB.colorFormat) return false;
-            if (descriptorA.dimension != descriptorB.dimension) return false;
-            return true;
-        }
+        VectorFieldRenderTextureUtils.EnsureValid(ref renderTexture, gridSize.x, gridSize.y);
     }
     
     public void ReleaseRenderTexture () {

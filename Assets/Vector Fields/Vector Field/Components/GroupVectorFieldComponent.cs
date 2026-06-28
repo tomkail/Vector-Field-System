@@ -98,7 +98,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		var hash = new HashCode();
 		hash.Add(layers.Count);
 		foreach (var layer in layers) {
-			hash.Add(layer.component != null ? layer.component.GetEntityId() : 0);
+			hash.Add(layer.component != null ? layer.component.GetEntityId().GetHashCode() : 0);
 			hash.Add(layer.strength);
 			hash.Add((int)layer.blendMode);
 			hash.Add((int)layer.components);

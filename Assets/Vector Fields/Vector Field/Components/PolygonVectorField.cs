@@ -28,8 +28,10 @@ public class PolygonVectorField : VectorFieldComponent {
     }
 
     // Distance from the edge (in polygon-local units) over which the vector fades from full strength (at the
-    // edge) to zero. 0 = no falloff, constant strength throughout the active region.
-    [Min(0)] public float falloff = 1f;
+    // edge) to zero. Inner controls the inside region, outer the outside region. 0 = no falloff, constant
+    // strength throughout that region.
+    [Min(0)] public float innerFalloff = 1f;
+    [Min(0)] public float outerFalloff = 1f;
 
     // Rotates each vector around the plane normal, like NoiseVectorFieldComponent.vortexAngle. 0 points straight
     // toward the nearest edge; 90 makes the field circulate around the shape; 180 points it away from the edge.
@@ -43,7 +45,8 @@ public class PolygonVectorField : VectorFieldComponent {
     string lastPolygonJson;
     Sides lastSides;
     BoundaryFlip lastBoundaryFlip;
-    float lastFalloff = float.NaN;
+    float lastInnerFalloff = float.NaN;
+    float lastOuterFalloff = float.NaN;
     float lastAngle = float.NaN;
     protected override bool ParametersChanged() {
         bool changed = base.ParametersChanged();
@@ -56,7 +59,8 @@ public class PolygonVectorField : VectorFieldComponent {
         }
         if (lastSides != sides) { lastSides = sides; changed = true; }
         if (lastBoundaryFlip != boundaryFlip) { lastBoundaryFlip = boundaryFlip; changed = true; }
-        if (lastFalloff != falloff) { lastFalloff = falloff; changed = true; }
+        if (lastInnerFalloff != innerFalloff) { lastInnerFalloff = innerFalloff; changed = true; }
+        if (lastOuterFalloff != outerFalloff) { lastOuterFalloff = outerFalloff; changed = true; }
         if (lastAngle != angle) { lastAngle = angle; changed = true; }
         return changed;
     }
@@ -98,7 +102,9 @@ public class PolygonVectorField : VectorFieldComponent {
             // Rotate around the plane normal (2D rotation in polygon space).
             if (angle != 0f) direction = new Vector2(direction.x * cos - direction.y * sin, direction.x * sin + direction.y * cos);
 
-            // Full strength at the edge, fading to zero `falloff` units away (0 = constant strength).
+            // Full strength at the edge, fading to zero `falloff` units away (0 = constant strength). Inside and
+            // outside regions use their own falloff distance.
+            float falloff = inside ? innerFalloff : outerFalloff;
             float strength = falloff > 0f ? Mathf.Clamp01(1f - distance / falloff) : 1f;
             var vector = direction * (strength * magnitude);
 

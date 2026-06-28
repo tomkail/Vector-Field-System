@@ -24,16 +24,20 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	public Vector3 planeNormal => transform.forward;
 
 	[Space]
-	[AssetSaver] public Texture2D savedTexture;
 	[NonSerialized] public RenderTexture renderTexture;
 
-	// The vector field data is stored in textures
-	public Vector2Map vectorField;
+	// The CPU copy of the field, for consumers that read it on the CPU (the particle force field, the debug
+	// renderer, EvaluateVector). Transient: GPU components fill it via readback when a consumer wants it, CPU
+	// components (polygon / group-CPU) compute into it directly. Not serialized — it's rebuilt every render, and
+	// authored data (Drawable) lives in its own paintField.
+	[NonSerialized] public Vector2Map vectorField;
 
 	public float magnitude = 1;
 
-	public Texture2D cookieTexture;
-	// public VectorFieldCookieTextureCreator cookieTextureCreator;
+	// Optional mask applied to this field's output after it's rendered: multiplies the field's strength by the
+	// cookie (radial falloff, curve, or texture). Defaults to None (no masking). Applied uniformly to every
+	// component — including groups, where it masks the combined result — by Render().
+	public VectorFieldCookieSource cookie = new VectorFieldCookieSource();
 
 	// Fired synchronously when the field has been rendered (the GPU renderTexture is current). For consumers that
 	// read the texture directly.
@@ -90,9 +94,6 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// This is called after Awake and on recompile
 	protected virtual void OnEnable() {
 		EnsureInitialized();
-		if (savedTexture != null) {
-			ConvertTexture2DToRenderTexture();
-		}
 		SetDirty();
 		EnsureUpToDate();
 	}
@@ -111,16 +112,18 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		// We're leaving the blend; let our group re-render without us.
 		if (group != null) group.SetDirty();
 
-		if (renderTexture != null) {
-			ConvertRenderTextureToTexture2D();
-		}
+		// Release the GPU texture: render textures aren't garbage collected, so leaving it alive across a
+		// disable/enable would leak it. It's rebuilt from the component's source on the next render.
+		if (renderTexture != null) DestroyRenderTexture();
+		cookie?.Dispose();
 #if UNITY_EDITOR
 		EditorApplication.update -= Tick;
 #endif
 	}
 
 	protected virtual void OnDestroy() {
-		// ObjectX.DestroyAutomatic(vectorFieldTexture);
+		DestroyRenderTexture();
+		cookie?.Dispose();
 	}
 
 #if UNITY_EDITOR
@@ -162,13 +165,15 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// updating every cached field on every call (no short-circuiting) so a change to any one is never missed.
 	float lastMagnitude = float.NaN;
 	Point lastGridSize = new Point(-1, -1);
-	Texture2D lastCookieTexture;
+	string lastCookieJson;
 	protected virtual bool ParametersChanged() {
 		bool changed = false;
 		if (lastMagnitude != magnitude) { lastMagnitude = magnitude; changed = true; }
 		var gridSize = gridRenderer != null ? gridRenderer.gridSize : Point.zero;
 		if (lastGridSize != gridSize) { lastGridSize = gridSize; changed = true; }
-		if (lastCookieTexture != cookieTexture) { lastCookieTexture = cookieTexture; changed = true; }
+		// JSON snapshot catches any cookie field change (mode/softness/curve/texture) without enumerating them.
+		string cookieJson = cookie != null ? JsonUtility.ToJson(cookie) : null;
+		if (lastCookieJson != cookieJson) { lastCookieJson = cookieJson; changed = true; }
 		return changed;
 	}
 
@@ -192,26 +197,43 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// reading to guarantee fresh data (pull), and groups call it on each child before blending.
 	public void EnsureUpToDate() {
 		if (!isActiveAndEnabled || !isDirty) return;
+		// A group pulls its children up to date during its own OnEnable, which can run before a child's OnEnable has
+		// initialized it — so make sure gridRenderer is resolved before rendering, rather than NRE'ing on it.
+		if (gridRenderer == null) EnsureInitialized();
 		isDirty = false;
 		Render();
 	}
 
 	public void Render() {
 		RenderInternal();
+
+		// Mask the rendered field by the cookie (no-op when None). Applied to the GPU render texture before consumers
+		// read it, so the group blend, the shader visualizer, and any GPU-mode readback see the masked field.
+		if (cookie != null && cookie.Enabled && renderTexture != null)
+			cookie.Apply(renderTexture, new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y));
+
 		OnRendered?.Invoke();
 
 		if (renderTexture == null) {
 			// CPU-mode: RenderInternal already built vectorField, so it's ready now.
 			OnCpuDataReady?.Invoke();
 		} else if (WantsCpuData) {
-			// GPU-mode with a registered CPU consumer: read the texture back into vectorField (synchronously if any
-			// consumer needs it this frame, otherwise async with no stall). HandleReadback fires OnCpuDataReady.
+			// GPU-mode with a registered CPU consumer: read the (cookie-masked) texture back into vectorField
+			// (synchronously if any consumer needs it this frame, otherwise async with no stall). HandleReadback
+			// fires OnCpuDataReady. vectorField is the consumer-facing output copy — for components that author their
+			// field on the CPU (see UploadSource), it's distinct from the authored buffer so this never clobbers it.
 			ReadIntoCPU(forceImmediate: WantsImmediateCpuData);
 		}
 		// GPU-mode with no CPU consumer: skip the readback entirely — nobody needs the CPU copy.
 	}
 
 	protected abstract void RenderInternal();
+
+	// The CPU field that WriteVectorFieldToRenderTexture[Region] uploads to the GPU. Defaults to vectorField (the
+	// field RenderInternal computes into). Components that author their field on the CPU and keep it separate from
+	// the readback target (e.g. the painted field) override this to point at their authored buffer, so uploads come
+	// from the authored data while the cookie-masked readback lands in vectorField for consumers.
+	protected virtual Vector2Map UploadSource => vectorField;
 
 	AsyncGPUReadbackRequest? pendingReadback;
 
@@ -266,10 +288,11 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	Texture2D uploadTexture;
 	Color[] uploadColors;
 	bool EnsureUploadTexture() {
-		if (vectorField == null) return false;
+		var src = UploadSource;
+		if (src == null) return false;
 		EnsureHasValidRenderTexture();
-		int width = vectorField.size.x;
-		int height = vectorField.size.y;
+		int width = src.size.x;
+		int height = src.size.y;
 		if (uploadTexture == null || uploadTexture.width != width || uploadTexture.height != height) {
 			if (uploadTexture != null) ObjectX.DestroyAutomatic(uploadTexture);
 			// linear: true — this stores encoded vector data and must not be sRGB-converted on the Blit.
@@ -280,9 +303,10 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
 	protected void WriteVectorFieldToRenderTexture() {
 		if (!EnsureUploadTexture()) return;
-		int count = vectorField.values.Length;
+		var src = UploadSource;
+		int count = src.values.Length;
 		if (uploadColors == null || uploadColors.Length != count) uploadColors = new Color[count];
-		VectorFieldUtils.VectorsToColors(vectorField.values, 1, uploadColors);
+		VectorFieldUtils.VectorsToColors(src.values, 1, uploadColors);
 		uploadTexture.SetPixels(uploadColors);
 		uploadTexture.Apply(false);
 		Graphics.Blit(uploadTexture, renderTexture);
@@ -295,8 +319,9 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// coordinates (origin bottom-left, matching the field and the readback) and is clamped to the field bounds.
 	Color[] regionColors;
 	protected void WriteVectorFieldRegionToRenderTexture(RectInt region) {
-		int width = vectorField != null ? vectorField.size.x : 0;
-		int height = vectorField != null ? vectorField.size.y : 0;
+		var src = UploadSource;
+		int width = src != null ? src.size.x : 0;
+		int height = src != null ? src.size.y : 0;
 		// Patching requires both an up-to-date full mirror to layer onto AND a matching renderTexture to blit into;
 		// if either is missing (first render, resize, or renderTexture released across a disable/enable), the full
 		// path rebuilds both. (Checking renderTexture here also keeps us from ever blitting into the backbuffer.)
@@ -317,7 +342,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		if (regionColors == null || regionColors.Length != count) regionColors = new Color[count];
 		for (int ry = 0; ry < h; ry++)
 			for (int rx = 0; rx < w; rx++)
-				regionColors[ry * w + rx] = VectorFieldUtils.VectorToColor(vectorField.GetValueAtGridPoint(x0 + rx, y0 + ry), 1);
+				regionColors[ry * w + rx] = VectorFieldUtils.VectorToColor(src.GetValueAtGridPoint(x0 + rx, y0 + ry), 1);
 
 		uploadTexture.SetPixels(x0, y0, w, h, regionColors);
 		uploadTexture.Apply(false);
@@ -339,33 +364,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	}
 
 	public void EnsureHasValidRenderTexture() {
-		var renderTextureDescriptor = new RenderTextureDescriptor(gridRenderer.gridSize.x, gridRenderer.gridSize.y, RenderTextureFormat.ARGBFloat, 0) {
-			enableRandomWrite = true,
-		};
-		if (renderTexture == null) {
-			renderTexture = new RenderTexture(renderTextureDescriptor) {
-				filterMode = FilterMode.Bilinear
-			};
-		} else if (!RenderTextureDescriptorsMatch(renderTexture.descriptor, renderTextureDescriptor)) {
-			var rtFilterMode = renderTexture.filterMode;
-
-			if (RenderTexture.active == renderTexture) RenderTexture.active = null;
-			renderTexture.Release();
-
-			renderTexture.descriptor = renderTextureDescriptor;
-			renderTexture.Create();
-			renderTexture.filterMode = rtFilterMode;
-		}
-		static bool RenderTextureDescriptorsMatch(RenderTextureDescriptor descriptorA, RenderTextureDescriptor descriptorB) {
-			if (descriptorA.depthBufferBits != descriptorB.depthBufferBits) return false;
-			if (descriptorA.width != descriptorB.width) return false;
-			if (descriptorA.height != descriptorB.height) return false;
-			if (descriptorA.depthStencilFormat != descriptorB.depthStencilFormat) return false;
-			if (descriptorA.enableRandomWrite != descriptorB.enableRandomWrite) return false;
-			if (descriptorA.colorFormat != descriptorB.colorFormat) return false;
-			if (descriptorA.dimension != descriptorB.dimension) return false;
-			return true;
-		}
+		VectorFieldRenderTextureUtils.EnsureValid(ref renderTexture, gridRenderer.gridSize.x, gridRenderer.gridSize.y);
 	}
 
 	public Vector3 EvaluateWorldVector(Vector3 position) {
@@ -506,31 +505,5 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		}
 		texture.Apply();
 		return texture;
-	}
-
-	void ConvertRenderTextureToTexture2D() {
-		if (renderTexture == null) return;
-
-		// linear: true — this stores encoded vector data, so it must not be sRGB-converted on read-back.
-		savedTexture = new Texture2D(renderTexture.width, renderTexture.height, TextureFormat.RGBA32, false, true);
-
-		RenderTexture.active = renderTexture;
-		savedTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
-		savedTexture.Apply();
-		RenderTexture.active = null;
-
-		// Debug.Log("RenderTexture converted to Texture2D for serialization.");
-	}
-
-	void ConvertTexture2DToRenderTexture() {
-		if (savedTexture == null) return;
-
-		// Linear read/write so the Blit preserves the encoded vectors instead of applying sRGB (Built-in -> URP safe).
-		renderTexture = new RenderTexture(savedTexture.width, savedTexture.height, 24, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
-		RenderTexture.active = renderTexture;
-		Graphics.Blit(savedTexture, renderTexture);
-		RenderTexture.active = null;
-
-		// Debug.Log("Texture2D restored to RenderTexture after deserialization.");
 	}
 }

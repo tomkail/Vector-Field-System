@@ -164,10 +164,10 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	public void Render() {
 		RenderInternal();
 		if (keepCPUUpdated && renderTexture != null) {
-			// vectorField is filled asynchronously, so defer OnRender to the readback callback — otherwise CPU
-			// consumers (e.g. the particle force field) would be notified before the new data lands and, now that
-			// we only render on change, would never see it.
-			ReadIntoCPU();
+			// Populate the CPU vectorField synchronously so OnRender fires this frame with fresh data, matching the
+			// CPU-combine path. The async readback didn't reliably notify consumers (e.g. the particle force field);
+			// since we now render only on change rather than every frame, the readback stall is affordable.
+			ReadIntoCPU(forceImmediate: true);
 		} else {
 			// CPU-mode (or no GPU texture): vectorField is already current.
 			OnRender?.Invoke();

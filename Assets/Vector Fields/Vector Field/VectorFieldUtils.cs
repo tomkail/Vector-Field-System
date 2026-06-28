@@ -69,6 +69,14 @@ public static class VectorFieldUtils {
 		}
 		return colors;
 	}
+
+	// In-place variant: encodes straight into a caller-owned array so repeated uploads can reuse one buffer instead
+	// of allocating a fresh Color[] every call. Writes vectors.Length entries; results must be at least that long.
+	public static void VectorsToColors (Vector2[] vectors, float maxComponentReciprocal, Color[] results) {
+		for(int i = 0; i < vectors.Length; i++) {
+			results[i] = VectorToColor(vectors[i], maxComponentReciprocal);
+		}
+	}
 	
 	public static Color VectorToColor (Vector2 vector, float maxComponentReciprocal) {
 		return new Color(VectorComponentToColorComponent(vector.x, maxComponentReciprocal), VectorComponentToColorComponent(vector.y, maxComponentReciprocal), 0);

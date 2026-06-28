@@ -315,6 +315,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
 
         foreach(var cellBrushAffectorParams in GetBrushPaint(gridPosition, magnitude, brushMap, gridSpaceBrushSize)) {
             vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, cellBrushAffectorParams.finalForce);
+            editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;
     }
@@ -327,6 +328,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
             var newValue = drawingStepParams.drawForce * pressure;
             newValue = Vector2.ClampMagnitude(newValue, Mathf.Lerp(oldValue.magnitude, pressure, cellBrushAffectorParams.brushForce.magnitude));
             vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, newValue);
+            editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;
     }
@@ -336,6 +338,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
 
         foreach(var cellBrushAffectorParams in GetBrushPaint(drawingStepParams.gridPosition, drawingStepParams.drawForce, brushMap, gridSpaceBrushSize)) {
             vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.vectorField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) + cellBrushAffectorParams.finalForce * pressure);
+            editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;
     }
@@ -354,12 +357,28 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
 
         foreach(var cellBrushAffectorParams in GetBrushPaint(drawingStepParams.gridPosition, drawingStepParams.drawForce, brushMap, gridSpaceBrushSize)) {
             vectorFieldManager.vectorField.SetValueAtGridPoint(cellBrushAffectorParams.gridPoint, vectorFieldManager.vectorField.GetValueAtGridPoint(cellBrushAffectorParams.gridPoint) * cellBrushAffectorParams.finalForce.magnitude * pressure);
+            editedPoints.Add(cellBrushAffectorParams.gridPoint);
         }
         return editedPoints;
     }
 
     void EditVectorField(List<Point> editedPoints) {
-        vectorFieldManager.SetDirty();
+        if (editedPoints.Count == 0) {
+            // No region info — fall back to a full re-upload.
+            vectorFieldManager.SetDirty();
+            return;
+        }
+
+        // Report the bounding rect of the touched cells so only that region is uploaded to the GPU texture.
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        foreach (var p in editedPoints) {
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+        }
+        // RectInt size is exclusive of the max, so +1 to include the max cell.
+        vectorFieldManager.MarkRegionDirty(new RectInt(minX, minY, maxX - minX + 1, maxY - minY + 1));
     }
 
     bool GetHitPoint(Vector2 mousePosition, out RaycastHit hit) {

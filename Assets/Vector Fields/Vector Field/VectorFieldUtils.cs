@@ -28,24 +28,38 @@ public static class VectorFieldUtils {
 	}
 
 	public static Texture3D CreateTexture3D(Vector2Map vectorField) {
-		var depth = 1;
-		Color[] colorArray = new Color[vectorField.size.x * vectorField.size.y * depth];
-		for (int z = 0; z < depth; z++) {
-			for (int y = 0; y < vectorField.size.y; y++) {
-				for (int x = 0; x < vectorField.size.x; x++) {
-					Vector2 vector = vectorField.GetValueAtGridPoint(x, y);
-					Color color = new Color(vector.x, vector.y, 0f, 1); // Using 0.5f as neutral value for z
-					int index = z * (vectorField.size.x * vectorField.size.y) + y * vectorField.size.x + x;
-					colorArray[index] = color;
-				}
+		Texture3D texture3D = null;
+		FillTexture3D(vectorField, ref texture3D);
+		return texture3D;
+	}
+
+	// Writes the field into a depth-1 Texture3D, reusing the existing texture when its dimensions already match.
+	// This avoids destroying + reallocating the Texture3D (and its GPU storage) every time the field updates,
+	// which previously happened on every render.
+	public static void FillTexture3D(Vector2Map vectorField, ref Texture3D texture3D) {
+		const int depth = 1;
+		int width = vectorField.size.x;
+		int height = vectorField.size.y;
+
+		if (texture3D == null || texture3D.width != width || texture3D.height != height || texture3D.depth != depth) {
+			if (texture3D != null) {
+				if (Application.isPlaying) Object.Destroy(texture3D);
+				else Object.DestroyImmediate(texture3D);
 			}
+			texture3D = new Texture3D(width, height, depth, TextureFormat.RGBAHalf, false) {
+				filterMode = FilterMode.Bilinear
+			};
 		}
 
-		var texture3D = new Texture3D(vectorField.size.x, vectorField.size.y, depth, TextureFormat.RGBAHalf, false);
-		texture3D.filterMode = FilterMode.Bilinear;
+		Color[] colorArray = new Color[width * height * depth];
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				Vector2 vector = vectorField.GetValueAtGridPoint(x, y);
+				colorArray[y * width + x] = new Color(vector.x, vector.y, 0f, 1);
+			}
+		}
 		texture3D.SetPixels(colorArray, 0);
 		texture3D.Apply();
-		return texture3D;
 	}
 	
 	public static Color[] VectorsToColors (Vector2[] vectors, float maxComponentReciprocal) {
@@ -71,6 +85,14 @@ public static class VectorFieldUtils {
 			vectors[i] = ColorToVector(colors[i], maxComponent);
 		}
 		return vectors;
+	}
+
+	// In-place variant: decodes straight into a caller-owned array so the readback can reuse its backing
+	// Vector2Map instead of allocating a fresh array + map on every frame.
+	public static void ColorsToVectors (NativeArray<Color> colors, float maxComponent, Vector2[] results) {
+		for(int i = 0; i < colors.Length; i++) {
+			results[i] = ColorToVector(colors[i], maxComponent);
+		}
 	}
 	
 	public static Vector2[] ColorsToVectors (Color[] colors, float maxComponent) {

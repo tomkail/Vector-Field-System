@@ -30,8 +30,30 @@ public class ParticleSystemVectorField : MonoBehaviour
 	void OnEnable()
 	{
 		SetupConstraints();
+		ConfigureForceField();
 		Refresh();
 		_vectorFieldComponent.OnRender += Refresh;
+	}
+
+	// The force field's shape/range/gravity/etc. never change at runtime, so set them once rather than on every Refresh.
+	void ConfigureForceField()
+	{
+		forceField.shape = ParticleSystemForceFieldShape.Box;
+		forceField.startRange = 0f;
+		forceField.endRange = 0.5f;
+
+		forceField.directionX = 0f;
+		forceField.directionY = 0f;
+		forceField.directionZ = 0f;
+
+		forceField.gravity = 0f;
+		forceField.gravityFocus = 0f;
+
+		forceField.rotationAttraction = 0f;
+		forceField.rotationRandomness = Vector2.zero;
+		forceField.rotationSpeed = 0f;
+
+		forceField.drag = 0f;
 	}
 
 	private void SetupConstraints()
@@ -70,27 +92,9 @@ public class ParticleSystemVectorField : MonoBehaviour
 
 	void Refresh()
 	{
-		if (texture3D != null) ObjectX.DestroyAutomatic(texture3D);
-		if (_vectorFieldComponent == null) return;
-		texture3D = VectorFieldUtils.CreateTexture3D(_vectorFieldComponent.vectorField);
-		// var pixerls = texture3D.GetPixels();
-
-		forceField.shape = ParticleSystemForceFieldShape.Box;
-		forceField.startRange = 0f;
-		forceField.endRange = 0.5f;
-
-		forceField.directionX = 0f;
-		forceField.directionY = 0f;
-		forceField.directionZ = 0f;
-
-		forceField.gravity = 0f;
-		forceField.gravityFocus = 0f;
-
-		forceField.rotationAttraction = 0f;
-		forceField.rotationRandomness = Vector2.zero;
-		forceField.rotationSpeed = 0f;
-
-		forceField.drag = 0f;
+		if (_vectorFieldComponent == null || _vectorFieldComponent.vectorField == null) return;
+		// Reuse the existing Texture3D instead of destroying + reallocating it on every render.
+		VectorFieldUtils.FillTexture3D(_vectorFieldComponent.vectorField, ref texture3D);
 
 		forceField.vectorField = texture3D;
 		forceField.vectorFieldSpeed = _vectorFieldComponent.magnitude;

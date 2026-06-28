@@ -1,5 +1,4 @@
-﻿using InControl.NativeDeviceProfiles;
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEditor;
 
 [CustomEditor(typeof(VectorFieldComponent), true), CanEditMultipleObjects]

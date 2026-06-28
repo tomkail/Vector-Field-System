@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
+[System.Serializable]
 public abstract class VectorFieldTextureCreator : IDisposable {
     protected Vector2Int gridSize;
 

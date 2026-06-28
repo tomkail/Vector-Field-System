@@ -6,7 +6,8 @@ Shader "Custom/CombineVectorFields"
         _VectorField ("Vector Field", 2D) = "black" {}
         _Strength ("Strength", Float) = 1
         [Enum(Add,0,Blend,1)] _BlendMode ("Blend Mode", Int) = 0
-        [Enum(All,0,Magnitude,1,Direction,2)] _Components ("Components", Int) = 0
+        // Bitmask: Magnitude = 1, Direction = 2, All = 3. Set from script per layer.
+        _Components ("Components", Int) = 3
     }
     SubShader
     {
@@ -50,30 +51,39 @@ Shader "Custom/CombineVectorFields"
                 return o;
             }
             
-            float2 BlendVectors(float2 current, float2 vectorB, float strength, float blendMode, float components)
+            float2 SafeNormalize(float2 v)
             {
-                float2 result = current;
+                float len = length(v);
+                return len > 1e-6 ? v / len : float2(0, 0);
+            }
+
+            // Canonical per-vector blend. Must stay in sync with GroupVectorFieldComponent.BlendVector (C#).
+            // _Components is a bitmask: Magnitude = 1, Direction = 2, All = 3. The two aspects compose.
+            float2 BlendVectors(float2 current, float2 vectorB, float strength, int blendMode, int components)
+            {
+                bool hasMagnitude = (components & 1) != 0;
+                bool hasDirection = (components & 2) != 0;
+                if (!hasMagnitude && !hasDirection)
+                    return current;
 
                 if (blendMode == 0) // Add
                 {
-                    if (components == 0) // All
-                        result = current + vectorB * strength;
-                    else if (components == 1) // Magnitude
-                        result = current + normalize(current) * length(vectorB) * strength;
-                    else if (components == 2) // Direction
-                        result = vectorB + length(current) * normalize(vectorB) * strength;
+                    if (hasMagnitude && hasDirection)
+                        return current + vectorB * strength;
+                    if (hasMagnitude) // lengthen along current direction by incoming magnitude
+                        return current + SafeNormalize(current) * length(vectorB) * strength;
+                    // direction only: push current's magnitude toward the incoming direction
+                    return current + SafeNormalize(vectorB) * length(current) * strength;
                 }
-                else if (blendMode == 1) // Blend
+                else // Blend
                 {
-                    if (components == 0) // All
-                        result = lerp(current, vectorB, strength);
-                    else if (components == 1) // Magnitude
-                        result = normalize(current) * strength;
-                    else if (components == 2) // Direction
-                        result = normalize(vectorB) * length(current) * strength;
+                    if (hasMagnitude && hasDirection)
+                        return lerp(current, vectorB, strength);
+                    if (hasMagnitude) // keep current direction, blend length toward incoming
+                        return SafeNormalize(current) * lerp(length(current), length(vectorB), strength);
+                    // direction only: rotate current toward incoming direction, keep current magnitude
+                    return SafeNormalize(lerp(SafeNormalize(current), SafeNormalize(vectorB), strength)) * length(current);
                 }
-
-                return result;
             }
             float2 Rotate2D(float2 v, float theta)
             {

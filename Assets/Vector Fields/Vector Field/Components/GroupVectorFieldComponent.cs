@@ -23,11 +23,11 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		[Flags]
 		public enum Component {
 			None = 0,
-			All = ~0,
-			// Add to current value
+			// Which aspects of the incoming vector affect the result. These are independent bits, so they compose:
+			// Magnitude | Direction == All.
 			Magnitude = 1 << 0,
-			// Lerp between current and new value based on brush alpha
 			Direction = 1 << 1,
+			All = Magnitude | Direction,
 		}
 
 		// public Texture2D texture;
@@ -164,10 +164,9 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		material.SetTexture("_VectorField", combineVectorFieldsParams.vectorFieldB);
 		material.SetMatrix("_RelativeTransform", GetRelativeTransform(combineVectorFieldsParams.vectorFieldBLocalToWorldMatrix, combineVectorFieldsParams.vectorFieldALocalToWorldMatrix));
 		material.SetFloat("_Strength", combineVectorFieldsParams.strength);
-		material.SetFloat("_BlendMode", (int)combineVectorFieldsParams.blendMode);
-		if (combineVectorFieldsParams.components == VectorFieldLayer.Component.All) material.SetFloat("_Components", 0);
-		else if (combineVectorFieldsParams.components == VectorFieldLayer.Component.Magnitude) material.SetFloat("_Components", 1);
-		else if (combineVectorFieldsParams.components == VectorFieldLayer.Component.Direction) material.SetFloat("_Components", 2);
+		material.SetInt("_BlendMode", (int)combineVectorFieldsParams.blendMode);
+		// Pass the component flags as a bitmask (Magnitude = 1, Direction = 2, All = 3); the shader checks the bits.
+		material.SetInt("_Components", (int)combineVectorFieldsParams.components);
 
 		// RenderTexture.active = targetTarget;
 		// GL.Clear(true, true, Color.black);
@@ -204,27 +203,42 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		foreach (var layer in validLayers) {
 			var points = gridRenderer.GetPointsInWorldBounds(layer.component.GetBounds());
 			foreach (var point in points) {
-				Vector2 vectorFieldForce = vectorField.GetValueAtGridPoint(point);
+				Vector2 current = vectorField.GetValueAtGridPoint(point);
 
 				var pointWorldPosition = gridRenderer.cellCenter.GridToWorldPoint(point);
-				Vector2 affectorForce = transform.InverseTransformDirection(layer.component.EvaluateWorldVector(pointWorldPosition));
-				Vector2 finalForce = Vector2.zero;
+				Vector2 incoming = transform.InverseTransformDirection(layer.component.EvaluateWorldVector(pointWorldPosition));
 
-				if (layer.blendMode == VectorFieldLayer.BlendMode.Add) {
-					if (layer.components.HasFlag(VectorFieldLayer.Component.All)) finalForce = vectorFieldForce + affectorForce * layer.strength;
-					else if (layer.components.HasFlag(VectorFieldLayer.Component.Direction)) finalForce = affectorForce + vectorFieldForce.magnitude * affectorForce.normalized * layer.strength;
-					else if (layer.components.HasFlag(VectorFieldLayer.Component.Magnitude)) finalForce = vectorFieldForce + vectorFieldForce.normalized * affectorForce.magnitude * layer.strength;
-				}
-
-				if (layer.blendMode == VectorFieldLayer.BlendMode.Blend) {
-					if (layer.components.HasFlag(VectorFieldLayer.Component.All)) finalForce = Vector2.Lerp(vectorFieldForce, affectorForce, layer.strength);
-					else if (layer.components.HasFlag(VectorFieldLayer.Component.Direction)) finalForce = affectorForce.normalized * layer.strength;
-					else if (layer.components.HasFlag(VectorFieldLayer.Component.Magnitude)) finalForce = vectorFieldForce.normalized * layer.strength;
-				}
-
-				vectorFieldForce = finalForce;
-				vectorField.SetValueAtGridPoint(point, vectorFieldForce);
+				vectorField.SetValueAtGridPoint(point, BlendVector(current, incoming, layer.strength, layer.blendMode, layer.components));
 			}
 		}
+	}
+
+	// The canonical per-vector blend, shared in spirit with BlendVectors() in CombineVectorFields.shader — keep the
+	// two in sync. Magnitude and Direction are independent aspects of the incoming vector that compose, so
+	// Magnitude | Direction (== All) takes both. All normalization is zero-safe (a zero vector normalizes to zero)
+	// to avoid NaNs from the zero base / cancelling sums.
+	public static Vector2 BlendVector(Vector2 current, Vector2 incoming, float strength, VectorFieldLayer.BlendMode blendMode, VectorFieldLayer.Component components) {
+		bool hasMagnitude = (components & VectorFieldLayer.Component.Magnitude) != 0;
+		bool hasDirection = (components & VectorFieldLayer.Component.Direction) != 0;
+		if (!hasMagnitude && !hasDirection) return current;
+
+		if (blendMode == VectorFieldLayer.BlendMode.Add) {
+			if (hasMagnitude && hasDirection) return current + incoming * strength;
+			// Magnitude only: lengthen along the current direction by the incoming magnitude.
+			if (hasMagnitude) return current + SafeNormalize(current) * incoming.magnitude * strength;
+			// Direction only: add a push of the current magnitude toward the incoming direction.
+			return current + SafeNormalize(incoming) * current.magnitude * strength;
+		} else { // Blend
+			if (hasMagnitude && hasDirection) return Vector2.Lerp(current, incoming, strength);
+			// Magnitude only: keep the current direction, blend its length toward the incoming length.
+			if (hasMagnitude) return SafeNormalize(current) * Mathf.Lerp(current.magnitude, incoming.magnitude, strength);
+			// Direction only: rotate the current direction toward the incoming one, keep the current magnitude.
+			return SafeNormalize(Vector2.Lerp(SafeNormalize(current), SafeNormalize(incoming), strength)) * current.magnitude;
+		}
+	}
+
+	static Vector2 SafeNormalize(Vector2 v) {
+		float magnitude = v.magnitude;
+		return magnitude > 1e-6f ? v / magnitude : Vector2.zero;
 	}
 }

@@ -9,17 +9,25 @@ Material:
   m_PrefabAsset: {fileID: 0}
   m_Name: El and Six_Vector Field_Vector Field Flow Visualization
   m_Shader: {fileID: 4800000, guid: 1221ae386a8b54665ab7def2b3f4b02d, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
-  m_InvalidKeywords: []
+  m_InvalidKeywords:
+  - _AMPLITUDETOALPHA_ON
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
+  m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _AmplitudeRamp:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
         m_Texture: {fileID: 2800000, guid: 387e5881b89224fe2be4d53c7fc46403, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -30,10 +38,13 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _Brightness: 8
-    - _GridCellCount: 400
-    - _Speed: 20
+    - _AmplitudeAlphaScale: 1.6
+    - _AmplitudeToAlpha: 1
+    - _Brightness: 31.8
+    - _GridCellCount: 150
+    - _Speed: 189
     - _TextureScale: 10
     m_Colors:
     - _Rect: {r: 0, g: 0, b: 1, a: 1}
   m_BuildTextureStacks: []
+  m_AllowLocking: 1

@@ -9,6 +9,7 @@ Shader "El and Six/Vector Field/Vector Field Flow Visualization" {
 		_Speed ("Speed", Range(0,500)) = 20
 		_TextureScale ("Texture Scale", Range(0,1000)) = 10
 		_Brightness ("Brightness", Range(0,50)) = 8
+		_AmplitudeRamp ("Amplitude Alpha Ramp (curve)", 2D) = "white" {}
 	}
 
 	SubShader {

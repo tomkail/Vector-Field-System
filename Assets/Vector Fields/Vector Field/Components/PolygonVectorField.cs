@@ -10,6 +10,24 @@ public class PolygonVectorField : VectorFieldComponent {
     public PolygonRenderer polygonRenderer;
     // public DrawableVectorFieldComponent vectorFieldComponent => GetComponent<>()
 
+    // This field is driven by an external PolygonRenderer, so track its transform and polygon shape (neither of
+    // which routes through this component's OnValidate). In-place edits the JSON snapshot can't see still need a
+    // manual SetDirty.
+    PolygonRenderer lastPolygonRenderer;
+    SerializableTransform lastPolygonTransform;
+    string lastPolygonJson;
+    protected override bool ParametersChanged() {
+        bool changed = base.ParametersChanged();
+        if (lastPolygonRenderer != polygonRenderer) { lastPolygonRenderer = polygonRenderer; changed = true; }
+        if (polygonRenderer != null) {
+            var t = new SerializableTransform(polygonRenderer.transform);
+            if (lastPolygonTransform != t) { lastPolygonTransform = t; changed = true; }
+            string json = JsonUtility.ToJson(polygonRenderer.polygon);
+            if (lastPolygonJson != json) { lastPolygonJson = json; changed = true; }
+        }
+        return changed;
+    }
+
     protected override void RenderInternal() {
         vectorField = new Vector2Map(gridRenderer.gridSize);
         foreach (var cell in vectorField) {

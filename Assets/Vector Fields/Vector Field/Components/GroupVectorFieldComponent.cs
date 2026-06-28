@@ -62,6 +62,11 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 	protected override void RenderInternal() {
 		RefreshLayers();
 
+		// Pull each child up to date before blending so we always combine fresh data, regardless of the order the
+		// dirty pump happens to visit components in.
+		foreach (var layer in layers)
+			if (layer.component != null) layer.component.EnsureUpToDate();
+
 		// For performance we should iterate layers first, then iterate points.
 		// For each layer we should first determine the points on both canvases that are in the overlap.
 		// var points = gridRenderer.GetPointsInWorldBounds(child.transform.GetBounds());
@@ -73,15 +78,36 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 	}
 
 
-	public override void Update() {
-		base.Update();
-		SetDirty();
+	// Re-blend when the set of direct child layers changes. Per-child value/transform changes already propagate
+	// here via VectorFieldComponent.SetDirty, and the group's own transform is tracked by base.Update.
+	void OnTransformChildrenChanged() => SetDirty();
+
+	// Re-blend on changes to the blend mode or to any layer's settings (strength / blend mode / component mask /
+	// the component referenced). Inspector edits also come through OnValidate; this covers runtime mutation.
+	Mode lastMode;
+	int lastLayersHash;
+	protected override bool ParametersChanged() {
+		bool changed = base.ParametersChanged();
+		if (lastMode != mode) { lastMode = mode; changed = true; }
+		int hash = ComputeLayersHash();
+		if (lastLayersHash != hash) { lastLayersHash = hash; changed = true; }
+		return changed;
 	}
 
-	public Material combineShaderMaterial;
+	int ComputeLayersHash() {
+		var hash = new HashCode();
+		hash.Add(layers.Count);
+		foreach (var layer in layers) {
+			hash.Add(layer.component != null ? layer.component.GetEntityId() : 0);
+			hash.Add(layer.strength);
+			hash.Add((int)layer.blendMode);
+			hash.Add((int)layer.components);
+		}
+		return hash.ToHashCode();
+	}
 
 	void RenderInternalGPU() {
-		if (layers.Count == 0 || combineShaderMaterial == null)
+		if (layers.Count == 0 || CombineVectorFieldsComputeShader == null)
 			return;
 
 		// Create two temporary RenderTextures

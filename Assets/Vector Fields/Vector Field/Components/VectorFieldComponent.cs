@@ -41,37 +41,46 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
 	public bool keepCPUUpdated = true;
 
+	// Set by SetDirty on any change that affects this field's output, consumed by EnsureUpToDate which renders at
+	// most once per dirty episode. Starts true so the first frame renders.
+	[NonSerialized] bool isDirty = true;
+	GroupVectorFieldComponent lastGroup;
+
 	// This is called when the application starts, when a scene loads, when a component is created (in editor or runtime)
 	protected virtual void Awake() {
-		Debug.Log("Awake", this);
 		renderTexture = null;
 	}
 
 	// This is called after Awake and on recompile
 	protected virtual void OnEnable() {
-		Debug.Log("OnEnable", this);
 		EnsureInitialized();
 		if (savedTexture != null) {
 			ConvertTexture2DToRenderTexture();
 		}
 		SetDirty();
-		Update();
+		EnsureUpToDate();
 	}
 
 	protected virtual void EnsureInitialized() {
-		// This will leak?
-		// if (vectorFieldTexture != null) vectorFieldTexture = null;
 		gridRenderer = GetComponent<GridRenderer>();
-		EditorApplication.update += SetDirty;
+#if UNITY_EDITOR
+		// In edit mode Unity only calls Update on a repaint, so drive the dirty pump off the editor's own tick as
+		// well to process changes promptly while idle. Tick is a cheap no-op whenever nothing is dirty.
+		EditorApplication.update -= Tick;
+		EditorApplication.update += Tick;
+#endif
 	}
 
 	protected virtual void OnDisable() {
-		TryRenderGroup();
+		// We're leaving the blend; let our group re-render without us.
+		if (group != null) group.SetDirty();
 
 		if (renderTexture != null) {
 			ConvertRenderTextureToTexture2D();
 		}
-		EditorApplication.update -= SetDirty;
+#if UNITY_EDITOR
+		EditorApplication.update -= Tick;
+#endif
 	}
 
 	protected virtual void OnDestroy() {
@@ -89,39 +98,79 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		if (gridRenderer.gridSize.y < 1) gridRenderer.gridSize = new Point(gridRenderer.gridSize.x, 1);
 		// gridRenderer.showGizmos = true;
 		lastTransform = new SerializableTransform(transform);
-		if (!isActiveAndEnabled) return;
+		SetDirty();
 	}
 #endif
 
 
-	public virtual void Update() {
-		if (!isActiveAndEnabled) return;
-		var newSTransform = new SerializableTransform(transform);
-		if (lastTransform != newSTransform) {
-			lastTransform = newSTransform;
-			SetDirty();
-		}
+	// Unity's per-frame callback (play mode, and edit mode on repaint). Routes through the same pump as the editor tick.
+	public virtual void Update() => Tick();
+
+	// Single pump: detect changes, then render if dirty. Idempotent — a no-op when nothing changed and clean.
+	void Tick() {
+		if (this == null || !isActiveAndEnabled) return;
+		if (TransformChanged() || ParametersChanged()) SetDirty();
+		EnsureUpToDate();
 	}
 
+	bool TransformChanged() {
+		var current = new SerializableTransform(transform);
+		if (lastTransform != current) {
+			lastTransform = current;
+			return true;
+		}
+		return false;
+	}
+
+	// Snapshot of output-affecting parameters. Each override compares-and-caches its own fields (calling base),
+	// updating every cached field on every call (no short-circuiting) so a change to any one is never missed.
+	float lastMagnitude = float.NaN;
+	Point lastGridSize = new Point(-1, -1);
+	Texture2D lastCookieTexture;
+	protected virtual bool ParametersChanged() {
+		bool changed = false;
+		if (lastMagnitude != magnitude) { lastMagnitude = magnitude; changed = true; }
+		var gridSize = gridRenderer != null ? gridRenderer.gridSize : Point.zero;
+		if (lastGridSize != gridSize) { lastGridSize = gridSize; changed = true; }
+		if (lastCookieTexture != cookieTexture) { lastCookieTexture = cookieTexture; changed = true; }
+		return changed;
+	}
+
+	// Marks this field (and its parent group, recursively up the chain) as needing a re-render. Does NOT render
+	// immediately — rendering is deferred to the next EnsureUpToDate, so repeated calls in a frame coalesce.
 	public virtual void SetDirty() {
-		if (!isActiveAndEnabled) {
-			Debug.Log("Setting dirty for disabled VectorFieldComponent");
-			EditorApplication.update += SetDirty;
-			return;
-		}
-
-		Render();
-		TryRenderGroup();
+		isDirty = true;
+		lastGroup = group;
+		if (lastGroup != null) lastGroup.SetDirty();
 	}
 
-	void TryRenderGroup() {
-		if (group != null && group.isActiveAndEnabled) group.Render();
+	void OnTransformParentChanged() {
+		// Re-blend the group we left as well as the one we joined.
+		var previous = lastGroup;
+		var current = group;
+		if (previous != null && previous != current) previous.SetDirty();
+		SetDirty();
+	}
+
+	// The single place RenderInternal is driven from: renders only if dirty. Consumers can call this before
+	// reading to guarantee fresh data (pull), and groups call it on each child before blending.
+	public void EnsureUpToDate() {
+		if (!isActiveAndEnabled || !isDirty) return;
+		isDirty = false;
+		Render();
 	}
 
 	public void Render() {
 		RenderInternal();
-		if (keepCPUUpdated && renderTexture != null) ReadIntoCPU();
-		OnRender?.Invoke();
+		if (keepCPUUpdated && renderTexture != null) {
+			// vectorField is filled asynchronously, so defer OnRender to the readback callback — otherwise CPU
+			// consumers (e.g. the particle force field) would be notified before the new data lands and, now that
+			// we only render on change, would never see it.
+			ReadIntoCPU();
+		} else {
+			// CPU-mode (or no GPU texture): vectorField is already current.
+			OnRender?.Invoke();
+		}
 	}
 
 	protected abstract void RenderInternal();
@@ -147,6 +196,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 			if (forceImmediate || vectorField == null) {
 				((AsyncGPUReadbackRequest)readbackRequest).WaitForCompletion();
 			}
+		} catch (OperationCanceledException) {
+			// Expected when a domain/script reload interrupts the in-flight GPU readback. Safe to ignore.
 		} catch (Exception e) {
 			Debug.LogError(e);
 		} finally {
@@ -159,8 +210,13 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 				return;
 			}
 			var rawData = request.GetData<Color>();
-			Vector2[] vectors = VectorFieldUtils.ColorsToVectors(rawData, 1);
-			vectorField = new Vector2Map(new Point(request.width, request.height), vectors);
+			// Reuse the existing map (and its array) when the size is unchanged; only reallocate on a resize.
+			if (vectorField == null || vectorField.size.x != request.width || vectorField.size.y != request.height)
+				vectorField = new Vector2Map(new Point(request.width, request.height));
+			VectorFieldUtils.ColorsToVectors(rawData, 1, vectorField.values);
+
+			// CPU copy is now current — notify consumers that read vectorField.
+			OnRender?.Invoke();
 		}
 	}
 

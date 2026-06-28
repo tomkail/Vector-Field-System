@@ -44,6 +44,18 @@ public class StampVectorFieldComponent : VectorFieldComponent {
 		renderTexture = vectorFieldBrushTextureCreator.RenderTexture;
 	}
 
+	// Re-render when the brush settings change. The creator holds a live reference to brushSettingsParams, so a
+	// re-render reflects in-place field edits automatically; comparing the serialized JSON catches any field
+	// change (inspector or code) without enumerating them. (Swapping the whole settings object via code still
+	// needs a re-enable to rebuild the creator's reference.)
+	string lastBrushSettingsJson;
+	protected override bool ParametersChanged() {
+		bool changed = base.ParametersChanged();
+		string json = brushSettingsParams != null ? JsonUtility.ToJson(brushSettingsParams) : null;
+		if (lastBrushSettingsJson != json) { lastBrushSettingsJson = json; changed = true; }
+		return changed;
+	}
+
 	// static ComputeShader stampVectorFieldComputeShader;
 	// public static ComputeShader StampVectorFieldComputeShader => stampVectorFieldComputeShader ? stampVectorFieldComputeShader : (stampVectorFieldComputeShader = Resources.Load<ComputeShader>("StampVectorField"));
 	//

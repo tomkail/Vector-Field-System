@@ -23,6 +23,21 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
     protected override void RenderInternal() {
         RenderInternalGPU();
     }
+
+    // Re-render when any noise parameter changes. If something animates noiseSampler.position over time, this
+    // detects it each frame (so the field updates), and when nothing changes nothing re-renders.
+    Space lastSpace;
+    Vector3 lastPosition = new Vector3(float.NaN, 0, 0);
+    float lastVortexAngle = float.NaN;
+    NoiseSamplerProperties lastProperties;
+    protected override bool ParametersChanged() {
+        bool changed = base.ParametersChanged();
+        if (lastSpace != space) { lastSpace = space; changed = true; }
+        if (lastPosition != noiseSampler.position) { lastPosition = noiseSampler.position; changed = true; }
+        if (lastVortexAngle != vortexAngle) { lastVortexAngle = vortexAngle; changed = true; }
+        if (lastProperties != noiseSampler.properties) { lastProperties = noiseSampler.properties; changed = true; }
+        return changed;
+    }
     
     void RenderInternalGPU() {
 	    EnsureHasValidRenderTexture();

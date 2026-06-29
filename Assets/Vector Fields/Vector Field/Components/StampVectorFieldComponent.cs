@@ -17,13 +17,13 @@ public class StampVectorFieldComponent : VectorFieldComponent {
 		VectorFieldBrushTextureCreator.Dispatch(renderTexture, gridSize, magnitude, brushSettingsParams, null);
 	}
 
-	// Re-render when the brush settings change (the base handles magnitude/grid/cookie). Comparing the serialized
-	// JSON catches any field change without enumerating them, and reflects in-place edits to the settings object.
-	string lastBrushSettingsJson;
+	// Re-render when the brush settings change (the base handles magnitude/grid/cookie). A content hash catches any
+	// field change without enumerating them or allocating a JSON string every tick, and reflects in-place edits.
+	int lastBrushSettingsHash;
 	protected override bool ParametersChanged() {
 		bool changed = base.ParametersChanged();
-		string brushJson = brushSettingsParams != null ? JsonUtility.ToJson(brushSettingsParams) : null;
-		if (lastBrushSettingsJson != brushJson) { lastBrushSettingsJson = brushJson; changed = true; }
+		int brushHash = brushSettingsParams != null ? brushSettingsParams.GetContentHash() : 0;
+		if (lastBrushSettingsHash != brushHash) { lastBrushSettingsHash = brushHash; changed = true; }
 		return changed;
 	}
 }

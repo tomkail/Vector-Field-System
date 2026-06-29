@@ -168,15 +168,16 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// updating every cached field on every call (no short-circuiting) so a change to any one is never missed.
 	float lastMagnitude = float.NaN;
 	Point lastGridSize = new Point(-1, -1);
-	string lastCookieJson;
+	int lastCookieHash;
 	protected virtual bool ParametersChanged() {
 		bool changed = false;
 		if (lastMagnitude != magnitude) { lastMagnitude = magnitude; changed = true; }
 		var gridSize = gridRenderer != null ? gridRenderer.gridSize : Point.zero;
 		if (lastGridSize != gridSize) { lastGridSize = gridSize; changed = true; }
-		// JSON snapshot catches any cookie field change (mode/softness/curve/texture) without enumerating them.
-		string cookieJson = cookie != null ? JsonUtility.ToJson(cookie) : null;
-		if (lastCookieJson != cookieJson) { lastCookieJson = cookieJson; changed = true; }
+		// Content hash catches any cookie field change (mode/softness/curve/texture) without enumerating them, and
+		// without allocating a JSON string every tick.
+		int cookieHash = cookie != null ? cookie.GetContentHash() : 0;
+		if (lastCookieHash != cookieHash) { lastCookieHash = cookieHash; changed = true; }
 		return changed;
 	}
 

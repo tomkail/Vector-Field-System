@@ -122,6 +122,24 @@ public class VectorFieldCookieSource : IDisposable {
 		shader.Dispatch(kernel, threadGroupsX, threadGroupsY, 1);
 	}
 
+	// Allocation-free content hash for change detection (callers re-render when it changes). Cheaper than serializing
+	// to JSON every tick: hashes the curve via the indexer (no Keyframe[] alloc) and the texture by reference.
+	public int GetContentHash() {
+		var hash = new HashCode();
+		hash.Add((int)mode);
+		hash.Add(falloffSoftness);
+		if (curve != null) {
+			hash.Add(curve.length);
+			for (int i = 0; i < curve.length; i++) {
+				var key = curve[i];
+				hash.Add(key.time);
+				hash.Add(key.value);
+			}
+		}
+		if (texture != null) hash.Add(texture.GetEntityId());
+		return hash.ToHashCode();
+	}
+
 	public void Dispose() {
 		curveBuffer?.Release();
 		curveBuffer = null;

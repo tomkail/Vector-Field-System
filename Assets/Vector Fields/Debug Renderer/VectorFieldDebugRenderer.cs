@@ -60,8 +60,8 @@ public class VectorFieldDebugRenderer : System.IDisposable
         var gridSize = vectorFieldComponent.gridRenderer.gridSize;
         var gridToWorldMatrix = vectorFieldComponent.gridRenderer.cellCenter.gridToWorldMatrix;
 
-        // Quantize the arrow grid to power-of-two strides (every cell, every 2nd, every 4th...). Each level is a
-        // strict subset of the finer one, so an arrow's position is stable as you cross between levels.
+        // Quantize the arrow grid to power-of-two strides (every cell, every 2nd, every 4th...). detailFade fades the
+        // arrows that the finer octave adds on top of the coarser one, cross-fading as you move between levels.
         int baseStride = 1;
         float arrowScale = 1f;
         float detailFade = 1f; // alpha for the "extra" arrows that the finer octave adds; fades out as we coarsen
@@ -73,9 +73,15 @@ public class VectorFieldDebugRenderer : System.IDisposable
             arrowScale = stride; // size grows continuously with zoom, not in steps
         }
 
-        // Draw one arrow per baseStride-th cell. Integer steps keep levels nested (coarse = the even-indexed subset).
-        int displayWidth = (gridSize.x - 1) / baseStride + 1;
-        int displayHeight = (gridSize.y - 1) / baseStride + 1;
+        // Arrow counts per axis. The grid is strided by baseStride and anchored on the field's centre cell (kept fixed
+        // across octaves, so coarser levels are exact subsets of finer ones — shared arrows never move as you zoom).
+        // The shader reconstructs the same anchor from fieldSize + baseStride; here we only need the counts. Centring
+        // also spreads coverage symmetrically so both edges are reached as closely as integer stride positions allow,
+        // rather than always hugging the bottom-left and skipping the top-right.
+        int anchorX = (gridSize.x - 1) / 2;
+        int anchorY = (gridSize.y - 1) / 2;
+        int displayWidth = anchorX / baseStride + (gridSize.x - 1 - anchorX) / baseStride + 1;
+        int displayHeight = anchorY / baseStride + (gridSize.y - 1 - anchorY) / baseStride + 1;
         int instanceCount = displayWidth * displayHeight;
 
         // (Re)allocate the indirect-args buffer only when the arrow count changes.
@@ -97,8 +103,8 @@ public class VectorFieldDebugRenderer : System.IDisposable
         arrowMaterial.SetFloat(MaxMagnitudeProp, maxMagnitude);
         arrowMaterial.SetFloat(OpacityProp, opacity);
         arrowMaterial.SetVector(FieldSize, new Vector2(gridSize.x, gridSize.y));
-        arrowMaterial.SetInt(DisplayWidth, displayWidth);
-        arrowMaterial.SetInt(BaseStride, baseStride);
+        arrowMaterial.SetFloat(DisplayWidth, displayWidth);
+        arrowMaterial.SetFloat(BaseStride, baseStride);
         arrowMaterial.SetFloat(DetailFade, detailFade);
 
         Graphics.DrawMeshInstancedIndirect(quad, 0, arrowMaterial, new Bounds(Vector3.zero, new Vector3(100000000, 100000000, 100000000)), argsBuffer, 0, null, ShadowCastingMode.Off, false, 0, camera, LightProbeUsage.Off);

@@ -27,8 +27,8 @@ Shader "VectorField/InstanceDebugRenderer" {
     float maxMagnitude;
     float _Opacity;
     float2 fieldSize;        // field resolution in cells (= RenderTexture size)
-    int displayWidth;        // arrows drawn along x at the current LOD
-    int baseStride;          // cells per arrow (power of two)
+    float displayWidth;      // arrows drawn along x at the current LOD (whole number; float for reliable binding)
+    float baseStride;        // cells per arrow (power of two; float for reliable binding)
     float detailFade;        // LOD cross-fade weight for arrows not shared with the coarser octave
 
     float4x4 TranslationMatrix(float3 translation)
@@ -108,11 +108,19 @@ Shader "VectorField/InstanceDebugRenderer" {
     v2f vert (appdata v) {
         v2f o;
 
-        // Reconstruct this arrow's cell from the instance id and the current LOD.
-        uint w = (uint)displayWidth;
+        // Reconstruct this arrow's cell from the instance id and the current LOD. The grid is strided by baseStride and
+        // anchored on the field's centre cell (kept fixed across octaves), so coarser levels are exact subsets of finer
+        // ones — shared arrows keep the same position as you zoom and only the in-between arrows fade. The anchor is
+        // derived here from fieldSize + baseStride so we don't depend on extra uniforms.
+        uint w = (uint)(displayWidth + 0.5);
         uint ix = v.instanceID % w;
         uint iy = v.instanceID / w;
-        float2 cell = float2(ix, iy) * baseStride;
+
+        float stride = max(1.0, baseStride);
+        float2 anchor = floor((fieldSize - 1.0) * 0.5);      // centre cell of the field
+        float2 leftCount = floor(anchor / stride);           // arrows between the anchor and cell 0 (per axis)
+        float2 firstCell = anchor - leftCount * stride;      // cell of instance (0,0)
+        float2 cell = firstCell + float2(ix, iy) * stride;
 
         // Sample the vector straight from the field texture (texel centre) and decode it.
         float2 uv = (cell + 0.5) / fieldSize;
@@ -129,8 +137,11 @@ Shader "VectorField/InstanceDebugRenderer" {
         o.vertex = UnityObjectToClipPos(mul(transformation, v.vertex));
         o.uv = v.uv;
         o.value = value;
-        // Arrows shared with the next-coarser octave (even index on both axes) stay solid; the rest fade.
-        bool survivesToCoarser = ((ix & 1u) == 0u) && ((iy & 1u) == 0u);
+        // Arrows shared with the next-coarser octave are the even-k ones measured from the anchor (k = index -
+        // leftCount). Those stay solid; the in-between arrows fade via detailFade. frac(k/2) is 0 for even k, 0.5 for
+        // odd (works for negative k too), so a small threshold tells them apart.
+        float2 k = float2(ix, iy) - leftCount;
+        bool survivesToCoarser = (frac(k.x * 0.5) < 0.25) && (frac(k.y * 0.5) < 0.25);
         o.alpha = survivesToCoarser ? 1.0 : detailFade;
         return o;
     }

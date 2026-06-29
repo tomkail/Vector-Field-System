@@ -1,0 +1,109 @@
+#pragma kernel CSMain
+
+// Per grid cell, point toward (or away from) the nearest edge of a polygon, restricted to the chosen side(s) and
+// shaped by a distance falloff. GPU port of PolygonVectorFieldGenerator's old CPU loop: one pass over the polygon
+// edges does double duty — ray-crossing inside test + nearest-point-on-outline — then direction / flip / rotate /
+// falloff exactly as the CPU did. Encoding matches the other generators ((v * 0.5) + 0.5) so it round-trips through
+// the readback decode.
+
+#define THREADS_X 16
+#define THREADS_Y 16
+
+static const float PI = 3.14159265358979323846;
+static const float Deg2Rad = PI / 180.0;
+
+RWTexture2D<float4> Result;
+int width;
+int height;
+
+// Polygon vertices in polygon-local space, and how many are valid.
+StructuredBuffer<float2> Vertices;
+int vertexCount;
+
+// gridToPolygonLocal: grid cell (x, y, 0, 1) -> polygon-local point.
+// polygonToFieldVector: polygon-local vector -> the destination field's local space (use the 3x3 rotation/scale part).
+float4x4 gridToPolygonLocal;
+float4x4 polygonToFieldVector;
+
+// Which side(s) get a vector (cells on an unwanted side stay zero).
+int wantInside;
+int wantOutside;
+// 0 = None, 1 = FlipInside, 2 = FlipOutside (matches PolygonVectorFieldGenerator.BoundaryFlip).
+int boundaryFlip;
+
+float innerFalloff;
+float outerFalloff;
+float angle;
+float magnitude;
+
+// Encoded zero field (vector 0 -> colour (0.5, 0.5, 0, 1)).
+static const float4 ZeroField = float4(0.5, 0.5, 0.0, 1.0);
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= (uint)width || id.y >= (uint)height) return;
+    uint2 texPos = uint2(id.x, id.y);
+
+    // A polygon needs at least a couple of vertices to have edges / an interior.
+    if (vertexCount < 2) { Result[texPos] = ZeroField; return; }
+
+    float2 p = mul(gridToPolygonLocal, float4((float)texPos.x, (float)texPos.y, 0.0, 1.0)).xy;
+
+    // Single edge loop: ray-crossing parity (inside test) + nearest point on the closed outline.
+    bool inside = false;
+    float bestSqr = 1e30;
+    float2 closest = float2(0, 0);
+    int j = vertexCount - 1;
+    for (int i = 0; i < vertexCount; i++) {
+        float2 vi = Vertices[i];
+        float2 vj = Vertices[j];
+
+        // Ray-crossing inside test (ported verbatim from Polygon.ContainsPoint).
+        if (((vi.y < p.y) && (vj.y >= p.y)) || ((vj.y < p.y) && (vi.y >= p.y))) {
+            if (vi.x + (p.y - vi.y) / (vj.y - vi.y) * (vj.x - vi.x) < p.x)
+                inside = !inside;
+        }
+
+        // Closest point on segment vj->vi, clamped to the segment (matches Line.GetClosestPointOnLine).
+        float2 ab = vi - vj;
+        float t = saturate(dot(p - vj, ab) / max(dot(ab, ab), 1e-20));
+        float2 c = vj + ab * t;
+        float d = dot(p - c, p - c);
+        if (d < bestSqr) { bestSqr = d; closest = c; }
+
+        j = i;
+    }
+
+    // Restrict to the chosen side(s).
+    bool wanted = inside ? (wantInside != 0) : (wantOutside != 0);
+    if (!wanted) { Result[texPos] = ZeroField; return; }
+
+    float dist = sqrt(bestSqr);
+    float2 toEdge = closest - p;                 // points toward the nearest edge
+    // Outward (away from the shape) is continuous across the boundary: inside points toward its nearest edge,
+    // outside points away from it.
+    float2 outward = inside ? toEdge : -toEdge;
+    float2 dir = dist > 1e-5 ? outward / dist : float2(0, 0);
+
+    // Reverse one side to converge on / diverge from the outline.
+    if ((inside && boundaryFlip == 1) || (!inside && boundaryFlip == 2))
+        dir = -dir;
+
+    // Rotate around the plane normal (2D rotation in polygon space).
+    if (angle != 0.0) {
+        float r = angle * Deg2Rad;
+        float cs = cos(r), sn = sin(r);
+        dir = float2(dir.x * cs - dir.y * sn, dir.x * sn + dir.y * cs);
+    }
+
+    // Full strength at the edge, fading to zero `falloff` units away (0 = constant strength). Inside and outside
+    // regions use their own falloff distance.
+    float falloff = inside ? innerFalloff : outerFalloff;
+    float strength = falloff > 0.0 ? saturate(1.0 - dist / falloff) : 1.0;
+
+    float2 v = dir * (strength * magnitude);
+    // Polygon-local vector -> destination field-local vector (rotation/scale only).
+    v = mul((float3x3)polygonToFieldVector, float3(v, 0.0)).xy;
+
+    Result[texPos] = float4(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, 0.0, 1.0);
+}

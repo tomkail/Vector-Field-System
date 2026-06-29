@@ -52,23 +52,37 @@ public class PolygonVectorField : VectorFieldComponent {
         return changed;
     }
 
+    // GPU buffer holding the polygon's vertices for the compute dispatch. Owned here (created/grown by the generator,
+    // released on disable) so its lifetime is explicit, like the base render texture.
+    ComputeBuffer vertexBuffer;
+
     protected override void RenderInternal() {
-        vectorField = new Vector2Map(gridRenderer.gridSize);
-        // Driven by an external PolygonRenderer that may be unassigned (or have no polygon yet); leave the field zeroed.
-        if (polygonRenderer == null || polygonRenderer.polygon == null) return;
+        EnsureHasValidRenderTexture();
+        var gridSize = new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y);
 
-        PolygonVectorFieldGenerator.Generate(
-            vectorField,
-            p => gridRenderer.cellCenter.GridToWorldPoint(p),
-            polygonRenderer.polygon,
-            polygonRenderer.transform.worldToLocalMatrix,
-            polygonRenderer.transform.localToWorldMatrix,
-            transform.worldToLocalMatrix,
+        // Driven by an external PolygonRenderer that may be unassigned (or have no polygon yet); a null vertex array
+        // makes the generator write a defined zero field.
+        var polygon = polygonRenderer ? polygonRenderer.polygon : null;
+        var vertices = polygon?.vertices;
+
+        // gridToPolygonLocal: grid cell -> world -> polygon-local point. polygonToFieldVector: polygon-local vector ->
+        // world -> this field's local space (rotation/scale part). Folded on the CPU so the shader does no redundant
+        // per-cell matrix work. Only meaningful when there's a polygon; identity otherwise (unused on the zero path).
+        Matrix4x4 gridToPolygonLocal = Matrix4x4.identity, polygonToFieldVector = Matrix4x4.identity;
+        if (vertices != null) {
+            gridToPolygonLocal = polygonRenderer.transform.worldToLocalMatrix * gridRenderer.cellCenter.gridToWorldMatrix;
+            polygonToFieldVector = transform.worldToLocalMatrix * polygonRenderer.transform.localToWorldMatrix;
+        }
+
+        PolygonVectorFieldGenerator.Dispatch(renderTexture, ref vertexBuffer, gridSize, vertices,
+            gridToPolygonLocal, polygonToFieldVector,
             sides, boundaryFlip, innerFalloff, outerFalloff, angle, magnitude);
+    }
 
-        // This field is computed on the CPU, but the draw path, GPU group blend, and shader visualizer all sample
-        // renderTexture now (not the CPU vectorField), so a CPU-only component would render to nothing. Encode the
-        // result into renderTexture so it participates everywhere.
-        WriteVectorFieldToRenderTexture();
+    protected override void OnDisable() {
+        base.OnDisable();
+        // Render textures aren't GC'd and ComputeBuffers must be released explicitly; rebuilt on the next dispatch.
+        vertexBuffer?.Release();
+        vertexBuffer = null;
     }
 }

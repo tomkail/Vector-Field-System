@@ -105,7 +105,8 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		cs.SetInt("hasObstacles", hasObstacles ? 1 : 0);
 
 		// 1) Inject forces (+ apply viscosity damp). velA -> velB.
-		bool hasForce = forceField != null && forceField.renderTexture != null;
+		// Ignore a force field pointed back at ourselves — it would feed the solver its own encoded output as a force.
+		bool hasForce = forceField != null && forceField != this && forceField.renderTexture != null;
 		cs.SetInt("hasForce", hasForce ? 1 : 0);
 		cs.SetFloat("forceStrength", forceStrength);
 		cs.SetTexture(kAddForces, "ForceField", hasForce ? forceField.renderTexture : (Texture)Texture2D.blackTexture);

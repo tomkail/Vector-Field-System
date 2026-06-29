@@ -2,6 +2,8 @@
 
 This describes how to regenerate [VECTOR_FIELDS.md](VECTOR_FIELDS.md) — the user‑facing reference for the Vector Field System — from the current code. It's written so an AI agent (or a person) can recreate the doc faithfully whenever the project changes. The doc is a **living document**: the code is the source of truth; `VECTOR_FIELDS.md` is derived.
 
+**To run it:** hand this file to an agent — *"Follow `DOCS_GUIDE.md` to regenerate `VECTOR_FIELDS.md` from the current code."* That's the whole prompt. Do all the reading/writing in one agent (don't stop after delegating); the deliverable is the written file.
+
 ## Goal & audience
 
 `VECTOR_FIELDS.md` is for someone *using* the system — adding components in the Inspector, sampling fields from gameplay code, painting, and wiring up generators. It is **not** an internals/architecture doc.

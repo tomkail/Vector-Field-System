@@ -93,7 +93,7 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 	// (only reallocates if missing), so re-baking on a curve edit is cheap.
 	void BakeRamp() {
 		if (amplitudeAlphaCurve == null) return;
-		VectorFieldComponent.CreateRampTextureFromAnimationCurve(amplitudeAlphaCurve, RampResolution, ref rampTexture);
+		VectorFieldUtils.CreateRampTextureFromAnimationCurve(amplitudeAlphaCurve, RampResolution, ref rampTexture);
 	}
 
 #if UNITY_EDITOR

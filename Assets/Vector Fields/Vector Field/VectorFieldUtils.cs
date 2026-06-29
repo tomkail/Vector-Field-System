@@ -3,18 +3,24 @@ using Unity.Collections;
 
 public static class VectorFieldUtils {
 
-	// public static Color[] Vector2ArrayToColorArray(Vector2[] floatArray, float magnitude) {
-	// 	var magnitudeReciprocal = 1f/magnitude;
-	// 	Color[] colorArray = new Color[floatArray.Length];
-	// 	for(int i = 0; i < floatArray.Length; i++){
-	// 		var degrees = Vector2X.Degrees(floatArray[i]);
-	// 		var lightness = floatArray[i].magnitude * magnitudeReciprocal * 0.5f;
-	// 		colorArray[i] = new HSLColor(degrees, 1, lightness);
-	// 	}
-	// 	return colorArray;
-	// }
-
-
+	// Bakes an AnimationCurve into a 1×width RFloat ramp texture (curve sampled across t in [0,1]), reusing `texture`
+	// when it already matches the requested width and recreating it otherwise. Used for GPU-side curve lookups
+	// (e.g. the group's alignment ramp).
+	public static Texture2D CreateRampTextureFromAnimationCurve(AnimationCurve curve, int textureWidth, ref Texture2D texture) {
+		if (texture == null || texture.width != textureWidth) {
+			if (texture != null) ObjectX.DestroyAutomatic(texture);
+			texture = new Texture2D(textureWidth, 1, TextureFormat.RFloat, false, true) {
+				wrapMode = TextureWrapMode.Clamp
+			};
+		}
+		for (int i = 0; i < textureWidth; i++) {
+			float t = i / (float)(textureWidth - 1);
+			float value = curve.Evaluate(t);
+			texture.SetPixel(i, 0, new Color(value, value, value, value));
+		}
+		texture.Apply();
+		return texture;
+	}
 
 	public static Texture2D VectorFieldToTexture(Vector2Map vectorField, float maxComponentReciprocal) {
 		var colors = VectorFieldUtils.VectorsToColors(vectorField.values, maxComponentReciprocal);

@@ -74,7 +74,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 			// one. The shader's modulation path is keyword-gated, so an unmodulated layer pays nothing for either.
 			bool usesAlignment = !IsIdentityRamp(layer.alignmentRamp);
 			Texture2D alignmentRamp = usesAlignment
-				? CreateRampTextureFromAnimationCurve(layer.alignmentRamp, 256, ref layer.alignmentRampTexture)
+				? VectorFieldUtils.CreateRampTextureFromAnimationCurve(layer.alignmentRamp, 256, ref layer.alignmentRampTexture)
 				: null;
 
 			inputs.Add(new VectorFieldCombiner.Layer {

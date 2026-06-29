@@ -496,24 +496,4 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		var bounds = gridRenderer.edge.NormalizedToWorldRect(new Rect(0, 0, 1, 1));
 		return BoundsX.CreateEncapsulating(bounds);
 	}
-
-
-
-	public static Texture2D CreateRampTextureFromAnimationCurve(AnimationCurve curve, int textureWidth, ref Texture2D texture) {
-		// if (curveTexture == null || curveTexture.width != textureWidth || curveTexture.height != 1 || curveTexture.format != TextureFormat.RFloat || curveTexture.wrapMode != TextureWrapMode.Clamp) {
-		//     if (curveTexture != null) ObjectX.DestroyAutomatic(curveTexture);
-		// }
-		if (texture == null) {
-			texture = new Texture2D(textureWidth, 1, TextureFormat.RFloat, false, true) {
-				wrapMode = TextureWrapMode.Clamp
-			};
-		}
-		for (int i = 0; i < textureWidth; i++) {
-			float t = i / (float)(textureWidth - 1);
-			float value = curve.Evaluate(t);
-			texture.SetPixel(i, 0, new Color(value, value, value, value));
-		}
-		texture.Apply();
-		return texture;
-	}
 }

@@ -8,6 +8,9 @@
 
 #pragma kernel AddForces
 #pragma kernel Advect
+#pragma kernel AdvectMacCormack
+#pragma kernel ComputeVorticity
+#pragma kernel VorticityConfinement
 #pragma kernel Divergence
 #pragma kernel PressureJacobi
 #pragma kernel Project
@@ -25,10 +28,19 @@ Texture2D<float2>   VelocityIn;     // read side of the velocity ping-pong (bili
 RWTexture2D<float2> VelocityOut;    // write side
 SamplerState        sampler_VelocityIn;
 
+// MacCormack: the forward semi-Lagrangian result φ̂, sampled again in the correction pass.
+Texture2D<float2>   ForwardVelocity;
+SamplerState        sampler_ForwardVelocity;
+
 Texture2D<float>    PressureIn;
 RWTexture2D<float>  PressureOut;
 RWTexture2D<float>  DivergenceOut;
 Texture2D<float>    DivergenceIn;
+
+// Vorticity (curl) scratch field for vorticity confinement.
+RWTexture2D<float>  CurlOut;
+Texture2D<float>    CurlIn;
+float               vorticityStrength;   // ε: how hard to re-inject lost swirl (0 disables)
 
 // Obstacle mask: >0.5 means solid. Optional — when hasObstacles == 0 it's ignored.
 Texture2D<float>    Obstacles;
@@ -37,8 +49,20 @@ int                 hasObstacles;
 // Forcing field: the *encoded* renderTexture of another VectorFieldComponent (noise gust, stamp emitter, drawn
 // strokes...). Decoded here as (c - 0.5)*2. Optional — gated by hasForce.
 Texture2D<float4>   ForceField;
+SamplerState        sampler_ForceField;
 int                 hasForce;
 float               forceStrength;
+
+// How the force field maps onto the sim grid.
+// Values must stay in sync with the ForceMapping enum in SimulatedVectorFieldComponent.cs.
+#define FORCE_STRETCH 0    // stretch the whole force field to fill the sim. Resolution-independent; ignores transform.
+#define FORCE_DIRECT  1    // 1:1 texel copy: sim cell p reads force texel p. Ignores transforms; grids must match.
+#define FORCE_WORLD   2    // sample by world position + rotate vectors into the sim frame (transform-aware).
+int                 forceMapping;
+float4x4            simGridToWorld;    // sim grid coord (x,y,0,1) -> world position
+float4x4            forceWorldToGrid;  // world position -> force-field grid coord
+float2              forceGridSize;     // force-field texture dimensions (for UV normalisation)
+float4x4            forceToSimDir;     // rotates a force vector from the force field's local frame into the sim's
 
 // Encoded output: the pipeline's renderTexture. Encode writes velocity*outputScale*0.5 + 0.5 into it.
 RWTexture2D<float4> Result;
@@ -46,11 +70,41 @@ float               outputScale;
 
 float viscosityDamp;    // per-step multiplicative velocity damping (1 = inviscid, <1 bleeds energy / fakes viscosity)
 
+// Edge behaviour. Set from C#. Interior obstacle masks apply in every mode; this only governs the domain border.
+#define BOUNDARY_WRAP 0    // periodic: leaving one edge re-enters the opposite one
+#define BOUNDARY_WALL 1    // solid no-slip border: fluid is contained and deflects
+#define BOUNDARY_OPEN 2    // outflow: zero-gradient velocity, pressure pinned to 0 at the border (absorbing)
+int boundaryMode;
+
 bool InBounds(int2 p)  { return p.x >= 0 && p.y >= 0 && p.x < width && p.y < height; }
+
 bool IsSolid(int2 p) {
-    if (hasObstacles == 0) return false;
-    if (!InBounds(p)) return true;                 // domain border is treated as solid (no-slip walls)
-    return Obstacles[p] > 0.5;
+    // Off-grid counts as solid only in Wall mode; Wrap/Open let fluid cross the border.
+    if (!InBounds(p)) return boundaryMode == BOUNDARY_WALL;
+    return hasObstacles != 0 && Obstacles[p] > 0.5;
+}
+
+// Map an (possibly off-grid) coordinate to a valid texel: wrap in periodic mode, clamp otherwise.
+int2 BoundaryCoord(int2 p) {
+    if (boundaryMode == BOUNDARY_WRAP) {
+        int2 s = int2(width, height);
+        return (p % s + s) % s;
+    }
+    return clamp(p, int2(0, 0), int2(width - 1, height - 1));
+}
+
+// Velocity at a neighbour, honouring boundaries: solids contribute zero (no-slip); otherwise wrap/clamp.
+float2 VelNeighbor(int2 p) {
+    if (IsSolid(p)) return 0;
+    return VelocityIn[BoundaryCoord(p)];
+}
+
+// Pressure at a neighbour: solids reflect (Neumann ∂p/∂n=0); off-grid in Open mode is pinned to 0 (Dirichlet,
+// the outflow condition); Wrap reads the opposite edge; Wall/interior clamp.
+float PressureNeighbor(int2 p, float center) {
+    if (IsSolid(p)) return center;
+    if (boundaryMode == BOUNDARY_OPEN && !InBounds(p)) return 0;
+    return PressureIn[BoundaryCoord(p)];
 }
 
 // --- inject external forces ---------------------------------------------------------------------------------------
@@ -61,7 +115,23 @@ void AddForces(uint3 id : SV_DispatchThreadID) {
 
     float2 v = VelocityIn[p];
     if (hasForce != 0) {
-        float2 f = (ForceField[p].xy - 0.5) * 2.0;     // decode pipeline packing
+        float2 f = 0;
+        if (forceMapping == FORCE_WORLD) {
+            // Sim cell -> world -> force grid -> UV, then bilinearly sample and rotate into the sim's frame.
+            float3 worldPos = mul(simGridToWorld, float4((float)p.x, (float)p.y, 0, 1)).xyz;
+            float2 forceGrid = mul(forceWorldToGrid, float4(worldPos, 1)).xy;  // texel-index space
+            float2 uv = (forceGrid + 0.5) / forceGridSize;                     // +0.5: texel centre for the sampler
+            if (all(uv >= 0.0) && all(uv <= 1.0)) {                            // only where the fields overlap
+                float2 local = (ForceField.SampleLevel(sampler_ForceField, uv, 0).xy - 0.5) * 2.0;
+                f = mul((float3x3)forceToSimDir, float3(local, 0)).xy;
+            }
+        } else if (forceMapping == FORCE_STRETCH) {
+            // Sim's normalised position -> the whole force field, stretched to fill. Bilinear handles any resolution.
+            float2 uv = (float2(p) + 0.5) / float2(width, height);
+            f = (ForceField.SampleLevel(sampler_ForceField, uv, 0).xy - 0.5) * 2.0;
+        } else {
+            f = (ForceField[p].xy - 0.5) * 2.0;        // direct 1:1 texel read
+        }
         v += f * forceStrength * dt;
     }
     v *= viscosityDamp;
@@ -83,17 +153,97 @@ void Advect(uint3 id : SV_DispatchThreadID) {
     VelocityOut[p] = VelocityIn.SampleLevel(sampler_VelocityIn, uv, 0);
 }
 
+float2 LoadVelClamped(int2 p) {
+    return VelocityIn[BoundaryCoord(p)];
+}
+
+// --- MacCormack correction pass ----------------------------------------------------------------------------------
+// Run AFTER a forward Advect (whose result is bound as ForwardVelocity = φ̂). Reverse-advecting φ̂ should land back on
+// the original field; the gap between the two is the advection error, and half of it added back cancels most of the
+// numerical diffusion that makes plain semi-Lagrangian mushy. The result is clamped to the range of the source cells
+// the forward step interpolated from, so the (otherwise unstable) correction can never introduce a new extremum.
+// VelocityIn here is the ORIGINAL pre-advection field φ; it also doubles as the advecting velocity (self-advection).
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void AdvectMacCormack(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+    if (IsSolid(p)) { VelocityOut[p] = 0; return; }
+
+    float2 pos = float2(p) + 0.5;
+    float2 u   = VelocityIn[p];                        // advecting velocity (= φ at p)
+    float2 phiHat = ForwardVelocity[p];                // φ̂ at p
+
+    // Reverse-advect φ̂ one step forward in time and compare to the original.
+    float2 fwdPos = pos + dt * u;
+    float2 phiHatBack = ForwardVelocity.SampleLevel(sampler_ForwardVelocity, fwdPos / float2(width, height), 0);
+    float2 corrected = phiHat + 0.5 * (u - phiHatBack);
+
+    // Clamp to the 4 source texels the forward back-trace interpolated between.
+    float2 backPos = pos - dt * u;
+    int2   i0 = (int2)floor(backPos - 0.5);
+    float2 s00 = LoadVelClamped(i0);
+    float2 s10 = LoadVelClamped(i0 + int2(1, 0));
+    float2 s01 = LoadVelClamped(i0 + int2(0, 1));
+    float2 s11 = LoadVelClamped(i0 + int2(1, 1));
+    float2 mn = min(min(s00, s10), min(s01, s11));
+    float2 mx = max(max(s00, s10), max(s01, s11));
+
+    VelocityOut[p] = clamp(corrected, mn, mx);
+}
+
+// --- vorticity confinement (Fedkiw et al.) -----------------------------------------------------------------------
+// Numerical diffusion preferentially kills the smallest vortices. ComputeVorticity measures the curl ω that's left;
+// VorticityConfinement then adds a force that pushes velocity back up the gradient of |ω|, re-amplifying those
+// swirls so the flow stays lively instead of smoothing into a dead blob.
+float CurlAtClamped(int2 p) {
+    return CurlIn[BoundaryCoord(p)];
+}
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void ComputeVorticity(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+
+    // 2D scalar vorticity ω = ∂vy/∂x − ∂vx/∂y. Boundary-aware neighbours.
+    float2 l = VelNeighbor(p + int2(-1, 0));
+    float2 r = VelNeighbor(p + int2( 1, 0));
+    float2 b = VelNeighbor(p + int2( 0,-1));
+    float2 t = VelNeighbor(p + int2( 0, 1));
+
+    CurlOut[p] = 0.5 * ((r.y - l.y) - (t.x - b.x));
+}
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void VorticityConfinement(uint3 id : SV_DispatchThreadID) {
+    int2 p = int2(id.xy);
+    if (!InBounds(p)) return;
+    if (IsSolid(p)) { VelocityOut[p] = VelocityIn[p]; return; }
+
+    // N = normalized gradient of |ω| (points toward concentrated vorticity).
+    float cL = abs(CurlAtClamped(p + int2(-1, 0)));
+    float cR = abs(CurlAtClamped(p + int2( 1, 0)));
+    float cB = abs(CurlAtClamped(p + int2( 0,-1)));
+    float cT = abs(CurlAtClamped(p + int2( 0, 1)));
+    float2 grad = 0.5 * float2(cR - cL, cT - cB);
+    float2 N = grad / (length(grad) + 1e-5);
+
+    // Confinement force F = ε · (N × ω ẑ) = ε · ω · (N.y, −N.x).
+    float omega = CurlIn[p];
+    float2 force = vorticityStrength * omega * float2(N.y, -N.x);
+    VelocityOut[p] = VelocityIn[p] + force * dt;
+}
+
 // --- divergence of the (advected, forced) velocity ----------------------------------------------------------------
 [numthreads(THREADS_X, THREADS_Y, 1)]
 void Divergence(uint3 id : SV_DispatchThreadID) {
     int2 p = int2(id.xy);
     if (!InBounds(p)) return;
 
-    // Solid neighbours contribute zero normal velocity (free-slip-ish boundary).
-    float2 l = IsSolid(p + int2(-1, 0)) ? 0 : VelocityIn[p + int2(-1, 0)];
-    float2 r = IsSolid(p + int2( 1, 0)) ? 0 : VelocityIn[p + int2( 1, 0)];
-    float2 b = IsSolid(p + int2( 0,-1)) ? 0 : VelocityIn[p + int2( 0,-1)];
-    float2 t = IsSolid(p + int2( 0, 1)) ? 0 : VelocityIn[p + int2( 0, 1)];
+    // Boundary-aware neighbours (wrap / clamp / zero-at-solid).
+    float2 l = VelNeighbor(p + int2(-1, 0));
+    float2 r = VelNeighbor(p + int2( 1, 0));
+    float2 b = VelNeighbor(p + int2( 0,-1));
+    float2 t = VelNeighbor(p + int2( 0, 1));
 
     DivergenceOut[p] = 0.5 * ((r.x - l.x) + (t.y - b.y));
 }
@@ -104,12 +254,11 @@ void PressureJacobi(uint3 id : SV_DispatchThreadID) {
     int2 p = int2(id.xy);
     if (!InBounds(p)) return;
 
-    // Neumann boundary: a solid neighbour reflects this cell's pressure (∂p/∂n = 0).
     float pc = PressureIn[p];
-    float l = IsSolid(p + int2(-1, 0)) ? pc : PressureIn[p + int2(-1, 0)];
-    float r = IsSolid(p + int2( 1, 0)) ? pc : PressureIn[p + int2( 1, 0)];
-    float b = IsSolid(p + int2( 0,-1)) ? pc : PressureIn[p + int2( 0,-1)];
-    float t = IsSolid(p + int2( 0, 1)) ? pc : PressureIn[p + int2( 0, 1)];
+    float l = PressureNeighbor(p + int2(-1, 0), pc);
+    float r = PressureNeighbor(p + int2( 1, 0), pc);
+    float b = PressureNeighbor(p + int2( 0,-1), pc);
+    float t = PressureNeighbor(p + int2( 0, 1), pc);
 
     PressureOut[p] = (l + r + b + t - DivergenceIn[p]) * 0.25;
 }
@@ -122,10 +271,10 @@ void Project(uint3 id : SV_DispatchThreadID) {
     if (IsSolid(p)) { VelocityOut[p] = 0; return; }
 
     float pc = PressureIn[p];
-    float l = IsSolid(p + int2(-1, 0)) ? pc : PressureIn[p + int2(-1, 0)];
-    float r = IsSolid(p + int2( 1, 0)) ? pc : PressureIn[p + int2( 1, 0)];
-    float b = IsSolid(p + int2( 0,-1)) ? pc : PressureIn[p + int2( 0,-1)];
-    float t = IsSolid(p + int2( 0, 1)) ? pc : PressureIn[p + int2( 0, 1)];
+    float l = PressureNeighbor(p + int2(-1, 0), pc);
+    float r = PressureNeighbor(p + int2( 1, 0), pc);
+    float b = PressureNeighbor(p + int2( 0,-1), pc);
+    float t = PressureNeighbor(p + int2( 0, 1), pc);
 
     float2 v = VelocityIn[p];
     v -= 0.5 * float2(r - l, t - b);

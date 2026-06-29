@@ -25,6 +25,10 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	public float simulationFps = 60f;
 	[Tooltip("Cap on solver steps per frame, so a hitch can't spiral into a death-loop of catch-up steps.")]
 	public int maxSubstepsPerFrame = 4;
+	[Tooltip("Simulated seconds per real second — how fast the fluid evolves, independent of step rate. " +
+		"simulationFps controls smoothness; this controls speed. At fps=60 each step covers a sub-texel distance " +
+		"and advection stalls, so raise this (e.g. 10-30) to get visible flow while keeping a high, smooth step rate.")]
+	public float timeScale = 1f;
 	[Tooltip("Jacobi iterations for the pressure solve. More = more accurately incompressible, but costlier. 20-40 is typical.")]
 	public int pressureIterations = 30;
 	[Range(0f, 1f), Tooltip("Per-step velocity damping. 1 = inviscid (energy persists), lower fakes viscosity / drag.")]
@@ -32,28 +36,74 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	[Tooltip("Run the sim in edit mode too. Off by default — sims are usually only meaningful while playing.")]
 	public bool simulateInEditMode = false;
 
+	public enum AdvectionMode {
+		// Plain semi-Lagrangian: stable and cheap, but heavily diffusive — flow smooths to mush and decays fast.
+		SemiLagrangian,
+		// MacCormack: a forward + reverse pass that cancels most of that diffusion. ~2x advection cost; vortices and
+		// detail persist far longer. The recommended default.
+		MacCormack,
+	}
+	[Header("Advection")]
+	[Tooltip("MacCormack cancels most of the numerical diffusion that makes plain semi-Lagrangian flow decay to mush.")]
+	public AdvectionMode advectionMode = AdvectionMode.MacCormack;
+
+	[Header("Vorticity confinement")]
+	[Tooltip("Re-injects the small-scale swirl that diffusion eats, keeping the flow lively. 0 disables it; " +
+		"0.1-0.5 is a useful range. Too high looks turbulent/noisy.")]
+	public float vorticityStrength = 0.2f;
+
+	// Ordered by how much spatial information they use, least to most. Integer values must stay in sync with the
+	// FORCE_* defines in FluidSimulation.compute.
+	public enum ForceMapping {
+		// Stretches the whole force field to fill the sim, regardless of resolution. Ignores position/rotation/scale —
+		// it just maps the field's full extent onto the sim's full extent. Vectors are applied as-is (not rotated).
+		Stretched,
+		// 1:1 grid-cell copy: sim cell (x,y) reads force texel (x,y). Ignores the force field's transform and assumes
+		// the two grids share resolution and alignment. Cheapest.
+		DirectTexel,
+		// Samples the force field by world position and rotates its vectors into the sim's frame. Moving, rotating, or
+		// resizing the force field now affects the sim, and differing resolutions/placements just work.
+		WorldSpace,
+	}
 	[Header("Forcing")]
 	public VectorFieldComponent forceField;
+	[Tooltip("DirectTexel: 1:1 cell copy (grids must match), transform ignored. WorldSpace: transform-aware — " +
+		"move/rotate/resize the force field and it pushes the fluid accordingly. Stretched: fill the sim with the " +
+		"whole force field at any resolution, ignoring transform.")]
+	public ForceMapping forceMapping = ForceMapping.Stretched;
 	public float forceStrength = 1f;
 
-	[Header("Obstacles")]
+	public enum BoundaryMode {
+		// Periodic: flow leaving one edge re-enters the opposite edge. Best for seamless/tiling wind & sea maps.
+		Wrap,
+		// Solid no-slip border: the fluid is contained in a box and deflects off the edges.
+		Wall,
+		// Outflow / absorbing: fluid flows out of the edges without reflecting back.
+		Open,
+	}
+	[Header("Boundaries")]
+	[Tooltip("What happens at the domain edges. Interior obstacle masks apply regardless of this.")]
+	public BoundaryMode boundaryMode = BoundaryMode.Wrap;
+	[Tooltip("Optional mask the fluid flows around (>0.5 = solid). Independent of the edge mode above.")]
 	public Texture2D obstacles;
 
 	[Header("Output")]
 	[Tooltip("Scales raw solver velocity into the encoded [-1,1] field range before it enters the pipeline.")]
 	public float outputScale = 1f;
 
-	// Raw-float solver state (NOT encoded). Velocity is ping-ponged; pressure/divergence are scratch.
-	RenderTexture velA, velB;
+	// Raw-float solver state (NOT encoded). Velocity is ping-ponged; velC is the MacCormack scratch buffer;
+	// pressure/divergence/curl are scratch.
+	RenderTexture velA, velB, velC;
 	RenderTexture pressureA, pressureB;
 	RenderTexture divergence;
+	RenderTexture curl;
 	Point allocatedSize = new Point(-1, -1);
 	bool seeded;
 
 	// Leftover sub-frame time carried between frames so the fixed-step accumulator stays exact.
 	float accumulator;
 
-	int kAddForces, kAdvect, kDivergence, kPressure, kProject, kEncode;
+	int kAddForces, kAdvect, kAdvectMacCormack, kComputeVorticity, kVorticityConfinement, kDivergence, kPressure, kProject, kEncode;
 	bool kernelsResolved;
 
 	const int ThreadsX = 8, ThreadsY = 8;
@@ -79,10 +129,14 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		if (!seeded) { ClearSimState(); seeded = true; }
 
 		if (ShouldSimulate) {
+			// fixedDt is the real-time cadence we consume the accumulator at (smoothness); the solver advances by
+			// fixedDt * timeScale of *simulated* time per step (speed). Decoupling them lets the flow move fast
+			// while still stepping often enough that advection doesn't stall on sub-texel back-traces.
 			float fixedDt = 1f / Mathf.Max(1f, simulationFps);
+			float simDt = fixedDt * timeScale;
 			int steps = 0;
 			while (accumulator >= fixedDt && steps < maxSubstepsPerFrame) {
-				Step(fixedDt);
+				Step(simDt);
 				accumulator -= fixedDt;
 				steps++;
 			}
@@ -100,6 +154,12 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		cs.SetInt("height", gridRenderer.gridSize.y);
 		cs.SetFloat("dt", dt);
 		cs.SetFloat("viscosityDamp", viscosityDamp);
+		cs.SetInt("boundaryMode", (int)boundaryMode);
+
+		// The advection/MacCormack samplers honour the texture wrap mode, so it must match the boundary mode:
+		// Repeat for periodic edges, Clamp otherwise.
+		var wrap = boundaryMode == BoundaryMode.Wrap ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
+		velA.wrapMode = velB.wrapMode = velC.wrapMode = wrap;
 
 		bool hasObstacles = obstacles != null;
 		cs.SetInt("hasObstacles", hasObstacles ? 1 : 0);
@@ -109,19 +169,59 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		bool hasForce = forceField != null && forceField != this && forceField.renderTexture != null;
 		cs.SetInt("hasForce", hasForce ? 1 : 0);
 		cs.SetFloat("forceStrength", forceStrength);
+		cs.SetInt("forceMapping", (int)forceMapping);
 		cs.SetTexture(kAddForces, "ForceField", hasForce ? forceField.renderTexture : (Texture)Texture2D.blackTexture);
+
+		// WorldSpace mapping needs the grid<->world transforms of both fields and the relative rotation that brings the
+		// force field's local vectors into ours. (Only consulted when hasForce && forceMapping == WorldSpace.)
+		if (hasForce && forceMapping == ForceMapping.WorldSpace) {
+			cs.SetMatrix("simGridToWorld", gridRenderer.cellCenter.gridToWorldMatrix);
+			cs.SetMatrix("forceWorldToGrid", forceField.gridRenderer.cellCenter.gridToWorldMatrix.inverse);
+			cs.SetVector("forceGridSize", new Vector4(forceField.gridRenderer.gridSize.x, forceField.gridRenderer.gridSize.y, 0, 0));
+			var relativeRotation = Quaternion.Inverse(transform.rotation) * forceField.transform.rotation;
+			cs.SetMatrix("forceToSimDir", Matrix4x4.Rotate(relativeRotation));
+		}
 		BindObstacles(kAddForces, hasObstacles);
 		cs.SetTexture(kAddForces, "VelocityIn", velA);
 		cs.SetTexture(kAddForces, "VelocityOut", velB);
 		Dispatch(kAddForces);
 		Swap(ref velA, ref velB);
 
-		// 2) Advect velocity through itself. velA -> velB.
+		// 2) Advect velocity through itself.
+		// Forward semi-Lagrangian: velA -> velB.
 		BindObstacles(kAdvect, hasObstacles);
 		cs.SetTexture(kAdvect, "VelocityIn", velA);
 		cs.SetTexture(kAdvect, "VelocityOut", velB);
 		Dispatch(kAdvect);
-		Swap(ref velA, ref velB);
+
+		if (advectionMode == AdvectionMode.MacCormack) {
+			// Correction pass: original velA (φ) + forward velB (φ̂) -> corrected velC. Then velC becomes current.
+			BindObstacles(kAdvectMacCormack, hasObstacles);
+			cs.SetTexture(kAdvectMacCormack, "VelocityIn", velA);
+			cs.SetTexture(kAdvectMacCormack, "ForwardVelocity", velB);
+			cs.SetTexture(kAdvectMacCormack, "VelocityOut", velC);
+			Dispatch(kAdvectMacCormack);
+			Swap(ref velA, ref velC);
+		} else {
+			// Plain semi-Lagrangian: the forward result is the answer.
+			Swap(ref velA, ref velB);
+		}
+
+		// 2b) Vorticity confinement: re-inject the swirl diffusion eats. velA -> curl, then (velA, curl) -> velB.
+		if (vorticityStrength > 0f) {
+			cs.SetFloat("vorticityStrength", vorticityStrength);
+			BindObstacles(kComputeVorticity, hasObstacles);
+			cs.SetTexture(kComputeVorticity, "VelocityIn", velA);
+			cs.SetTexture(kComputeVorticity, "CurlOut", curl);
+			Dispatch(kComputeVorticity);
+
+			BindObstacles(kVorticityConfinement, hasObstacles);
+			cs.SetTexture(kVorticityConfinement, "VelocityIn", velA);
+			cs.SetTexture(kVorticityConfinement, "CurlIn", curl);
+			cs.SetTexture(kVorticityConfinement, "VelocityOut", velB);
+			Dispatch(kVorticityConfinement);
+			Swap(ref velA, ref velB);
+		}
 
 		// 3a) Divergence of velA -> divergence.
 		BindObstacles(kDivergence, hasObstacles);
@@ -153,9 +253,13 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		var cs = FluidComputeShader;
 		cs.SetInt("width", gridRenderer.gridSize.x);
 		cs.SetInt("height", gridRenderer.gridSize.y);
+		cs.SetInt("boundaryMode", (int)boundaryMode);
 		cs.SetFloat("outputScale", outputScale);
 		cs.SetTexture(kEncode, "VelocityIn", velA);
 		cs.SetTexture(kEncode, "Result", renderTexture);
+		// Encode calls InBounds, which the compiler ties to the same boundary block as Obstacles — so the kernel's
+		// resource table includes Obstacles and Unity demands it be bound even though Encode never samples it.
+		BindObstacles(kEncode, obstacles != null);
 		Dispatch(kEncode);
 	}
 
@@ -181,9 +285,11 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		ReleaseSimTextures();
 		velA       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
 		velB       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
+		velC       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
 		pressureA  = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
 		pressureB  = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
 		divergence = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
+		curl       = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
 		allocatedSize = size;
 		seeded = false;   // re-seed (clear) on resize
 	}
@@ -199,9 +305,9 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	}
 
 	void ClearSimState() {
-		ClearTexture(velA); ClearTexture(velB);
+		ClearTexture(velA); ClearTexture(velB); ClearTexture(velC);
 		ClearTexture(pressureA); ClearTexture(pressureB);
-		ClearTexture(divergence);
+		ClearTexture(divergence); ClearTexture(curl);
 		accumulator = 0f;
 	}
 
@@ -214,24 +320,27 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	}
 
 	void ReleaseSimTextures() {
-		foreach (var rt in new[] { velA, velB, pressureA, pressureB, divergence }) {
+		foreach (var rt in new[] { velA, velB, velC, pressureA, pressureB, divergence, curl }) {
 			if (rt == null) continue;
 			if (RenderTexture.active == rt) RenderTexture.active = null;
 			rt.Release();
 		}
-		velA = velB = pressureA = pressureB = divergence = null;
+		velA = velB = velC = pressureA = pressureB = divergence = curl = null;
 		allocatedSize = new Point(-1, -1);
 	}
 
 	void ResolveKernels() {
 		if (kernelsResolved) return;
 		var cs = FluidComputeShader;
-		kAddForces  = cs.FindKernel("AddForces");
-		kAdvect     = cs.FindKernel("Advect");
-		kDivergence = cs.FindKernel("Divergence");
-		kPressure   = cs.FindKernel("PressureJacobi");
-		kProject    = cs.FindKernel("Project");
-		kEncode     = cs.FindKernel("Encode");
+		kAddForces            = cs.FindKernel("AddForces");
+		kAdvect               = cs.FindKernel("Advect");
+		kAdvectMacCormack     = cs.FindKernel("AdvectMacCormack");
+		kComputeVorticity     = cs.FindKernel("ComputeVorticity");
+		kVorticityConfinement = cs.FindKernel("VorticityConfinement");
+		kDivergence           = cs.FindKernel("Divergence");
+		kPressure             = cs.FindKernel("PressureJacobi");
+		kProject              = cs.FindKernel("Project");
+		kEncode               = cs.FindKernel("Encode");
 		kernelsResolved = true;
 	}
 

@@ -62,6 +62,17 @@ public class DrawableVectorFieldComponent : VectorFieldComponent {
         SetDirty();
     }
 
+    // Replaces the painted field with a copy of `source`, resizing the grid to match. Code-callable entry point used
+    // by the editor's Rasterize (baking any field type into an editable Drawable) and usable from script to seed a
+    // drawable field. Writes into paintField — the authored source of truth — not base.vectorField (the readback
+    // target), so the painting actually shows up and serializes.
+    public void LoadPaintField(Vector2Map source) {
+        if (source == null) return;
+        if (gridRenderer != null) gridRenderer.gridSize = source.size;
+        paintField = new Vector2Map(source);
+        SetDirty();
+    }
+
     static RectInt Union(RectInt a, RectInt b) {
         int xMin = Mathf.Min(a.xMin, b.xMin);
         int yMin = Mathf.Min(a.yMin, b.yMin);

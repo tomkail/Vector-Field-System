@@ -37,11 +37,6 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		if (GUILayout.Button("Rasterize")) {
 			Rasterize();
 		}
-		// if(serializedObject.FindProperty("fullScreen").boolValue) {
-		// 	EditorGUI.BeginDisabledGroup(true);
-		// 	EditorGUILayout.Vector2IntField("Size", RenderTextureCreator.screenSize);
-		// 	EditorGUI.EndDisabledGroup();
-		// }
 
 		DrawDiagnostics();
 
@@ -107,6 +102,14 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 
 
 	public void Rasterize() {
+		// Bake the source field's CPU copy into a new editable Drawable. PreviewField resolves Drawable's authored
+		// paint vs every other type's readback copy; it's null for a GPU-only source with no CPU data yet.
+		var source = PreviewField;
+		if (source == null) {
+			Debug.LogWarning("Nothing to rasterize — this field has no CPU data. Attach a CPU consumer (or paint into it) first.", data);
+			return;
+		}
+
 		// Create new undo group
 		Undo.IncrementCurrentGroup();
 
@@ -122,9 +125,10 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		go.transform.localScale = data.gameObject.transform.localScale;
 
 		var vectorFieldComponent = Undo.AddComponent<DrawableVectorFieldComponent>(go);
-		vectorFieldComponent.vectorField = new Vector2Map(data.vectorField);
-		vectorFieldComponent.gridRenderer.gridSize = vectorFieldComponent.vectorField.size;
+		// Write into the painted field (the authored source of truth), not base.vectorField (the non-serialized
+		// readback target) — otherwise the rasterized field is empty and doesn't persist.
 		vectorFieldComponent.gridRenderer.scaleWithGridSize = data.gridRenderer.scaleWithGridSize;
+		vectorFieldComponent.LoadPaintField(source);
 		Undo.RegisterCompleteObjectUndo(vectorFieldComponent, "Update Vector Field");
 		Undo.RegisterCompleteObjectUndo(vectorFieldComponent.gridRenderer, "Update Vector Field");
 
@@ -173,16 +177,5 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		GizmosX.BeginColor(Color.white.WithAlpha(1f));
 		var bounds = vectorFieldComponent.gridRenderer.edge.NormalizedToWorldRect(new Rect(0, 0, 1, 1));
 		GizmosX.DrawWirePolygon(bounds);
-		// bounds = cellCenter.NormalizedRectToWorldRect(new Rect(0,0,1,1));
-		// GizmosX.DrawWirePolygon(bounds);
-		// GizmosX.EndColor();
-		//
-		// GizmosX.BeginColor(Color.white.WithAlpha(0.25f));
-		// for(int y = 1; y < gridRenderer.gridSize.y; y++)
-		// 	Gizmos.DrawLine(gridRenderer.edge.GridToWorldPoint(new Vector2(0,y)), gridRenderer.edge.GridToWorldPoint(new Vector2(gridRenderer.gridSize.x,y)));
-		// for(int x = 1; x < gridRenderer.gridSize.x; x++)
-		// 	Gizmos.DrawLine(gridRenderer.edge.GridToWorldPoint(new Vector2(x,0)), gridRenderer.edge.GridToWorldPoint(new Vector2(x,gridRenderer.gridSize.y)));
-		//
-		// GizmosX.EndColor();
 	}
 }

@@ -4,32 +4,42 @@ using UnityEditor;
 
 [CustomEditor(typeof(VectorFieldComponent), true), CanEditMultipleObjects]
 public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
-	Texture2D texture;
+	// Re-encodes the field's render texture for the inspector preview, applying the contrast scale on the GPU (see
+	// VectorFieldPreview.shader) rather than rebuilding a CPU Texture2D every repaint.
+	static Shader previewShader;
+	static Shader PreviewShader => previewShader ? previewShader : (previewShader = Resources.Load<Shader>("VectorFieldPreview"));
+	static readonly int ScaleID = Shader.PropertyToID("_Scale");
+	Material previewMaterial;
+
 	bool automaticScale {
 		get => EditorPrefs.GetBool("VectorFieldComponentEditor_AutomaticScale", true);
 		set => EditorPrefs.SetBool("VectorFieldComponentEditor_AutomaticScale", value);
 	}
 	float maxComponent;
-	float calculatedScale => automaticScale ? (PreviewField != null ? VectorFieldScriptableObject.GetMaxAbsComponent(PreviewField.values) : 1f) : maxComponent;
+	// Auto Scale normalizes preview contrast against the field's largest absolute component; manual mode uses the
+	// user's maxComponent. The field is small and the scan is far cheaper than the per-repaint Texture2D upload it
+	// replaced, so computing this on the CPU (and feeding it to the GPU shader) is fine — no GPU reduction needed.
+	float calculatedScale => automaticScale ? (PreviewField != null ? MaxAbsComponent(PreviewField.values) : 1f) : maxComponent;
 
-	// The CPU field to preview. Drawable authors into its own PaintField (base.vectorField is its readback target,
-	// which is null until a CPU consumer is attached); every other component exposes its CPU copy via vectorField.
+	static float MaxAbsComponent(Vector2[] vectors) {
+		float max = 0;
+		for (int i = 0; i < vectors.Length; i++)
+			max = Mathf.Max(max, Mathf.Abs(vectors[i].x), Mathf.Abs(vectors[i].y));
+		return max;
+	}
+
+	// The CPU field used only to derive the Auto Scale value (and as Rasterize's source). Drawable authors into its
+	// own PaintField; every other component exposes its CPU copy via vectorField (null until a consumer attaches, in
+	// which case Auto Scale falls back to 1). The drawn preview always comes from the GPU renderTexture, not this.
 	Vector2Map PreviewField => data is DrawableVectorFieldComponent drawable ? drawable.PaintField : data.vectorField;
-
-	// Texture2D throws on a zero/negative size, so clamp to at least 1×1. A field can be empty (size 0×0)
-	// when its component hasn't rendered yet on the frame the editor is enabled.
-	static Point PreviewTextureSize(Vector2Map field) => field != null
-		? new Point(Mathf.Max(1, field.size.x), Mathf.Max(1, field.size.y))
-		: new Point(1, 1);
 
 	public override void OnEnable() {
 		base.OnEnable();
-		texture = TextureX.Create(PreviewTextureSize(PreviewField), Color.black);
 		maxComponent = 1f;
 	}
 
 	void OnDisable() {
-		DestroyImmediate(texture);
+		if (previewMaterial != null) DestroyImmediate(previewMaterial);
 	}
 
 	public override void OnInspectorGUI() {
@@ -156,21 +166,19 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 	public override bool HasPreviewGUI() { return true; }
 
 	public override void OnPreviewGUI(Rect r, GUIStyle background) {
-		if (Event.current.type == EventType.Repaint) {
-			if (data is DrawableVectorFieldComponent && PreviewField != null && PreviewField.size.x > 0 && PreviewField.size.y > 0) {
-				var previewField = PreviewField;
-				if (texture.width != previewField.size.x || texture.height != previewField.size.y) {
-					DestroyImmediate(texture);
-					texture = TextureX.Create(previewField.size, Color.black);
-				}
-				var colors = VectorFieldUtils.VectorsToColors(previewField.values, 1f / calculatedScale);
-				texture.SetPixels(colors);
-				texture.Apply();
-				EditorGUI.DrawPreviewTexture(r, texture, null, ScaleMode.ScaleToFit);
-			} else if (data.renderTexture != null) {
-				EditorGUI.DrawPreviewTexture(r, data.renderTexture, null, ScaleMode.ScaleToFit);
-			}
+		if (Event.current.type != EventType.Repaint || data.renderTexture == null) return;
 
+		// Draw the (cookie-masked) GPU field straight through the preview material, which applies the contrast scale
+		// on the GPU. Falls back to an unscaled draw if the shader is missing.
+		if (previewMaterial == null && PreviewShader != null)
+			previewMaterial = new Material(PreviewShader) { hideFlags = HideFlags.HideAndDontSave };
+
+		if (previewMaterial != null) {
+			previewMaterial.SetTexture("_MainTex", data.renderTexture);
+			previewMaterial.SetFloat(ScaleID, calculatedScale);
+			EditorGUI.DrawPreviewTexture(r, data.renderTexture, previewMaterial, ScaleMode.ScaleToFit);
+		} else {
+			EditorGUI.DrawPreviewTexture(r, data.renderTexture, null, ScaleMode.ScaleToFit);
 		}
 	}
 

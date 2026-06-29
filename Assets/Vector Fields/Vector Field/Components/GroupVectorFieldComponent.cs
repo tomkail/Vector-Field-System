@@ -42,7 +42,6 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		List<VectorFieldComponent> removed = new List<VectorFieldComponent>();
 		IEnumerableX.GetChanges(childComponents, layers.Select(x => x.component), out added, out removed);
 		foreach (var component in added) {
-			Debug.Log("Added " + component, this);
 			layers.Add(new VectorFieldLayer() {
 				component = component
 			});

@@ -53,7 +53,7 @@ public class VectorFieldDebugRenderer : System.IDisposable
     /// </summary>
     public void Draw(VectorFieldComponent vectorFieldComponent, float opacity, Camera camera, bool variableResolution, float targetSpacingPixels, int maxArrows) {
         // Sample the field straight off the GPU. No CPU readback / value buffer is needed, so the arrows always
-        // reflect the live render texture even when keepCPUUpdated is off.
+        // reflect the live render texture without any CPU consumer registered.
         var fieldTexture = vectorFieldComponent.renderTexture;
         if (fieldTexture == null) return; // nothing has been rendered yet
 

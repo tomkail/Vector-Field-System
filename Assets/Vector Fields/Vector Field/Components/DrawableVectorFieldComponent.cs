@@ -7,14 +7,20 @@ public class DrawableVectorFieldComponent : VectorFieldComponent {
     [SerializeField] Vector2Map paintField;
 
     // The painted field, created/resized to the current grid on demand. The drawing tool reads and writes this.
+    // A deserialized Vector2Map can come back non-null with a null `values` array (Unity rebuilds the managed object
+    // without running its constructor), so treat that as "needs (re)building" alongside null / size mismatch.
     public Vector2Map PaintField {
         get {
             var size = gridRenderer != null ? gridRenderer.gridSize : (paintField != null ? paintField.size : Point.zero);
-            if (paintField == null || paintField.values.Length != size.x * size.y)
+            if (!IsValid(paintField, size))
                 paintField = new Vector2Map(size);
             return paintField;
         }
     }
+
+    // A paint field is usable when it exists, has a backing array, and that array matches the requested grid size.
+    static bool IsValid(Vector2Map field, Point size) =>
+        field != null && field.values != null && field.values.Length == size.x * size.y;
 
     // Uploads to the GPU come from the painted field, not from base.vectorField (which is the readback target).
     protected override Vector2Map UploadSource => PaintField;
@@ -30,7 +36,7 @@ public class DrawableVectorFieldComponent : VectorFieldComponent {
     }
 
     protected override void RenderInternal() {
-        bool resized = paintField == null || paintField.values.Length != gridRenderer.gridSize.x * gridRenderer.gridSize.y;
+        bool resized = !IsValid(paintField, gridRenderer.gridSize);
         if (resized)
             paintField = new Vector2Map(gridRenderer.gridSize);
 

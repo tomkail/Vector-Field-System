@@ -139,6 +139,20 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		return true;
 	}
 
+	// Frame the field's grid bounds (the same rect drawn as the selection gizmo) instead of the transform center
+	// when the user frames the selection (F / double-click in the hierarchy).
+	bool HasFrameBounds() => data != null && data.gridRenderer != null;
+
+	Bounds OnGetFrameBounds() {
+		var bounds = data.GetBounds();
+		// Encapsulate every selected field so framing a multi-selection fits them all.
+		foreach (var t in targets) {
+			if (t is VectorFieldComponent field && field != data && field.gridRenderer != null)
+				bounds.Encapsulate(field.GetBounds());
+		}
+		return bounds;
+	}
+
 	public override bool HasPreviewGUI() { return true; }
 
 	public override void OnPreviewGUI(Rect r, GUIStyle background) {

@@ -10,8 +10,18 @@ using UnityEngine;
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
 public class VectorFieldTextureRenderer : MonoBehaviour {
 	static readonly int MainTex = Shader.PropertyToID("_MainTex");
+	static readonly int MainTexTexelSize = Shader.PropertyToID("_MainTex_TexelSize");
 	static readonly int AmplitudeRamp = Shader.PropertyToID("_AmplitudeRamp");
+	static readonly int ColorGradient = Shader.PropertyToID("_ColorGradient");
 	const int RampResolution = 256;
+
+	static Gradient WhiteGradient() {
+		var g = new Gradient();
+		g.SetKeys(
+			new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
+			new[] { new GradientAlphaKey(1, 0), new GradientAlphaKey(1, 1) });
+		return g;
+	}
 
 	[SerializeField] VectorFieldComponent _vectorFieldComponent;
 	public VectorFieldComponent vectorFieldComponent {
@@ -37,6 +47,12 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 	// threshold, ease the rolloff, etc.
 	[SerializeField, CurveRange(0, 0, 1, 1)] AnimationCurve amplitudeAlphaCurve = AnimationCurve.Linear(0, 0, 1, 1);
 	Texture2D rampTexture;
+
+	// Recolors the white streaks when the material's "Use Texture Color" is off, sampled by the material's gradient
+	// source (flow magnitude or streak luminance). Baked into the _ColorGradient ramp the shader samples. Defaults to
+	// solid white, which reproduces the plain white-streak look.
+	[SerializeField] Gradient colorGradient = WhiteGradient();
+	Texture2D colorGradientTexture;
 
 	MeshRenderer meshRenderer => GetComponent<MeshRenderer>();
 	MaterialPropertyBlock propertyBlock;
@@ -78,12 +94,17 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 		var fieldTexture = _vectorFieldComponent.renderTexture;
 		if (fieldTexture == null) return; // nothing rendered yet; OnRendered will call us again once it has
 
-		if (rampTexture == null) BakeRamp();
+		if (rampTexture == null || colorGradientTexture == null) BakeRamp();
 
 		propertyBlock ??= new MaterialPropertyBlock();
 		meshRenderer.GetPropertyBlock(propertyBlock);
 		propertyBlock.SetTexture(MainTex, fieldTexture);
+		// Bicubic field sampling in the shader needs the field dimensions; set explicitly so we don't rely on Unity
+		// auto-populating _MainTex_TexelSize for a property-block-bound texture.
+		propertyBlock.SetVector(MainTexTexelSize, new Vector4(
+			1f / fieldTexture.width, 1f / fieldTexture.height, fieldTexture.width, fieldTexture.height));
 		propertyBlock.SetTexture(AmplitudeRamp, rampTexture);
+		propertyBlock.SetTexture(ColorGradient, colorGradientTexture);
 		meshRenderer.SetPropertyBlock(propertyBlock);
 
 		MatchFieldBounds();
@@ -92,8 +113,10 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 	// Bake the amplitude->alpha curve into the ramp texture the shader samples. Reuses the existing texture in place
 	// (only reallocates if missing), so re-baking on a curve edit is cheap.
 	void BakeRamp() {
-		if (amplitudeAlphaCurve == null) return;
-		VectorFieldUtils.CreateRampTextureFromAnimationCurve(amplitudeAlphaCurve, RampResolution, ref rampTexture);
+		if (amplitudeAlphaCurve != null)
+			VectorFieldUtils.CreateRampTextureFromAnimationCurve(amplitudeAlphaCurve, RampResolution, ref rampTexture);
+		if (colorGradient != null)
+			VectorFieldUtils.CreateColorRampTextureFromGradient(colorGradient, RampResolution, ref colorGradientTexture);
 	}
 
 #if UNITY_EDITOR
@@ -105,6 +128,7 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 
 	void OnDestroy() {
 		if (rampTexture != null) ObjectX.DestroyAutomatic(rampTexture);
+		if (colorGradientTexture != null) ObjectX.DestroyAutomatic(colorGradientTexture);
 	}
 
 	// Lay the quad over the field's world rect (a unit-quad mesh centred at the origin maps exactly onto it). Replaces

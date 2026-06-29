@@ -22,6 +22,24 @@ public static class VectorFieldUtils {
 		return texture;
 	}
 
+	// Bakes a Gradient into a 1×width RGBA ramp texture (evaluated across t in [0,1]), reusing `texture` when it already
+	// matches the requested width and recreating it otherwise. Used for GPU-side gradient lookups (e.g. the flow
+	// visualization's recolor gradient). Authored in sRGB (linear:false) so colors read as designed in the inspector.
+	public static Texture2D CreateColorRampTextureFromGradient(Gradient gradient, int textureWidth, ref Texture2D texture) {
+		if (texture == null || texture.width != textureWidth) {
+			if (texture != null) ObjectX.DestroyAutomatic(texture);
+			texture = new Texture2D(textureWidth, 1, TextureFormat.RGBA32, false, false) {
+				wrapMode = TextureWrapMode.Clamp
+			};
+		}
+		for (int i = 0; i < textureWidth; i++) {
+			float t = i / (float)(textureWidth - 1);
+			texture.SetPixel(i, 0, gradient.Evaluate(t));
+		}
+		texture.Apply();
+		return texture;
+	}
+
 	public static Texture2D VectorFieldToTexture(Vector2Map vectorField, float maxComponentReciprocal) {
 		var colors = VectorFieldUtils.VectorsToColors(vectorField.values, maxComponentReciprocal);
         

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Unity.Collections;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -16,7 +15,13 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 				Debug.LogError("VectorFieldComponent is null");
 				return null;
 			}
-			return this.GetComponentsX(ComponentX.ComponentSearchParams<GroupVectorFieldComponent>.AllAncestorsExcludingSelf(true)).FirstOrDefault();
+			// Nearest ancestor group (equivalent to GetComponentsX(AllAncestorsExcludingSelf).FirstOrDefault(), which
+			// returns the closest matching ancestor and includes inactive ones), but as a plain parent walk so it
+			// doesn't allocate a List + LINQ enumerator on every access.
+			for (var t = transform.parent; t != null; t = t.parent)
+				if (t.TryGetComponent(out GroupVectorFieldComponent ancestorGroup))
+					return ancestorGroup;
+			return null;
 		}
 	}
 

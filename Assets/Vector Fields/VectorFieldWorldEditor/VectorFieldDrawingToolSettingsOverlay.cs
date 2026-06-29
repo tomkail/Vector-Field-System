@@ -12,6 +12,7 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
     // Re-synced when the tool changes a setting outside the overlay (e.g. Cmd+Scroll resizing the brush).
     Slider _brushSizeSlider;
     Slider _pressureSlider;
+    RadioButtonGroup _modeGroup;
     Image _preview;
 
     VectorFieldDrawingToolSettings settings => VectorFieldDrawingToolSettings.Instance;
@@ -28,6 +29,18 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
         // Bind to the settings singleton so the cookie PropertyField reads/writes it directly.
         var so = new SerializedObject(settings);
         root.Bind(so);
+
+        // --- Mode --------------------------------------------------------------------------------------------------
+        root.Add(Header("Mode"));
+
+        var ops = VectorFieldBrushOpRegistry.Ops;
+        var modeLabels = new System.Collections.Generic.List<string>(ops.Count);
+        foreach (var op in ops) modeLabels.Add(op.DisplayName);
+        _modeGroup = new RadioButtonGroup(null, modeLabels) {
+            value = VectorFieldBrushOpRegistry.IndexOf(_tool.brushOp.Id)
+        };
+        _modeGroup.RegisterValueChangedCallback(evt => _tool.brushOp = VectorFieldBrushOpRegistry.Ops[evt.newValue]);
+        root.Add(_modeGroup);
 
         // --- Brush -------------------------------------------------------------------------------------------------
         root.Add(Header("Brush"));
@@ -70,7 +83,8 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
 
         // --- Help --------------------------------------------------------------------------------------------------
         root.Add(Header("Shortcuts"));
-        var help = new Label("Drag: draw\nCtrl+Drag: add\nCmd+Drag: erase\nShift+Click: stamp\nCmd+Scroll: size") {
+        // "Action" is Cmd on macOS, Ctrl on Windows/Linux.
+        var help = new Label("Drag: paint (current mode)\nAction+Drag: erase\nShift+Click: stamp\nAction+Scroll: size") {
             style = { whiteSpace = WhiteSpace.Normal, opacity = 0.7f, fontSize = 11 }
         };
         root.Add(help);
@@ -83,11 +97,12 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
         if (_tool == null) return;
         _brushSizeSlider?.SetValueWithoutNotify(_tool.gridSpaceBrushSize);
         _pressureSlider?.SetValueWithoutNotify(_tool.pressure);
+        _modeGroup?.SetValueWithoutNotify(VectorFieldBrushOpRegistry.IndexOf(_tool.brushOp.Id));
     }
 
     void RefreshPreview() {
-        if (_preview != null && _tool?.brushCreator != null)
-            _preview.image = _tool.brushCreator.RenderTexture;
+        if (_preview != null && _tool?.brushTexture != null)
+            _preview.image = _tool.brushTexture;
     }
 
     static Label Header(string text) => new Label(text) {

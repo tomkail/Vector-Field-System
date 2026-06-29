@@ -1,46 +1,23 @@
 using UnityEngine;
 
 // Generates a "stamp" vector field (a single directional or spot/vortex emitter, shaped by a cookie/falloff) into
-// an ARGBFloat render texture on the GPU.
-//
-// Two ways to use it, both routing through the same Dispatch:
-//   * Statically — VectorFieldBrushTextureCreator.Dispatch(...) — for code that already owns its target texture
-//     (e.g. StampVectorFieldComponent writes straight into the component's renderTexture).
-//   * As an instance — for callers that want a creator object owning its own texture (e.g. the scene drawing tool).
-//     The instance inherits its texture lifecycle from VectorFieldTextureCreator.
-[System.Serializable]
-public class VectorFieldBrushTextureCreator : VectorFieldTextureCreator
+// an ARGBFloat render texture on the GPU. Code-callable and MonoBehaviour-free: callers own their target texture
+// (e.g. StampVectorFieldComponent writes into the component's renderTexture; the scene drawing tool into its brush
+// preview texture) and dispatch into it.
+public static class VectorFieldBrushTextureCreator
 {
 	static ComputeShader stampVectorFieldComputeShader;
 	public static ComputeShader StampVectorFieldComputeShader => stampVectorFieldComputeShader ? stampVectorFieldComputeShader : (stampVectorFieldComputeShader = Resources.Load<ComputeShader>("StampVectorField"));
 
-	// One instantiated copy of the compute shader, shared by every static dispatch. Dispatches are serial on the
-	// main thread and every parameter/keyword is set per dispatch, so a single shared instance is safe and saves
-	// instantiating+destroying a shader on every render.
+	// One instantiated copy of the compute shader, shared by every dispatch. Dispatches are serial on the main thread
+	// and every parameter/keyword is set per dispatch, so a single shared instance is safe and saves instantiating +
+	// destroying a shader on every render.
 	static ComputeShader sharedStampShader;
 	static ComputeShader SharedStampShader => sharedStampShader ? sharedStampShader : (sharedStampShader = Object.Instantiate(StampVectorFieldComputeShader));
 
 	// Must match what's in the compute shader
 	const int threadsPerGroupX = 16;
 	const int threadsPerGroupY = 16;
-
-	VectorFieldBrushSettings _brushSettingsParams;
-	public VectorFieldBrushSettings BrushSettingsParams
-	{
-		get => _brushSettingsParams;
-		set => _brushSettingsParams = value;
-	}
-
-	public VectorFieldBrushTextureCreator(Vector2Int gridSize, VectorFieldBrushSettings brushSettingsParams) : base(gridSize)
-	{
-		this._brushSettingsParams = brushSettingsParams;
-	}
-
-	protected override void RenderInternal()
-	{
-		EnsureHasValidRenderTexture();
-		Dispatch(renderTexture, gridSize, magnitude, _brushSettingsParams, cookieTexture);
-	}
 
 	// The single dispatch routine. `target` must already be a valid ARGBFloat random-write texture of gridSize;
 	// `cookieTexture` shapes the stamp (a Texture2D or RenderTexture); null falls back to a solid white cookie.

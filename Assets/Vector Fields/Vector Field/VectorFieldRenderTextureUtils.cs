@@ -35,6 +35,17 @@ public static class VectorFieldRenderTextureUtils {
 
 	public static void EnsureValid(ref RenderTexture renderTexture, Vector2Int size) => EnsureValid(ref renderTexture, size.x, size.y);
 
+	// Releases and destroys `renderTexture`, clearing it to null. RenderTextures aren't garbage-collected, so callers
+	// that own one must destroy it explicitly (e.g. on disable/teardown) to avoid leaking GPU memory.
+	public static void Destroy(ref RenderTexture renderTexture) {
+		if (renderTexture == null) return;
+		if (RenderTexture.active == renderTexture) RenderTexture.active = null;
+		renderTexture.Release();
+		if (Application.isPlaying) Object.Destroy(renderTexture);
+		else Object.DestroyImmediate(renderTexture);
+		renderTexture = null;
+	}
+
 	public static bool DescriptorsMatch(RenderTextureDescriptor a, RenderTextureDescriptor b) {
 		if (a.depthBufferBits != b.depthBufferBits) return false;
 		if (a.width != b.width) return false;

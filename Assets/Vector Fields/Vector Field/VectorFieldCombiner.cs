@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 // Code-callable vector field combiner. Blends a stack of vector field layers into a target render texture on the
 // GPU, with no dependency on a MonoBehaviour: give it the target, the destination ("group") transform, and the
@@ -39,6 +38,16 @@ public static class VectorFieldCombiner {
 	static Shader combineVectorFieldsShader;
 	public static Shader CombineVectorFieldsShader => combineVectorFieldsShader ? combineVectorFieldsShader : (combineVectorFieldsShader = Resources.Load<Shader>("CombineVectorFields"));
 
+	// One material shared across every blit — blends are serial on the main thread and every property/keyword is set
+	// per blit, so a single reused material is safe and avoids allocating + destroying a Material per layer per render.
+	static Material sharedMaterial;
+	static Material SharedMaterial {
+		get {
+			if (sharedMaterial == null && CombineVectorFieldsShader != null) sharedMaterial = new Material(CombineVectorFieldsShader);
+			return sharedMaterial;
+		}
+	}
+
 	// Blends `layers` (bottom to top) into `target`. `groupLocalToWorld` is the destination field's transform; each
 	// layer is sampled/oriented relative to it. `gridSize` sizes the intermediate ping-pong buffers. Layers with no
 	// field or Component.None are skipped.
@@ -71,7 +80,8 @@ public static class VectorFieldCombiner {
 
 	// One layer blit: blends `layer` over `under` into `result`, in the group's frame (groupLocalToWorld).
 	public static void Blend(Matrix4x4 groupLocalToWorld, RenderTexture under, Layer layer, RenderTexture result) {
-		var material = new Material(CombineVectorFieldsShader);
+		var material = SharedMaterial;
+		if (material == null) return;
 		material.SetTexture("_VectorField", layer.field);
 		material.SetMatrix("_RelativeTransform", GetRelativeTransform(layer.localToWorldMatrix, groupLocalToWorld));
 		// Pure, scale-free rotation taking a direction from the layer's local frame into the group's. Mirrors the CPU
@@ -97,8 +107,6 @@ public static class VectorFieldCombiner {
 		}
 
 		Graphics.Blit(under, result, material);
-
-		Object.DestroyImmediate(material);
 	}
 
 	// Affine map group-UV -> layer-UV, applied in the shader as mul(M, float4(uv, 0, 1)).xy. Each group cell is

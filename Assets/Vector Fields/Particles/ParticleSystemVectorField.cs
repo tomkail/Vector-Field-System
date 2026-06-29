@@ -33,7 +33,10 @@ public class ParticleSystemVectorField : MonoBehaviour
 	const int AmplitudeResolution = 256;
 	float[] amplitudeLut;
 
-	ParticleSystemForceField forceField => GetComponent<ParticleSystemForceField>();
+	// Cached (RequireComponent guarantees it exists). Re-resolves if the cache is cleared by a domain reload. Avoids a
+	// GetComponent on every access, including each Refresh.
+	ParticleSystemForceField _forceField;
+	ParticleSystemForceField forceField => _forceField ? _forceField : (_forceField = GetComponent<ParticleSystemForceField>());
 	PositionConstraint positionConstraint;
 	RotationConstraint rotationConstraint;
 	ScaleConstraint scaleConstraint;

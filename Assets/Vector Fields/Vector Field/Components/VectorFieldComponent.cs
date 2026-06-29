@@ -130,7 +130,10 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	protected virtual void OnValidate() {
 		if (!isActiveAndEnabled) return;
 		gridRenderer = GetComponent<GridRenderer>();
-		gridRenderer.modeModule = ScriptableObject.CreateInstance<GridRendererManhattanModeModule>();
+		// Only create the mode module when one of the right type isn't already present — CreateInstance allocates a new
+		// ScriptableObject every call, and the old one would leak (it's never destroyed) on each OnValidate otherwise.
+		if (gridRenderer.modeModule is not GridRendererManhattanModeModule)
+			gridRenderer.modeModule = ScriptableObject.CreateInstance<GridRendererManhattanModeModule>();
 		gridRenderer.scaleWithGridSize = false;
 		if (gridRenderer.gridSize == Point.zero) gridRenderer.gridSize = new Point(64, 64);
 		if (gridRenderer.gridSize.x < 1) gridRenderer.gridSize = new Point(1, gridRenderer.gridSize.y);
@@ -372,6 +375,12 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	}
 
 	public virtual Vector2 EvaluateVector(Vector3 position) {
+		// CPU sampling needs the CPU mirror, which only exists while a CPU consumer is registered (GPU-only fields
+		// leave it null). Register as a CPU consumer, or use TrySampleVector to read straight from the GPU texture.
+		if (vectorField == null) {
+			Debug.LogWarning("EvaluateVector called but this field has no CPU copy. Register a CPU consumer (RegisterCpuConsumer) or use TrySampleVector for GPU sampling.", this);
+			return Vector2.zero;
+		}
 		var gridPosition = gridRenderer.cellCenter.WorldToGridPosition(position);
 		return vectorField.GetValueAtGridPosition(gridPosition) * magnitude;
 	}

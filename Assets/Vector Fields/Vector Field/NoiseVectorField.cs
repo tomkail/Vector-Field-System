@@ -31,6 +31,7 @@ public static class NoiseVectorField {
 		shader.SetFloat("persistence", noise.persistence);
 		shader.SetFloat("lacunarity", noise.lacunarity);
 		shader.SetFloat("numOctaves", noise.octaves);
+		shader.SetInt("normalization", (int)noise.normalization);
 		shader.SetFloat("vortexAngle", vortexAngle);
 
 		int threadGroupsX = Mathf.CeilToInt((float)gridSize.x / threadsPerGroupX);

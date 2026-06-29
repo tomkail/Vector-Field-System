@@ -27,14 +27,16 @@ float lacunarity;
 float numOctaves;
 
 float vortexAngle;
+// Normalization mode; must match the NoiseNormalization enum (0 = Sum, 1 = RMS, 2 = None).
+int normalization;
 
 static float4 FractalNoise(float4 gridPointFloat) {
     float amplitude = 1.0;
     float _frequency = frequency;
     float4 noiseValue = float4(0,0,0,0);
-    // Sum of octave amplitudes, used to normalize so the output range is independent of octave count / persistence
-    // (canonical fBm; matches the CPU Noise.Sum). Octaves then add detail, not gain.
-    float maxValue = 0.0;
+    // Accumulate both norms so the mode can be chosen below: sumAmplitude (canonical fBm) and sumAmplitudeSq (for RMS).
+    float sumAmplitude = 0.0;
+    float sumAmplitudeSq = 0.0;
 
     int fullOctaves = (int)floor(numOctaves);
     float partialOctave = numOctaves - fullOctaves;
@@ -43,7 +45,8 @@ static float4 FractalNoise(float4 gridPointFloat) {
     {
         const float3 worldPoint = _frequency * (float3)mul(gridToWorldMatrix, gridPointFloat);
         noiseValue += amplitude * SimplexNoiseGrad(worldPoint);
-        maxValue += amplitude;
+        sumAmplitude += amplitude;
+        sumAmplitudeSq += amplitude * amplitude;
 
         amplitude *= persistence;
         _frequency *= lacunarity;
@@ -53,11 +56,17 @@ static float4 FractalNoise(float4 gridPointFloat) {
     if (partialOctave > 0.0)
     {
         const float3 worldPoint = _frequency * (float3)mul(gridToWorldMatrix, gridPointFloat);
-        noiseValue += amplitude * partialOctave * SimplexNoiseGrad(worldPoint);
-        maxValue += amplitude * partialOctave;
+        const float partialAmplitude = amplitude * partialOctave;
+        noiseValue += partialAmplitude * SimplexNoiseGrad(worldPoint);
+        sumAmplitude += partialAmplitude;
+        sumAmplitudeSq += partialAmplitude * partialAmplitude;
     }
 
-    return maxValue > 0.0 ? noiseValue / maxValue : noiseValue;
+    float norm;
+    if (normalization == 1) norm = sqrt(sumAmplitudeSq); // RootMeanSquare: constant typical strength across octaves
+    else if (normalization == 2) norm = 1.0;             // None: octaves act as gain
+    else norm = sumAmplitude;                            // Sum (default): canonical fBm, bounded peak range
+    return norm > 0.0 ? noiseValue / norm : noiseValue;
 }
 
 // Function to rotate a 2D vector by an angle in degrees

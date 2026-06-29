@@ -5,9 +5,16 @@ using UnityEditor.ShortcutManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+// How a directional brush picks the flow direction while dragging. FollowStroke: flow points along the mouse drag
+// (natural for drawing flow lines). FixedAngle: flow uses the emitter direction regardless of drag. Stamps always use
+// the emitter direction (a click has no stroke).
+public enum VectorFieldDirectionMode { FollowStroke, FixedAngle }
+
 public class VectorFieldDrawingToolSettings : SerializedScriptableSingleton<VectorFieldDrawingToolSettings> {
     // The emitter (directional/spot) that the brush stamps. Shape comes from the cookie below.
     public VectorFieldBrushSettings brushSettings = new VectorFieldBrushSettings();
+
+    public VectorFieldDirectionMode directionMode = VectorFieldDirectionMode.FollowStroke;
 
     // The active brush op, by IVectorFieldBrushOp.Id. Selected persistently in the overlay; a held modifier can
     // temporarily override it (see OnToolGUI). Stored by id (not enum) so the op set can grow without breaking
@@ -58,13 +65,29 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
             VectorFieldDrawingToolSettings.Save();
         }
     }
+    public VectorFieldDirectionMode directionMode {
+        get => settings.directionMode;
+        set {
+            settings.directionMode = value;
+            VectorFieldDrawingToolSettings.Save();
+        }
+    }
 
     // Resolution of the generated brush map (the cookie-shaped stamp readback). Independent of the field grid.
     const int brushResolution = 32;
 
-    // The GPU texture the cookie-shaped stamp is rendered into (then read back into brushMap for painting, and shown
-    // in the overlay preview). Owned by this tool; created on demand and destroyed on deactivation.
+    // The GPU texture the cookie-shaped stamp is rendered into (then read back into brushMap for painting). Owned by
+    // this tool; created on demand and destroyed on deactivation.
     public RenderTexture brushTexture;
+
+    // The cookie's grayscale mask (the brush shape), for the overlay preview. The falloff shader writes
+    // float4(f,f,f,1), so it displays black-and-white. White (full strength) for cookie mode None.
+    public Texture cookiePreview {
+        get {
+            var mask = settings.brushCookie != null ? settings.brushCookie.Resolve(new Vector2Int(brushResolution, brushResolution)) : null;
+            return mask != null ? mask : Texture2D.whiteTexture;
+        }
+    }
 
 
     // The second "context" argument accepts an EditorWindow type.
@@ -247,8 +270,11 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         Handles.DrawWireDisc(Vector3.zero, hit.normal, 1f);
         Handles.matrix = lastMatrix;
 
-        // Direction arrow for a directional emitter.
-        if (settings.brushSettings.forceType == VectorFieldBrushSettings.ForceEmitterType.Directional) {
+        // Direction arrow — only when the active op paints the emitter direction, the emitter is directional (spot
+        // emitters have no single arrow direction), and we're in Fixed-angle mode (in Follow mode the flow comes from
+        // the stroke, so a fixed arrow would mislead).
+        if (op.UsesBrushDirection && settings.directionMode == VectorFieldDirectionMode.FixedAngle
+            && settings.brushSettings.forceType == VectorFieldBrushSettings.ForceEmitterType.Directional) {
             float angle = settings.brushSettings.directionalAngle * Mathf.Deg2Rad;
             Vector2 dir = new Vector2(Mathf.Sin(angle), Mathf.Cos(angle));
             Vector3 worldDir = cellCenter.GridToWorldVector(dir).normalized;
@@ -260,10 +286,12 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
 
     // Step the brush along the stroke and hand each step's cells to the core op, marking the touched region dirty.
     void ApplyStroke(IVectorFieldBrushOp op, Vector2 gridPosition, Vector2 lastGridPosition) {
+        // Fixed-angle only applies to ops that paint the emitter direction; the rest always follow the stroke.
+        bool fixedAngle = op.UsesBrushDirection && settings.directionMode == VectorFieldDirectionMode.FixedAngle;
         var steps = GetDrawingSteps(gridPosition, lastGridPosition, gridSpaceBrushSize, ref gridDistance, stepDistance);
         foreach (var step in steps) {
-            var cells = GetBrushCells(step.gridPosition, step.drawForce, brushMap, gridSpaceBrushSize);
-            if (VectorFieldBrush.ApplyStroke(vectorFieldManager.PaintField, cells, step.drawForce, pressure, step.gridPosition, op, out var dirty))
+            var cells = GetBrushCells(step.gridPosition, step.drawForce, brushMap, gridSpaceBrushSize, fixedAngle);
+            if (VectorFieldBrushKernel.Apply(vectorFieldManager.PaintField, cells, pressure, op, out var dirty))
                 vectorFieldManager.MarkRegionDirty(dirty);
         }
     }
@@ -308,19 +336,36 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     // The cells under the brush for a directional stroke step: each carries the raw brush sample (brushForce) and the
     // brush vector scaled to the stroke magnitude and rotated to the stroke direction (finalForce). The op decides how
     // to combine these with the existing field (see VectorFieldBrushOps).
-    List<VectorFieldBrushCell> GetBrushCells(Vector2 gridPosition, Vector2 strokeForce, Vector2Map brushMap, float gridSpaceBrushSize) {
+    List<VectorFieldBrushCell> GetBrushCells(Vector2 gridPosition, Vector2 strokeForce, Vector2Map brushMap, float gridSpaceBrushSize, bool fixedAngle) {
         var cells = new List<VectorFieldBrushCell>();
         var worldBounds = new Bounds(vectorFieldManager.gridRenderer.cellCenter.GridToWorldPoint(gridPosition), vectorFieldManager.gridRenderer.cellCenter.GridToWorldVector(gridSpaceBrushSize * Vector3.one));
         var pointsOnGrid = vectorFieldManager.gridRenderer.GetPointsInWorldBounds(worldBounds);
         var gridBrushSize = vectorFieldManager.gridRenderer.cellCenter.WorldToGridVector(Vector3.one * gridSpaceBrushSize);
         var brushRect = RectX.CreateFromCenter(gridPosition, gridBrushSize);
-        var degrees = Vector2X.Degrees(strokeForce);
+
+        float stepMag = strokeForce.magnitude;
+        float dragDegrees = Vector2X.Degrees(strokeForce);
+        // Emitter unit direction, used as the fallback where the brush sample is too small to have a direction.
+        float emitterAngle = settings.brushSettings.directionalAngle * Mathf.Deg2Rad;
+        Vector2 emitterDir = new Vector2(Mathf.Sin(emitterAngle), Mathf.Cos(emitterAngle));
 
         foreach (var point in pointsOnGrid) {
             var normalizedBrushPos = Rect.PointToNormalized(brushRect, point);
             var brushForce = brushMap.GetValueAtNormalizedPosition(normalizedBrushPos);
-            var finalForce = Vector2X.Rotate(brushForce * strokeForce.magnitude, degrees);
-            cells.Add(new VectorFieldBrushCell { gridPoint = point, brushForce = brushForce, finalForce = finalForce });
+
+            Vector2 cellStroke, finalForce;
+            if (fixedAngle) {
+                // Paint the emitter direction. Use the per-cell brush sample direction (so Spot/vortex emitters keep
+                // their per-cell direction), falling back to the emitter angle where the sample is ~zero.
+                Vector2 dir = brushForce.sqrMagnitude > 1e-8f ? brushForce.normalized : emitterDir;
+                cellStroke = dir * stepMag;
+                finalForce = brushForce * stepMag;
+            } else {
+                // Follow the stroke: Draw points along the drag, and the emitter vector is rotated to align with it.
+                cellStroke = strokeForce;
+                finalForce = Vector2X.Rotate(brushForce * stepMag, dragDegrees);
+            }
+            cells.Add(new VectorFieldBrushCell { gridPoint = point, brushForce = brushForce, finalForce = finalForce, strokeForce = cellStroke, brushCenter = gridPosition });
         }
         return cells;
     }
@@ -336,7 +381,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         foreach (var point in pointsOnGrid) {
             var normalizedBrushPos = Rect.PointToNormalized(brushRect, point);
             var brushForce = brushMap.GetValueAtNormalizedPosition(normalizedBrushPos);
-            cells.Add(new VectorFieldBrushCell { gridPoint = point, brushForce = brushForce, finalForce = brushForce * magnitude });
+            cells.Add(new VectorFieldBrushCell { gridPoint = point, brushForce = brushForce, finalForce = brushForce * magnitude, strokeForce = brushForce * magnitude, brushCenter = gridPosition });
         }
         return cells;
     }

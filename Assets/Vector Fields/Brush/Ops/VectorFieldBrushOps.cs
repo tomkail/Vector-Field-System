@@ -6,11 +6,18 @@ using UnityEngine;
 public sealed class DrawBrushOp : IVectorFieldBrushOp {
     public string Id => "draw";
     public string DisplayName => "Draw";
+    public string Tooltip => "Set the field to the brush direction.";
     public Color GizmoColor => Color.green;
     public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => false;   // sets toward a target; stable under re-apply
+    public bool UsesBrushDirection => true;     // paints the emitter's direction
 
     public Vector2 Apply(in BrushApplyContext ctx) {
-        var newValue = ctx.strokeForce * ctx.pressure;
+        // Take only the DIRECTION from the stroke — its magnitude carries a 1/size factor (good for Add's accumulation,
+        // wrong for a set op). Target magnitude is the pressure, blended toward the current magnitude by the falloff,
+        // so the painted strength is independent of brush size.
+        if (ctx.strokeForce.sqrMagnitude < 1e-12f) return ctx.current;
+        var newValue = ((Vector2)ctx.strokeForce.normalized) * ctx.pressure;
         return Vector2.ClampMagnitude(newValue, Mathf.Lerp(ctx.current.magnitude, ctx.pressure, ctx.Weight));
     }
 }
@@ -19,11 +26,40 @@ public sealed class DrawBrushOp : IVectorFieldBrushOp {
 public sealed class AdditiveBrushOp : IVectorFieldBrushOp {
     public string Id => "additive";
     public string DisplayName => "Add";
+    public string Tooltip => "Add the brush vector to the field.";
     public Color GizmoColor => new Color(0.4f, 0.7f, 1f);
     public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => true;    // current + force accumulates
+    public bool UsesBrushDirection => true;     // paints the emitter's direction
 
     public Vector2 Apply(in BrushApplyContext ctx) {
         return ctx.current + ctx.finalForce * ctx.pressure;
+    }
+}
+
+// True advection (finger-paint smudge): each cell pulls the field from a little upstream of the stroke — where the
+// brush just came from — and blends toward it, so existing flow is dragged along with the cursor rather than a new
+// vector being deposited. Reads a pre-stroke snapshot (ctx.source) so the smear is order-independent within a step;
+// successive stroke steps build the streak.
+public sealed class SmudgeBrushOp : IVectorFieldBrushOp {
+    // How far upstream (grid cells) to sample per application. Small, so repeated stroke steps accumulate the smear.
+    const float Reach = 1.5f;
+
+    public string Id => "smudge";
+    public string DisplayName => "Smudge";
+    public string Tooltip => "Drag existing flow along the stroke (advection).";
+    public Color GizmoColor => new Color(1f, 0.85f, 0.3f);
+    public bool NeedsSnapshot => true;          // samples the field upstream; must read a stable snapshot
+    public bool CompoundsOnReapply => true;     // each pass drags further; not idempotent
+    public bool UsesBrushDirection => false;
+
+    public Vector2 Apply(in BrushApplyContext ctx) {
+        Vector2 dir = ctx.strokeForce.sqrMagnitude > 1e-8f ? ctx.strokeForce.normalized : Vector2.zero;
+        if (dir == Vector2.zero || ctx.source == null) return ctx.current;
+        // Sample where the brush came from and blend the cell toward it, dragging the existing flow forward.
+        Vector2 upstream = new Vector2(ctx.gridPoint.x, ctx.gridPoint.y) - dir * Reach;
+        Vector2 dragged = ctx.source.GetValueAtGridPosition(upstream);
+        return Vector2.Lerp(ctx.current, dragged, Mathf.Clamp01(ctx.Weight * ctx.pressure));
     }
 }
 
@@ -31,25 +67,14 @@ public sealed class AdditiveBrushOp : IVectorFieldBrushOp {
 public sealed class EraseBrushOp : IVectorFieldBrushOp {
     public string Id => "erase";
     public string DisplayName => "Erase";
+    public string Tooltip => "Fade the field toward zero.";
     public Color GizmoColor => new Color(1f, 0.4f, 0.3f);
     public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => true;    // multiplies down; re-apply darkens further
+    public bool UsesBrushDirection => false;
 
     public Vector2 Apply(in BrushApplyContext ctx) {
         return ctx.current * (ctx.finalForce.magnitude * ctx.pressure);
-    }
-}
-
-// Push the field along the stroke direction (finger-paint advection), weighted by the brush falloff. Unlike Additive
-// this ignores the brush emitter's own direction (uses strokeForce, not finalForce), so it drags existing flow.
-// Ported from the legacy Smudge tool (minus its per-frame dt; stepping is handled by the stroke loop).
-public sealed class SmudgeBrushOp : IVectorFieldBrushOp {
-    public string Id => "smudge";
-    public string DisplayName => "Smudge";
-    public Color GizmoColor => new Color(1f, 0.85f, 0.3f);
-    public bool NeedsSnapshot => false;
-
-    public Vector2 Apply(in BrushApplyContext ctx) {
-        return ctx.current + ctx.strokeForce * (ctx.Weight * ctx.pressure);
     }
 }
 
@@ -58,8 +83,11 @@ public sealed class SmudgeBrushOp : IVectorFieldBrushOp {
 public sealed class BurnBrushOp : IVectorFieldBrushOp {
     public string Id => "burn";
     public string DisplayName => "Burn";
+    public string Tooltip => "Increase vector magnitude.";
     public Color GizmoColor => new Color(1f, 0.6f, 0.2f);
     public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => true;    // grows magnitude; re-apply grows further
+    public bool UsesBrushDirection => false;
 
     public Vector2 Apply(in BrushApplyContext ctx) {
         return ctx.current + ((Vector2)ctx.current.normalized) * (ctx.Weight * ctx.pressure);
@@ -70,8 +98,11 @@ public sealed class BurnBrushOp : IVectorFieldBrushOp {
 public sealed class DodgeBrushOp : IVectorFieldBrushOp {
     public string Id => "dodge";
     public string DisplayName => "Dodge";
+    public string Tooltip => "Decrease vector magnitude.";
     public Color GizmoColor => new Color(1f, 0.95f, 0.7f);
     public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => true;    // shrinks magnitude; re-apply shrinks further
+    public bool UsesBrushDirection => false;
 
     public Vector2 Apply(in BrushApplyContext ctx) {
         float newMag = Mathf.Max(0f, ctx.current.magnitude - ctx.Weight * ctx.pressure);
@@ -85,8 +116,11 @@ public sealed class DodgeBrushOp : IVectorFieldBrushOp {
 public sealed class ClampBrushOp : IVectorFieldBrushOp {
     public string Id => "clamp";
     public string DisplayName => "Clamp";
+    public string Tooltip => "Cap magnitude at the pressure value.";
     public Color GizmoColor => new Color(0.7f, 0.5f, 1f);
     public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => false;   // drives toward min(mag, ceiling); stable under re-apply
+    public bool UsesBrushDirection => false;
 
     public Vector2 Apply(in BrushApplyContext ctx) {
         float mag = ctx.current.magnitude;
@@ -100,8 +134,11 @@ public sealed class ClampBrushOp : IVectorFieldBrushOp {
 public sealed class NormalizeBrushOp : IVectorFieldBrushOp {
     public string Id => "normalize";
     public string DisplayName => "Normalize";
+    public string Tooltip => "Set magnitude to the pressure value.";
     public Color GizmoColor => new Color(0.3f, 0.9f, 0.8f);
     public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => false;   // drives toward a fixed length; stable under re-apply
+    public bool UsesBrushDirection => false;
 
     public Vector2 Apply(in BrushApplyContext ctx) {
         if (ctx.current == Vector2.zero) return ctx.current;
@@ -109,23 +146,92 @@ public sealed class NormalizeBrushOp : IVectorFieldBrushOp {
     }
 }
 
-// The ordered set of brush ops the editor exposes (overlay buttons, mode-cycle shortcut). New ops are added here;
-// the tool and overlay have no per-op knowledge. Ops are stateless singletons.
+// --- Radial ops: derive direction from the cell's offset to brushCenter, not from the brush sample --------------
+// Set the cell to point away from the brush centre — a source / outward blast (the "explode at the end" case).
+public sealed class RepelBrushOp : IVectorFieldBrushOp {
+    public string Id => "repel";
+    public string DisplayName => "Repel";
+    public string Tooltip => "Point vectors outward from the brush (burst).";
+    public Color GizmoColor => new Color(1f, 0.5f, 0.2f);
+    public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => false;   // sets toward an outward target; stable under re-apply
+    public bool UsesBrushDirection => false;    // direction comes from the brush centre, not the emitter
+
+    public Vector2 Apply(in BrushApplyContext ctx) {
+        Vector2 toCell = new Vector2(ctx.gridPoint.x, ctx.gridPoint.y) - ctx.brushCenter;
+        Vector2 dir = toCell.sqrMagnitude > 1e-6f ? toCell.normalized : Vector2.zero;
+        return Vector2.Lerp(ctx.current, dir * ctx.pressure, ctx.Weight);
+    }
+}
+
+// Set the cell to point toward the brush centre — a sink / inward pull.
+public sealed class AttractBrushOp : IVectorFieldBrushOp {
+    public string Id => "attract";
+    public string DisplayName => "Attract";
+    public string Tooltip => "Point vectors inward toward the brush (sink).";
+    public Color GizmoColor => new Color(0.5f, 0.6f, 1f);
+    public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => false;
+    public bool UsesBrushDirection => false;
+
+    public Vector2 Apply(in BrushApplyContext ctx) {
+        Vector2 toCenter = ctx.brushCenter - new Vector2(ctx.gridPoint.x, ctx.gridPoint.y);
+        Vector2 dir = toCenter.sqrMagnitude > 1e-6f ? toCenter.normalized : Vector2.zero;
+        return Vector2.Lerp(ctx.current, dir * ctx.pressure, ctx.Weight);
+    }
+}
+
+// Set the cell tangent to a circle around the brush centre — a vortex / whirlpool.
+public sealed class SwirlBrushOp : IVectorFieldBrushOp {
+    public string Id => "swirl";
+    public string DisplayName => "Swirl";
+    public string Tooltip => "Circulate vectors around the brush (vortex).";
+    public Color GizmoColor => new Color(0.6f, 0.4f, 1f);
+    public bool NeedsSnapshot => false;
+    public bool CompoundsOnReapply => false;
+    public bool UsesBrushDirection => false;
+
+    public Vector2 Apply(in BrushApplyContext ctx) {
+        Vector2 toCell = new Vector2(ctx.gridPoint.x, ctx.gridPoint.y) - ctx.brushCenter;
+        // 90° CCW perpendicular gives the tangential (circulating) direction.
+        Vector2 tangent = new Vector2(-toCell.y, toCell.x);
+        Vector2 dir = tangent.sqrMagnitude > 1e-6f ? tangent.normalized : Vector2.zero;
+        return Vector2.Lerp(ctx.current, dir * ctx.pressure, ctx.Weight);
+    }
+}
+
+// A named, ordered set of related ops, used to lay out the overlay's mode selector in tidy groups.
+public sealed class VectorFieldBrushOpGroup {
+    public readonly string name;
+    public readonly IReadOnlyList<IVectorFieldBrushOp> ops;
+    public VectorFieldBrushOpGroup(string name, params IVectorFieldBrushOp[] ops) {
+        this.name = name;
+        this.ops = ops;
+    }
+}
+
+// The brush ops the editor exposes, grouped for display (overlay buttons) and flattened for the mode-cycle shortcut
+// and id lookup. New ops are added to a group here; the tool and overlay have no per-op knowledge. Ops are stateless
+// singletons.
 public static class VectorFieldBrushOpRegistry {
-    public static readonly IReadOnlyList<IVectorFieldBrushOp> Ops = new IVectorFieldBrushOp[] {
-        new DrawBrushOp(),
-        new AdditiveBrushOp(),
-        new SmudgeBrushOp(),
-        new EraseBrushOp(),
-        new BurnBrushOp(),
-        new DodgeBrushOp(),
-        new ClampBrushOp(),
-        new NormalizeBrushOp(),
+    public static readonly IReadOnlyList<VectorFieldBrushOpGroup> Groups = new[] {
+        new VectorFieldBrushOpGroup("Paint",     new DrawBrushOp(), new AdditiveBrushOp(), new SmudgeBrushOp(), new EraseBrushOp()),
+        new VectorFieldBrushOpGroup("Magnitude", new BurnBrushOp(), new DodgeBrushOp(), new ClampBrushOp(), new NormalizeBrushOp()),
+        new VectorFieldBrushOpGroup("Shape",     new RepelBrushOp(), new AttractBrushOp(), new SwirlBrushOp()),
     };
+
+    // Flattened in group order — the source of truth for cycling and id lookup.
+    public static readonly IReadOnlyList<IVectorFieldBrushOp> Ops = Flatten(Groups);
 
     // The action key forces this op as a temporary override; also the fallback when an id is unknown.
     public static readonly IVectorFieldBrushOp Erase = ById("erase");
     public static readonly IVectorFieldBrushOp Default = ById("draw");
+
+    static IVectorFieldBrushOp[] Flatten(IReadOnlyList<VectorFieldBrushOpGroup> groups) {
+        var list = new List<IVectorFieldBrushOp>();
+        foreach (var g in groups) list.AddRange(g.ops);
+        return list.ToArray();
+    }
 
     public static IVectorFieldBrushOp ById(string id) {
         for (int i = 0; i < Ops.Count; i++)

@@ -1,0 +1,95 @@
+// Colour smoke: a passive scalar (RGBA density) carried by an external velocity field. This solver does NOT compute
+// velocity — it reads a vector field's encoded texture (colour = vector*0.5 + 0.5) and advects the density along it,
+// so the fluid sim (or any VectorFieldComponent) drives the motion. Density lives in raw RGBA (RGBAHalf) ping-pong
+// textures owned by SmokeSimulationComponent.
+//
+// Per fixed step: Inject (add the painted emission source), then Advect (+ dissipate). The advection back-trace works
+// in NORMALISED field space (0..1), so how far the smoke travels per second depends only on velocityScale and dt —
+// never on the grid resolution. Resolution is purely visual detail (sharper trails), not a simulation-speed knob.
+
+#pragma kernel Inject
+#pragma kernel Advect
+#pragma kernel FadeSource
+#pragma kernel CompositeSource
+
+#define THREADS_X 8
+#define THREADS_Y 8
+
+int   width;
+int   height;
+float dt;
+float dissipation;    // per-step multiply applied to density (1 = no fade, <1 fades)
+float velocityScale;  // decoded velocity units -> field fractions per second (normalised; resolution-independent)
+
+// --- injection: add the painted emission source into the density (in place) --------------------------------------
+RWTexture2D<float4> Density;      // in-place add target for Inject
+Texture2D<float4>   Injection;    // GPU emission source (painted smoke) — brush-painted region patched in each frame
+float               injectRate;   // how much of the source to release per second
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void Inject(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= (uint)width || id.y >= (uint)height) return;
+    int2 p = int2(id.xy);
+    Density[p] = Density[p] + Injection[p] * (injectRate * dt);
+}
+
+// --- source fade: decay the painted emission source in place on the GPU ------------------------------------------
+// Runs once per frame so a painted trail stops emitting shortly after the brush moves on. Done here (not on the CPU)
+// so it costs nothing per grid cell on the main thread — the whole point of keeping the source GPU-side is that only
+// the freshly-painted brush footprint travels CPU->GPU each frame, never the full grid.
+RWTexture2D<float4> Source;
+float               sourceRetain;   // per-frame multiply = pow(sourceRetainPerSecond, frameDeltaTime)
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void FadeSource(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= (uint)width || id.y >= (uint)height) return;
+    Source[int2(id.xy)] *= sourceRetain;
+}
+
+// --- composite: stamp the freshly-painted brush footprint into the GPU source -----------------------------------
+// The CPU sends only the brush's bounding rect (SourcePatch, sized patchW x patchH), placed at (patchX, patchY). We
+// must NOT overwrite the whole rect: cells outside the round brush — the rect's corners, and any fading trail the box
+// happens to overlap — are zero in the patch, and blindly copying them would either wipe the trail or (with stale CPU
+// values) re-stamp a square of old colour over existing smoke. So write only where the patch actually carries paint.
+RWTexture2D<float4> SourceRW;     // == the source RT, as a write target
+Texture2D<float4>   SourcePatch;  // CPU-staged brush footprint (rect origin at 0,0)
+int patchX, patchY, patchW, patchH;
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void CompositeSource(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= (uint)patchW || id.y >= (uint)patchH) return;
+    float4 v = SourcePatch[int2(id.xy)];
+    if (v.r + v.g + v.b + v.a <= 0.0) return;   // untouched cell — leave the source (and its fading trail) alone
+    SourceRW[int2(patchX + (int)id.x, patchY + (int)id.y)] = v;
+}
+
+// --- advection: semi-Lagrangian backtrace along the velocity field, then dissipate --------------------------------
+Texture2D<float4>   DensityIn;
+SamplerState        sampler_DensityIn;
+RWTexture2D<float4> DensityOut;
+
+Texture2D<float4>   Velocity;     // an encoded vector field: decoded as (c - 0.5) * 2
+SamplerState        sampler_Velocity;
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void Advect(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= (uint)width || id.y >= (uint)height) return;
+    int2 p = int2(id.xy);
+
+    // Sample the velocity field by this cell's normalised position (so it stretches to fill regardless of the
+    // velocity field's own resolution), and decode it to a flow vector.
+    float2 uv  = (float2(p) + 0.5) / float2(width, height);
+    float2 vel = (Velocity.SampleLevel(sampler_Velocity, uv, 0).xy - 0.5) * 2.0;
+
+    // Trace this cell back along the flow and resample the density there. The back-trace is in normalised space, so the
+    // distance travelled per second is independent of the grid resolution (velocityScale arrives pre-normalised).
+    float2 buv = uv - dt * velocityScale * vel;
+
+    float4 result;
+    if (buv.x < 0.0 || buv.x > 1.0 || buv.y < 0.0 || buv.y > 1.0)
+        result = 0;   // smoke that leaves the domain is gone (open edges)
+    else
+        result = DensityIn.SampleLevel(sampler_DensityIn, buv, 0);
+
+    DensityOut[p] = result * dissipation;
+}

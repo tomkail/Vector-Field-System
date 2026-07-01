@@ -46,16 +46,32 @@ public static class VectorFieldPainting {
         int minY = Mathf.Max(0, Mathf.FloorToInt(gridCenter.y - gridRadius));
         int maxY = Mathf.Min(size.y - 1, Mathf.CeilToInt(gridCenter.y + gridRadius));
 
+        // Map shapes are sampled in a frame oriented by `dir` (+Y = dir, +X = dir rotated -90), so a textured /
+        // directional brush stamps with its emitter direction; radial shapes use `dir` for the whole dab.
+        bool isMap = brush.shape.IsMap;
+        Vector2 right = new Vector2(dir.y, -dir.x);
+
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
                 Vector2 offset = new Vector2(x - gridCenter.x, y - gridCenter.y);
-                float w = brush.shape.Weight(offset.magnitude * invR);
-                if (w <= 0f) continue;
+                Vector2 force, strokeDir;
+                if (isMap) {
+                    Vector2 local = new Vector2(Vector2.Dot(offset, right), Vector2.Dot(offset, dir)) * invR;
+                    Vector2 sample = brush.shape.Sample2D(local);
+                    if (sample.sqrMagnitude <= 0f) continue;
+                    force = sample.x * right + sample.y * dir;   // emitter vector rotated into world
+                    strokeDir = force.normalized;
+                } else {
+                    float w = brush.shape.Weight(offset.magnitude * invR);
+                    if (w <= 0f) continue;
+                    force = dir * w;                              // magnitude = weight; direction used only by Draw/Add
+                    strokeDir = dir;
+                }
                 _stampCells.Add(new VectorFieldBrushCell {
                     gridPoint = new Point(x, y),
-                    brushForce = dir * w,               // magnitude = weight; direction used only by Draw/Add
-                    finalForce = dir * w,
-                    strokeForce = dir,
+                    brushForce = force,
+                    finalForce = force,
+                    strokeForce = strokeDir,
                     brushCenter = gridCenter,            // radial ops radiate from here
                 });
             }

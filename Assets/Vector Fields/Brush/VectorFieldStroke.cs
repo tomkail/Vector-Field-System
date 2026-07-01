@@ -46,8 +46,12 @@ public sealed class VectorFieldStroke {
     readonly Dictionary<Point, int> _index = new Dictionary<Point, int>();   // cell -> index in _cells (per span)
 
     // Exact-overlap state. One entry per cell currently within a brush radius of the head; carries the max coverage
-    // seen so far, the stroke tangent/centre at that max, and the field value captured just before the head arrived.
-    struct Active { public float maxCoverage; public Vector2 tangent; public Vector2 center; public Vector2 snapshot; }
+    // seen so far, the brush-sample direction (radial: the tangent; map: the emitter/cookie direction) and the stroke
+    // direction at that max, the radial-op centre, and the field value captured just before the head arrived.
+    struct Active {
+        public float maxCoverage; public Vector2 brushDir; public Vector2 strokeDir; public Vector2 center;
+        public Vector2 snapshot;
+    }
     readonly Dictionary<Point, Active> _active = new Dictionary<Point, Active>();
     readonly List<Point> _evict = new List<Point>();
 
@@ -157,20 +161,23 @@ public sealed class VectorFieldStroke {
             var c = _cells[i];
             Point p = c.gridPoint;
             float w = c.brushForce.magnitude;      // this span's coverage at the cell
-            Vector2 tangent = c.strokeForce;
+            Vector2 brushDir = w > 1e-6f ? c.brushForce / w : c.strokeForce;   // emitter/cookie dir (unit)
+            Vector2 strokeDir = c.strokeForce;
             Vector2 center = c.brushCenter;
 
             if (_active.TryGetValue(p, out Active a)) {
-                if (w > a.maxCoverage) { a.maxCoverage = w; a.tangent = tangent; a.center = center; _active[p] = a; }
+                if (w > a.maxCoverage) {
+                    a.maxCoverage = w; a.brushDir = brushDir; a.strokeDir = strokeDir; a.center = center; _active[p] = a;
+                }
             } else {
-                a = new Active { maxCoverage = w, tangent = tangent, center = center,
+                a = new Active { maxCoverage = w, brushDir = brushDir, strokeDir = strokeDir, center = center,
                                  snapshot = field.GetValueAtGridPoint(p) };   // value just before the head arrived
                 _active[p] = a;
             }
 
             // brushForce/finalForce carry the max coverage as magnitude (ctx.Weight); the op runs once from snapshot.
-            var ctx = new BrushApplyContext(a.snapshot, a.tangent * a.maxCoverage, a.tangent * a.maxCoverage,
-                                            a.tangent, _brush.pressure, p, a.center, source);
+            var ctx = new BrushApplyContext(a.snapshot, a.brushDir * a.maxCoverage, a.brushDir * a.maxCoverage,
+                                            a.strokeDir, _brush.pressure, p, a.center, source);
             field.SetValueAtGridPoint(p, op.Apply(ctx));
 
             if (p.x < minX) minX = p.x;
@@ -210,27 +217,42 @@ public sealed class VectorFieldStroke {
         Vector2 ab = b - a;
         float abLenSqr = ab.sqrMagnitude;
         Vector2 tangent = abLenSqr > 1e-8f ? ab.normalized : Vector2.up;
+        // Brush local frame: +Y (forward) = the stroke tangent, +X (right) = tangent rotated -90. A map shape is
+        // sampled in this frame (so its direction rotates with the stroke) and its vector rotated back to world.
+        Vector2 right = new Vector2(tangent.y, -tangent.x);
+        bool isMap = _brush.shape.IsMap;
 
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
                 Vector2 p = new Vector2(x, y);
                 float t = abLenSqr > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / abLenSqr) : 0f;
                 Vector2 nearest = a + ab * t;
-                float dist = Vector2.Distance(p, nearest);
-                if (dist > _gridRadius) continue;
-                float w = _brush.shape.Weight(dist * invR);
-                if (w <= 0f) continue;
-                Accumulate(new Point(x, y), w, tangent, nearest);
+                Vector2 offset = p - nearest;
+
+                if (isMap) {
+                    Vector2 local = new Vector2(Vector2.Dot(offset, right), Vector2.Dot(offset, tangent)) * invR;
+                    Vector2 sample = _brush.shape.Sample2D(local);   // local-frame emitter vector (mag = weight)
+                    float mag = sample.magnitude;
+                    if (mag <= 0f) continue;
+                    Vector2 world = sample.x * right + sample.y * tangent;   // emitter dir rotated to the stroke
+                    Accumulate(new Point(x, y), mag, world / mag, tangent, nearest);
+                } else {
+                    float dist = offset.magnitude;
+                    if (dist > _gridRadius) continue;
+                    float w = _brush.shape.Weight(dist * invR);
+                    if (w <= 0f) continue;
+                    Accumulate(new Point(x, y), w, tangent, tangent, nearest);
+                }
             }
         }
     }
 
-    void Accumulate(Point gridPoint, float weight, Vector2 tangent, Vector2 center) {
+    void Accumulate(Point gridPoint, float weight, Vector2 brushDir, Vector2 strokeDir, Vector2 center) {
         var cell = new VectorFieldBrushCell {
             gridPoint = gridPoint,
-            brushForce = tangent * weight,          // magnitude = weight (the op's ctx.Weight)
-            finalForce = tangent * weight,
-            strokeForce = tangent,                  // direction the stroke is heading
+            brushForce = brushDir * weight,         // magnitude = weight (the op's ctx.Weight)
+            finalForce = brushDir * weight,
+            strokeForce = strokeDir,                // direction the stroke is heading
             brushCenter = center,
         };
         if (_index.TryGetValue(gridPoint, out int i)) {

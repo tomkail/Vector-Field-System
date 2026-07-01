@@ -1,22 +1,41 @@
 using UnityEngine;
 
-// The brush's spatial profile — a CPU radial falloff used by the runtime painting API (Stamp / PaintLine / strokes).
-// Built once and reused. (A FromMap variant that wraps the editor's GPU cookie brush could be added later for
-// textured/directional brushes; the runtime path only needs a radial weight.)
+// The brush's spatial profile used by the runtime painting API (Stamp / PaintLine / strokes). Two flavours:
+//  - Radial(softness): a pure-CPU radial falloff. No direction of its own — the painted direction comes from the
+//    stroke tangent (or a Stamp's direction argument). This is all most runtime effects need.
+//  - FromMap(map): wraps a prebuilt 2D brush map (e.g. the editor's cookie-shaped directional/spot emitter, read
+//    back from the GPU) for textured / per-cell-directional brushes. The sampled VECTOR is the brush contribution:
+//    its magnitude is the coverage weight and its direction (in the brush's local frame, local +Y = "forward") is
+//    the emitter/cookie direction.
+// Built once and reused.
 public sealed class VectorFieldBrushShape {
-    readonly float softness;   // 0 = hard edge, 1 = fully soft
+    readonly float softness;      // radial: 0 = hard edge, 1 = fully soft
+    readonly Vector2Map map;      // map flavour: the 2D brush map (null for radial)
 
     VectorFieldBrushShape(float softness) { this.softness = Mathf.Clamp01(softness); }
+    VectorFieldBrushShape(Vector2Map map) { this.map = map; }
 
     public static VectorFieldBrushShape Radial(float softness = 0.5f) => new VectorFieldBrushShape(softness);
+    public static VectorFieldBrushShape FromMap(Vector2Map map) => new VectorFieldBrushShape(map);
 
-    // 0..1 weight at a normalized distance from the centre (0 = centre, 1 = edge).
+    // True when this shape carries a 2D map (textured/directional); false for a pure radial falloff.
+    public bool IsMap => map != null;
+
+    // 0..1 weight at a normalized distance from the centre (0 = centre, 1 = edge). Radial flavour.
     public float Weight(float normalizedDistance) {
         float d = Mathf.Clamp01(normalizedDistance);
         float core = 1f - softness;                 // inside `core` the weight is full
         if (d <= core) return 1f;
         float t = (d - core) / Mathf.Max(1e-4f, 1f - core);
         return 1f - Mathf.SmoothStep(0f, 1f, t);
+    }
+
+    // Sample the 2D map at a local position in [-1,1] (0 = centre, ±1 = edge). Returns the local-frame brush vector
+    // (magnitude = weight). Outside the unit square the brush doesn't reach, so returns zero. Map flavour only.
+    public Vector2 Sample2D(Vector2 local) {
+        if (map == null) return Vector2.zero;
+        if (local.x < -1f || local.x > 1f || local.y < -1f || local.y > 1f) return Vector2.zero;
+        return map.GetValueAtNormalizedPosition(local * 0.5f + new Vector2(0.5f, 0.5f));
     }
 }
 

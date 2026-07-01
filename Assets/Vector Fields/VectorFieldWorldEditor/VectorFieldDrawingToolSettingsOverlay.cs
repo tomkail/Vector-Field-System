@@ -35,7 +35,7 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
     VisualElement _emitterDirection;
     VisualElement _emitterSwirl;
 
-    VectorFieldDrawingToolSettings settings => VectorFieldDrawingToolSettings.Instance;
+    VectorFieldDrawingToolSettings settings => VectorFieldDrawingToolSettings.instance;
 
     public void Init(VectorFieldDrawingTool tool) {
         _tool = tool;
@@ -119,14 +119,14 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
         _brushSizeSlider = new Slider("Size", 0.1f, 30f) { value = _tool.gridSpaceBrushSize };
         _brushSizeSlider.RegisterValueChangedCallback(evt => {
             _tool.gridSpaceBrushSize = evt.newValue;
-            VectorFieldDrawingToolSettings.Save();
+            settings.SaveChanges();
         });
         root.Add(_brushSizeSlider);
 
         _pressureSlider = new Slider("Pressure", 0f, 1f) { value = _tool.pressure };
         _pressureSlider.RegisterValueChangedCallback(evt => {
             _tool.pressure = evt.newValue;
-            VectorFieldDrawingToolSettings.Save();
+            settings.SaveChanges();
         });
         root.Add(_pressureSlider);
     }
@@ -141,7 +141,7 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
         flow.BindProperty(so.FindProperty("directionMode"));
         flow.RegisterValueChangedCallback(_ => {
             so.ApplyModifiedProperties();
-            VectorFieldDrawingToolSettings.Save();
+            settings.SaveChanges();
             UpdateDirectionLabel();
             SceneView.RepaintAll();   // the gizmo arrow shows only in Fixed angle
         });
@@ -242,7 +242,7 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
         UpdateCookieControls();
         UpdateEmitterVisibility();
         _tool.OnBrushSettingsChange();
-        VectorFieldDrawingToolSettings.Save();
+        settings.SaveChanges();
         RefreshPreview();
     }
 

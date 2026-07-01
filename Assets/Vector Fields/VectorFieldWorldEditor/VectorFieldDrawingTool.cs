@@ -7,7 +7,12 @@ using UnityEngine.Rendering;
 // VectorFieldDirectionMode (FollowStroke / FixedAngle) now lives with the runtime brush in Brush/VectorFieldBrush.cs,
 // so the tool and the runtime painting API share it.
 
-public class VectorFieldDrawingToolSettings : SerializedScriptableSingleton<VectorFieldDrawingToolSettings> {
+// Per-user editor tool prefs (brush shape/size/mode). Stored in the editor's PreferencesFolder — personal and not
+// versioned, matching the old EditorPrefs-backed behaviour (and unlike the team-shared ProjectFolder settings).
+// Fully qualified: UnityX puts a FilePathAttribute and a ScriptableSingleton<T> in the global namespace, so the
+// unqualified names would bind to those instead of Unity's (same reason VectorFieldStorageSettings qualifies them).
+[UnityEditor.FilePath("VectorFieldDrawingToolSettings.asset", UnityEditor.FilePathAttribute.Location.PreferencesFolder)]
+public class VectorFieldDrawingToolSettings : UnityEditor.ScriptableSingleton<VectorFieldDrawingToolSettings> {
     // The emitter (directional/spot) that the brush stamps. Shape comes from the cookie below.
     public VectorFieldBrushSettings brushSettings = new VectorFieldBrushSettings();
 
@@ -24,6 +29,8 @@ public class VectorFieldDrawingToolSettings : SerializedScriptableSingleton<Vect
 
     public float gridSpaceBrushSize = 5;
     public float pressure = 1;
+
+    public void SaveChanges() => Save(true);
 }
 
 
@@ -35,7 +42,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     // The currently-activated instance, so static [Shortcut] handlers can drive the live tool.
     static VectorFieldDrawingTool s_Active;
 
-    VectorFieldDrawingToolSettings settings => VectorFieldDrawingToolSettings.Instance;
+    VectorFieldDrawingToolSettings settings => VectorFieldDrawingToolSettings.instance;
     
     private double lastTime;
     DrawableVectorFieldComponent vectorFieldManager => target as DrawableVectorFieldComponent;
@@ -60,14 +67,14 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         get => VectorFieldBrushOpRegistry.ById(settings.brushOpId);
         set {
             settings.brushOpId = value.Id;
-            VectorFieldDrawingToolSettings.Save();
+            settings.SaveChanges();
         }
     }
     public VectorFieldDirectionMode directionMode {
         get => settings.directionMode;
         set {
             settings.directionMode = value;
-            VectorFieldDrawingToolSettings.Save();
+            settings.SaveChanges();
         }
     }
 
@@ -168,7 +175,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
             brushMap = new Vector2Map(new Point(request.width, request.height), vectors);
         }
         
-        VectorFieldDrawingToolSettings.Save();
+        settings.SaveChanges();
     }
 
     // Equivalent to Editor.OnSceneGUI.

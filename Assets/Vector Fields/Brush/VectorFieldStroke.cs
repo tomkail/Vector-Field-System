@@ -168,11 +168,16 @@ public sealed class VectorFieldStroke {
         _index.Clear();
         _spanEnd = p2;   // the next span starts here; eviction keeps cells near it
 
+        // Overall span direction — the fallback tangent for degenerate sub-steps. At a stroke's START the leading
+        // control point is duplicated, so the centripetal spline begins with near-zero velocity and the first sub-step
+        // can be ~zero length; without this those click-spot cells would fall back to a hardcoded up.
+        Vector2 spanDir = (p2 - p1).sqrMagnitude > 1e-8f ? (p2 - p1).normalized : Vector2.up;
+
         int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(p1, p2) / SubStepCells));
         Vector2 prev = p1;
         for (int k = 1; k <= steps; k++) {
             Vector2 cur = CentripetalCatmullRom(p0, p1, p2, p3, k / (float)steps);
-            RasterizeCapsule(prev, cur, Vector2.Distance(prev, cur));   // ds = this sub-step's arc length
+            RasterizeCapsule(prev, cur, Vector2.Distance(prev, cur), spanDir);   // ds = this sub-step's arc length
             prev = cur;
         }
 
@@ -245,7 +250,7 @@ public sealed class VectorFieldStroke {
 
     // Add every cell within _gridRadius of segment a->b to this span, contributing coverage = weight * ds (arc length)
     // so a cell builds up as the brush sweeps across it, and tracking its strongest weight for the painted direction.
-    void RasterizeCapsule(Vector2 a, Vector2 b, float ds) {
+    void RasterizeCapsule(Vector2 a, Vector2 b, float ds, Vector2 fallbackDir) {
         var size = _field.PaintField.size;
         int minX = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(a.x, b.x) - _gridRadius));
         int maxX = Mathf.Min(size.x - 1, Mathf.CeilToInt(Mathf.Max(a.x, b.x) + _gridRadius));
@@ -255,7 +260,7 @@ public sealed class VectorFieldStroke {
 
         Vector2 ab = b - a;
         float abLenSqr = ab.sqrMagnitude;
-        Vector2 tangent = abLenSqr > 1e-8f ? ab.normalized : Vector2.up;
+        Vector2 tangent = abLenSqr > 1e-8f ? ab.normalized : fallbackDir;
         bool isMap = _brush.shape.IsMap;
         // Brush local frame a map shape is sampled in. FollowStroke: +Y (forward) = the stroke tangent, so the
         // emitter direction rotates with the stroke. FixedAngle: the world frame, so the map's baked emitter

@@ -19,6 +19,7 @@ A Unity toolkit for authoring, generating, simulating, blending, sampling, and v
 - [Reading a field from code](#reading-a-field-from-code)
 - [The painting tool](#the-painting-tool)
 - [Brush ops](#brush-ops)
+- [Runtime painting (code)](#runtime-painting-code)
 - [Cookies (falloff masks)](#cookies-falloff-masks)
 - [Brush emitters (code stamping)](#brush-emitters-code-stamping)
 - [Combining fields in code](#combining-fields-in-code)
@@ -242,7 +243,57 @@ if (VectorFieldBrushKernel.Apply(field.PaintField, cells, pressure, op, out Rect
 
 `cells` is a list of `VectorFieldBrushCell` (grid point + brush sample + stroke direction + center) that you produce for your brush shape. Ops are pure per‑cell functions, so they also run at runtime.
 
-> A higher‑level, frame‑rate‑independent stroke API for **runtime** painting (trails, beams, bursts) is designed in [Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md](Assets/Vector%20Fields/Brush/RUNTIME_PAINTING_SPEC.md) — not yet implemented.
+---
+
+## Runtime painting (code)
+
+Paint fields from gameplay — smooth, frame‑rate‑independent strokes and stamps built on the same [brush ops](#brush-ops) as the editor tool. Extension methods on `DrawableVectorFieldComponent` (in `Brush/VectorFieldPainting.cs`). Pair with a fade strategy (below) so transient effects don't accumulate forever.
+
+**Configure a brush once, reuse it every frame.** `VectorFieldBrush` is a cheap value type:
+
+```csharp
+var brush = new VectorFieldBrush(
+    VectorFieldBrushShape.Radial(softness: 0.6f),   // CPU radial falloff (0 = hard edge, 1 = fully soft)
+    VectorFieldBrushOpRegistry.ById("draw"),        // any brush op
+    size: 2f,                                        // brush radius in WORLD units
+    pressure: 1f);                                   // op strength / magnitude reference
+```
+
+**One‑shots** (stateless, no allocation):
+
+```csharp
+field.Stamp(brush, worldPos);                 // a single dab / burst
+field.Stamp(brush, worldPos, facing);         // directional dab: Draw/Add paint `facing`; radial ops ignore it
+field.PaintLine(brush, origin, target);       // a straight swept line
+```
+
+**Continuous stroke** — hold it and feed world positions each frame; the path is splined (centripetal Catmull‑Rom), so the line stays smooth and identical at any frame rate:
+
+```csharp
+VectorFieldStroke _stroke;
+void OnEnable()    => _stroke = field.BeginStroke(brush);
+void FixedUpdate() => _stroke.To(transform.position);
+void OnDisable()   => _stroke.End();
+```
+
+`TipMode` (the brush's last argument) controls the moving head:
+
+| Mode | Behavior | Use for |
+|---|---|---|
+| **Smoothed** (default) | ~1 point of lag; head follows the smoothed spline. Tail flushed on `End()`. | Trails, wakes — smoothest |
+| **Leading** | Zero lag; head extrapolated to the newest point. | Beams / visible heads where lag would read as latency |
+
+**Fade strategies** — a transient effect needs something to drain the field:
+
+| Strategy | How | When |
+|---|---|---|
+| **Decay‑in‑place** | add `VectorFieldDecay` to the field (multiplies toward zero each frame) | Default; cheapest, cost independent of effect count |
+| **Simulator** | feed the drawable into `SimulatedVectorFieldComponent.forceField` | Natural dissipation (spread, vortices) |
+| **Group layers** | one drawable per effect as a `GroupVectorFieldComponent` layer; fade its `strength` | Per‑effect fade curves |
+
+Runnable examples in `Assets/Vector Fields/Examples/`: `Demo_VectorFieldTrail`, `Demo_VectorFieldBurst`, `Demo_VectorFieldBeam`, `Demo_VectorFieldWind`, `Demo_VectorFieldVortex`, `Demo_VectorFieldSimFade`, `Demo_VectorFieldGroupFade`.
+
+Full design in [Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md](Assets/Vector%20Fields/Brush/RUNTIME_PAINTING_SPEC.md). Implemented except the exact snapshot+coverage overlap path for compounding ops (Add/Smudge/Burn/Dodge/Erase), which currently apply live per span — correct for set‑style ops (Draw/Clamp/Normalize/Repel/Attract/Swirl).
 
 ---
 

@@ -63,7 +63,8 @@ public sealed class SmudgeBrushOp : IVectorFieldBrushOp {
     }
 }
 
-// Scale the cell down by the brush weight, fading it toward zero. (Ported verbatim from the tool's old Erase.)
+// Fade the cell toward zero by the brush weight: full weight erases completely, the soft edge partially. Strongest at
+// the brush centre (weight 1), fading out at the edge — the whole erase for one stroke pass (repeated passes compound).
 public sealed class EraseBrushOp : IVectorFieldBrushOp {
     public string Id => "erase";
     public string DisplayName => "Erase";
@@ -74,7 +75,7 @@ public sealed class EraseBrushOp : IVectorFieldBrushOp {
     public bool UsesBrushDirection => false;
 
     public Vector2 Apply(in BrushApplyContext ctx) {
-        return ctx.current * (ctx.finalForce.magnitude * ctx.pressure);
+        return ctx.current * (1f - Mathf.Clamp01(ctx.Weight * ctx.pressure));
     }
 }
 

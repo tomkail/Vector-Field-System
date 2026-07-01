@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Serialization;
 
 public class DrawableVectorFieldComponent : VectorFieldComponent, ISerializationCallbackReceiver, IPaintTarget<Vector2> {
     // IPaintTarget<Vector2>: the generic painting core (PaintStroke<Vector2>, the brush kernel) drives this component.
@@ -29,9 +28,6 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     [SerializeField, HideInInspector] Point storedSize;
     [SerializeField, HideInInspector] Vector2[] storedValues;   // Vector2Array format
     [SerializeField, HideInInspector] string[] storedRows;      // ByteArray format: one base64 row per line (local diffs)
-    // Migration: older scenes serialized the whole Vector2Map under `paintField`. FormerlySerializedAs redirects that
-    // to here; OnAfterDeserialize lifts it into the working field and clears it, so it re-saves in the current format.
-    [SerializeField, HideInInspector, FormerlySerializedAs("paintField")] Vector2Map legacyPaintField;
 
     // The map currently backing this field: the linked asset's when `sourceAsset` is set (data in the asset, shared),
     // otherwise the component's own `paintField` (data in the scene). All paint/read/render go through this, so the
@@ -60,7 +56,6 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     // format. Reads only a plain static (VectorFieldStorage.format) — safe from a serialization callback. Runs in the
     // editor at save time; players never call this.
     public void OnBeforeSerialize() {
-        legacyPaintField = null;   // migrated away; don't keep re-serializing the old representation
         // In asset mode the data lives in the asset, so the component stores nothing but the (serialized) asset
         // reference — never a stale copy of the grid.
         if (sourceAsset != null || paintField == null || paintField.values == null || paintField.values.Length == 0) {
@@ -78,13 +73,10 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         }
     }
 
-    // Rebuild the working field from whichever backing is populated (or migrate a legacy paintField). Pure array work,
-    // no Unity API, so it's safe on the deserialization thread. The grid-size reconciliation stays in PaintField's getter.
+    // Rebuild the working field from whichever backing is populated. Pure array work, no Unity API, so it's safe on
+    // the deserialization thread. The grid-size reconciliation stays in PaintField's getter.
     public void OnAfterDeserialize() {
-        if (legacyPaintField != null && legacyPaintField.values != null && legacyPaintField.values.Length > 0) {
-            paintField = legacyPaintField;
-            legacyPaintField = null;
-        } else if (storedRows != null && storedRows.Length > 0) {
+        if (storedRows != null && storedRows.Length > 0) {
             paintField = new Vector2Map(storedSize, VectorFieldStorage.UnpackRows(storedRows, storedSize));
         } else if (storedValues != null && storedValues.Length > 0) {
             paintField = new Vector2Map(storedSize, storedValues);

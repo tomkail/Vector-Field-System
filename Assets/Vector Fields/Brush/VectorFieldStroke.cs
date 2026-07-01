@@ -30,7 +30,13 @@ using UnityEngine;
 //   finalized cells are free to decay while the head stays fresh, and the cost is bounded by the brush footprint
 //   regardless of stroke length.
 public class PaintStroke<T> {
-    protected const float SubStepCells = 0.5f;   // spline sampling resolution along the path, in grid cells
+    protected const float SubStepCells = 0.5f;   // finest spline sampling along the path, in grid cells (small brushes)
+    // For a brush of radius r cells, sampling every 0.5 cells re-rasterizes the full radius-r capsule ~(2r/0.5) times
+    // over the same cells — cost that explodes as resolution grows the brush footprint. The arc-length coverage model
+    // is a Riemann sum of ∫w·ds, so its per-cell total is invariant to the step size (only the w-weighting integrates a
+    // little coarser). So we can step proportionally to the radius: sub-step ≈ r * this fraction, floored at SubStepCells
+    // so small brushes keep their fine sampling and paint strength/feel are unchanged; large brushes stop oversampling.
+    protected const float SubStepRadiusFraction = 0.5f;
     // A new point closer than this to the last one is coalesced (not rendered yet): a span shorter than this has no
     // reliable direction, so rendering it would paint the start cells in an arbitrary (fallback) direction.
     protected const float MinStepCells = 0.5f;
@@ -47,25 +53,39 @@ public class PaintStroke<T> {
     // a cell reaches full coverage after the brush sweeps roughly its own width across it — geometric (identical at
     // any frame rate).
     float _accPerArc;
+    // Path sampling step in cells, scaled to the brush radius (see SubStepRadiusFraction) so large brushes don't
+    // re-rasterize the same cells dozens of times per span.
+    float _subStepCells;
 
     // Ring of the last 4 path points in GRID space (4 is enough for one centripetal Catmull-Rom span). _head indexes
     // the newest; Pt(k) reads the point k steps before the newest, clamped to the oldest we still hold.
     readonly Vector2[] _ring = new Vector2[4];
     int _head = -1, _n;
 
+    // Cells are keyed by a packed int (y * _gridWidth + x) rather than the Point struct: an int key hashes faster and,
+    // more importantly, lets the active set live in a plain array we mutate in place (arr[slot].field = …, no copy) —
+    // the big Active struct was previously copied twice per cell through Dictionary<Point, Active> and once more per
+    // cell just to enumerate it, which dominated CommitSpan/EvictBehindHead on large brushes.
+    int _gridWidth;
+
     struct SpanCell {
         public Point point; public float coverage; public float maxWeight;
         public Vector2 brushDir; public Vector2 strokeDir; public Vector2 center;
     }
     readonly List<SpanCell> _cells = new List<SpanCell>();
-    readonly Dictionary<Point, int> _index = new Dictionary<Point, int>();   // cell -> index in _cells (per span)
+    readonly Dictionary<int, int> _index = new Dictionary<int, int>();   // cell key -> index in _cells (per span)
 
     struct Active {
         public float coverage; public float maxWeight; public Vector2 brushDir; public Vector2 strokeDir;
         public Vector2 center; public T snapshot;
     }
-    readonly Dictionary<Point, Active> _active = new Dictionary<Point, Active>();
-    readonly List<Point> _evict = new List<Point>();
+    // Open-addressed by _activeIndex (cell key -> slot); the value lives in the parallel _active/_activeKey arrays so it
+    // can be mutated in place. Removal is a swap-with-last (one copy, only for evicted cells).
+    Active[] _active = new Active[256];
+    int[] _activeKey = new int[256];       // slot -> cell key, for eviction + swap-remove bookkeeping
+    int _activeCount;
+    readonly Dictionary<int, int> _activeIndex = new Dictionary<int, int>();   // cell key -> slot in _active
+    readonly List<int> _evict = new List<int>();
 
     // Pre-stroke field clone, for neighbour-reading ops (Smudge) so their upstream samples are stable and
     // order-independent. Only allocated when the op needs it; kept (subtyped) across strokes and refilled by copy.
@@ -90,14 +110,20 @@ public class PaintStroke<T> {
         var cc = field.gridRenderer.cellCenter;
         _gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(size, 0f, 0f)).magnitude);
         _accPerArc = 1f / _gridRadius;
+        _subStepCells = Mathf.Max(SubStepCells, _gridRadius * SubStepRadiusFraction);
+        _gridWidth = Mathf.Max(1, field.PaintField.size.x);   // packs cell (x,y) -> y*_gridWidth+x for the int keys
         _head = -1;
         _n = 0;
         _sourceReady = false;
         _cells.Clear();
         _index.Clear();
-        _active.Clear();
+        _activeIndex.Clear();
+        _activeCount = 0;
         _evict.Clear();
     }
+
+    // Pack a grid cell into the int key used by _index / _activeIndex.
+    int Key(Point p) => p.y * _gridWidth + p.x;
 
     public void To(Vector3 worldPosition) {
         if (_field == null || !IsValid) return;   // _field == null => already ended (and possibly pooled)
@@ -120,7 +146,8 @@ public class PaintStroke<T> {
         if (_field == null) return;   // already ended
         if (IsValid && _tipMode == TipMode.Smoothed && _n >= 2)
             RenderSpanToNewest();
-        _active.Clear();
+        _activeIndex.Clear();
+        _activeCount = 0;
         _cells.Clear();
         _index.Clear();
         _evict.Clear();
@@ -168,7 +195,7 @@ public class PaintStroke<T> {
         // a stroke's start, where the leading control point is duplicated).
         Vector2 spanDir = (p2 - p1).sqrMagnitude > 1e-8f ? (p2 - p1).normalized : Vector2.up;
 
-        int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(p1, p2) / SubStepCells));
+        int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(p1, p2) / _subStepCells));
         Vector2 prev = p1;
         for (int k = 1; k <= steps; k++) {
             Vector2 cur = CentripetalCatmullRom(p0, p1, p2, p3, k / (float)steps);
@@ -199,23 +226,30 @@ public class PaintStroke<T> {
         for (int i = 0; i < _cells.Count; i++) {
             var c = _cells[i];
             Point p = c.point;
+            int key = Key(p);
 
-            if (_active.TryGetValue(p, out Active a)) {
-                a.coverage = Mathf.Min(1f, a.coverage + c.coverage);   // build up along the sweep, capped at full
-                if (c.maxWeight > a.maxWeight) {                        // strongest touch fixes the painted direction
-                    a.maxWeight = c.maxWeight; a.brushDir = c.brushDir; a.strokeDir = c.strokeDir; a.center = c.center;
+            int slot;
+            if (_activeIndex.TryGetValue(key, out slot)) {
+                // Mutate the struct in place in the array — no copy in/out (arr[slot].field = … is a direct write).
+                _active[slot].coverage = Mathf.Min(1f, _active[slot].coverage + c.coverage);   // build up along the sweep
+                if (c.maxWeight > _active[slot].maxWeight) {                                    // strongest touch fixes dir
+                    _active[slot].maxWeight = c.maxWeight; _active[slot].brushDir = c.brushDir;
+                    _active[slot].strokeDir = c.strokeDir; _active[slot].center = c.center;
                 }
-                _active[p] = a;
             } else {
-                a = new Active {
+                slot = _activeCount++;
+                if (slot >= _active.Length) GrowActive();
+                _active[slot] = new Active {
                     coverage = Mathf.Min(1f, c.coverage), maxWeight = c.maxWeight, brushDir = c.brushDir,
                     strokeDir = c.strokeDir, center = c.center, snapshot = field.GetValueAtGridPoint(p),
                 };
-                _active[p] = a;
+                _activeKey[slot] = key;
+                _activeIndex[key] = slot;
             }
 
             // brushForce/finalForce carry the accumulated coverage as magnitude (ctx.Weight); the op runs once from
             // the pre-touch snapshot, so the result depends only on the swept geometry (frame-rate independent).
+            ref Active a = ref _active[slot];
             var ctx = new BrushApplyContext<T>(a.snapshot, a.brushDir * a.coverage, a.brushDir * a.coverage,
                                                a.strokeDir, _pressure, p, a.center, source);
             field.SetValueAtGridPoint(p, op.Apply(ctx));
@@ -234,12 +268,34 @@ public class PaintStroke<T> {
         float er = _gridRadius + 1f;   // one cell of margin so a cell isn't dropped right as the next span reaches it
         float erSqr = er * er;
         _evict.Clear();
-        foreach (var kv in _active) {
-            if (_index.ContainsKey(kv.Key)) continue;   // touched this span — still under the head
-            float dx = kv.Key.x - _spanEnd.x, dy = kv.Key.y - _spanEnd.y;
-            if (dx * dx + dy * dy > erSqr) _evict.Add(kv.Key);
+        // Walk the slot array reading only the int key (no Active-struct copy per cell — the old dictionary enumeration
+        // copied the whole value struct every iteration).
+        for (int slot = 0; slot < _activeCount; slot++) {
+            int key = _activeKey[slot];
+            if (_index.ContainsKey(key)) continue;   // touched this span — still under the head
+            int x = key % _gridWidth, y = key / _gridWidth;
+            float dx = x - _spanEnd.x, dy = y - _spanEnd.y;
+            if (dx * dx + dy * dy > erSqr) _evict.Add(key);
         }
-        for (int i = 0; i < _evict.Count; i++) _active.Remove(_evict[i]);
+        for (int i = 0; i < _evict.Count; i++) RemoveActive(_evict[i]);
+    }
+
+    // Swap-with-last removal: one struct copy, and only for the (few) evicted cells.
+    void RemoveActive(int key) {
+        if (!_activeIndex.TryGetValue(key, out int slot)) return;
+        int last = --_activeCount;
+        if (slot != last) {
+            _active[slot] = _active[last];
+            _activeKey[slot] = _activeKey[last];
+            _activeIndex[_activeKey[slot]] = slot;
+        }
+        _activeIndex.Remove(key);
+    }
+
+    void GrowActive() {
+        int n = _active.Length * 2;
+        System.Array.Resize(ref _active, n);
+        System.Array.Resize(ref _activeKey, n);
     }
 
     void RasterizeCapsule(Vector2 a, Vector2 b, float ds, Vector2 fallbackDir) {
@@ -288,7 +344,8 @@ public class PaintStroke<T> {
     }
 
     void Accumulate(Point gridPoint, float coverage, float weight, Vector2 brushDir, Vector2 strokeDir, Vector2 center) {
-        if (_index.TryGetValue(gridPoint, out int i)) {
+        int key = Key(gridPoint);
+        if (_index.TryGetValue(key, out int i)) {
             var e = _cells[i];
             e.coverage += coverage;                            // sum along the sweep
             if (weight > e.maxWeight) {                        // strongest sub-step fixes the direction/centre
@@ -296,7 +353,7 @@ public class PaintStroke<T> {
             }
             _cells[i] = e;
         } else {
-            _index[gridPoint] = _cells.Count;
+            _index[key] = _cells.Count;
             _cells.Add(new SpanCell { point = gridPoint, coverage = coverage, maxWeight = weight,
                                       brushDir = brushDir, strokeDir = strokeDir, center = center });
         }

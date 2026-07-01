@@ -24,12 +24,11 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     [System.NonSerialized] Vector2Map paintField;
 
     // Serialized backing. The data always lives on the component (never an asset), stored in exactly ONE of these per
-    // VectorFieldStorage.format: `storedValues` (verbose Vector2 array) or `storedBytes` (compact packed blob). Reading
-    // detects which is populated, so switching the project setting doesn't break existing scenes.
+    // VectorFieldStorage.format: `storedValues` (verbose Vector2 array) or `storedRows` (compact base64 per row).
+    // Reading detects which is populated, so switching the project setting doesn't break existing scenes.
     [SerializeField, HideInInspector] Point storedSize;
     [SerializeField, HideInInspector] Vector2[] storedValues;   // Vector2Array format
     [SerializeField, HideInInspector] string[] storedRows;      // ByteArray format: one base64 row per line (local diffs)
-    [SerializeField, HideInInspector] byte[] storedBytes;       // legacy single-blob byte format — read only, for migration
     // Migration: older scenes serialized the whole Vector2Map under `paintField`. FormerlySerializedAs redirects that
     // to here; OnAfterDeserialize lifts it into the working field and clears it, so it re-saves in the current format.
     [SerializeField, HideInInspector, FormerlySerializedAs("paintField")] Vector2Map legacyPaintField;
@@ -62,7 +61,6 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     // editor at save time; players never call this.
     public void OnBeforeSerialize() {
         legacyPaintField = null;   // migrated away; don't keep re-serializing the old representation
-        storedBytes = null;        // legacy blob is never written now; clearing it completes migration on re-save
         // In asset mode the data lives in the asset, so the component stores nothing but the (serialized) asset
         // reference — never a stale copy of the grid.
         if (sourceAsset != null || paintField == null || paintField.values == null || paintField.values.Length == 0) {
@@ -88,8 +86,6 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
             legacyPaintField = null;
         } else if (storedRows != null && storedRows.Length > 0) {
             paintField = new Vector2Map(storedSize, VectorFieldStorage.UnpackRows(storedRows, storedSize));
-        } else if (storedBytes != null && storedBytes.Length > 0) {   // migrate old single-blob byte format
-            paintField = new Vector2Map(storedSize, VectorFieldStorage.Unpack(storedBytes, storedSize.x * storedSize.y));
         } else if (storedValues != null && storedValues.Length > 0) {
             paintField = new Vector2Map(storedSize, storedValues);
         } else {

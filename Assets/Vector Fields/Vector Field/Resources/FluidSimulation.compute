@@ -85,12 +85,16 @@ bool IsSolid(int2 p) {
 }
 
 // Map an (possibly off-grid) coordinate to a valid texel: wrap in periodic mode, clamp otherwise.
+// Single-assignment + explicit else so Metal's compiler can see every path initialises the result.
 int2 BoundaryCoord(int2 p) {
+    int2 result;
     if (boundaryMode == BOUNDARY_WRAP) {
         int2 s = int2(width, height);
-        return (p % s + s) % s;
+        result = (p % s + s) % s;
+    } else {
+        result = clamp(p, int2(0, 0), int2(width - 1, height - 1));
     }
-    return clamp(p, int2(0, 0), int2(width - 1, height - 1));
+    return result;
 }
 
 // Velocity at a neighbour, honouring boundaries: solids contribute zero (no-slip); otherwise wrap/clamp.

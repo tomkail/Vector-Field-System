@@ -217,10 +217,12 @@ public sealed class VectorFieldStroke {
         Vector2 ab = b - a;
         float abLenSqr = ab.sqrMagnitude;
         Vector2 tangent = abLenSqr > 1e-8f ? ab.normalized : Vector2.up;
-        // Brush local frame: +Y (forward) = the stroke tangent, +X (right) = tangent rotated -90. A map shape is
-        // sampled in this frame (so its direction rotates with the stroke) and its vector rotated back to world.
-        Vector2 right = new Vector2(tangent.y, -tangent.x);
         bool isMap = _brush.shape.IsMap;
+        // Brush local frame a map shape is sampled in. FollowStroke: +Y (forward) = the stroke tangent, so the
+        // emitter direction rotates with the stroke. FixedAngle: the world frame, so the map's baked emitter
+        // direction is used as-is. +X (right) = forward rotated -90.
+        Vector2 forward = _brush.directionMode == VectorFieldDirectionMode.FixedAngle ? Vector2.up : tangent;
+        Vector2 right = new Vector2(forward.y, -forward.x);
 
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
@@ -230,12 +232,15 @@ public sealed class VectorFieldStroke {
                 Vector2 offset = p - nearest;
 
                 if (isMap) {
-                    Vector2 local = new Vector2(Vector2.Dot(offset, right), Vector2.Dot(offset, tangent)) * invR;
+                    Vector2 local = new Vector2(Vector2.Dot(offset, right), Vector2.Dot(offset, forward)) * invR;
                     Vector2 sample = _brush.shape.Sample2D(local);   // local-frame emitter vector (mag = weight)
                     float mag = sample.magnitude;
                     if (mag <= 0f) continue;
-                    Vector2 world = sample.x * right + sample.y * tangent;   // emitter dir rotated to the stroke
-                    Accumulate(new Point(x, y), mag, world / mag, tangent, nearest);
+                    Vector2 world = sample.x * right + sample.y * forward;   // emitter dir in world
+                    Vector2 brushDir = world / mag;
+                    // FollowStroke paints along the drag (Draw follows the tangent); FixedAngle paints the emitter dir.
+                    Vector2 strokeDir = _brush.directionMode == VectorFieldDirectionMode.FixedAngle ? brushDir : tangent;
+                    Accumulate(new Point(x, y), mag, brushDir, strokeDir, nearest);
                 } else {
                     float dist = offset.magnitude;
                     if (dist > _gridRadius) continue;

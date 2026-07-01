@@ -49,22 +49,31 @@ public enum TipMode {
     Leading,
 }
 
-// A reusable, configured brush: shape + op + size + pressure + tip mode. The friendly runtime API takes one of these.
-// Cheap to copy (holds two references plus scalars); build once on a prefab/field and reuse every frame.
+// How a stroke picks the painted flow direction for a map/directional brush. FollowStroke: the emitter direction is
+// rotated to align with the stroke tangent (flow follows the drag — natural for drawing flow lines). FixedAngle: the
+// map's baked emitter direction is used as-is (world frame). Ignored by radial shapes (they always follow the tangent)
+// and by Stamp (a dab has no stroke direction — it uses the map's baked direction).
+public enum VectorFieldDirectionMode { FollowStroke, FixedAngle }
+
+// A reusable, configured brush: shape + op + size + pressure + tip/direction mode. The friendly runtime API takes one
+// of these. Cheap to copy (holds two references plus scalars); build once on a prefab/field and reuse every frame.
 public struct VectorFieldBrush {
     public VectorFieldBrushShape shape;
     public IVectorFieldBrushOp op;
-    public float size;         // brush radius in WORLD units
-    public float pressure;     // op strength / magnitude reference (0..1 for the set ops)
-    public TipMode tipMode;    // how a continuous stroke renders its head; ignored by Stamp/PaintLine
+    public float size;                        // brush radius in WORLD units
+    public float pressure;                    // op strength / magnitude reference (0..1 for the set ops)
+    public TipMode tipMode;                   // how a continuous stroke renders its head; ignored by Stamp/PaintLine
+    public VectorFieldDirectionMode directionMode;   // how a map/directional brush orients its flow (see enum)
 
     public VectorFieldBrush(VectorFieldBrushShape shape, IVectorFieldBrushOp op, float size = 1.5f,
-                            float pressure = 1f, TipMode tipMode = TipMode.Smoothed) {
+                            float pressure = 1f, TipMode tipMode = TipMode.Smoothed,
+                            VectorFieldDirectionMode directionMode = VectorFieldDirectionMode.FollowStroke) {
         this.shape = shape;
         this.op = op;
         this.size = size;
         this.pressure = pressure;
         this.tipMode = tipMode;
+        this.directionMode = directionMode;
     }
 
     public bool IsValid => shape != null && op != null;

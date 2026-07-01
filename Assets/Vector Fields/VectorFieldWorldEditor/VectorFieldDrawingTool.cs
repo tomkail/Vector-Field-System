@@ -1,14 +1,11 @@
-using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.EditorTools;
 using UnityEditor.ShortcutManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// How a directional brush picks the flow direction while dragging. FollowStroke: flow points along the mouse drag
-// (natural for drawing flow lines). FixedAngle: flow uses the emitter direction regardless of drag. Stamps always use
-// the emitter direction (a click has no stroke).
-public enum VectorFieldDirectionMode { FollowStroke, FixedAngle }
+// VectorFieldDirectionMode (FollowStroke / FixedAngle) now lives with the runtime brush in Brush/VectorFieldBrush.cs,
+// so the tool and the runtime painting API share it.
 
 public class VectorFieldDrawingToolSettings : SerializedScriptableSingleton<VectorFieldDrawingToolSettings> {
     // The emitter (directional/spot) that the brush stamps. Shape comes from the cookie below.
@@ -43,11 +40,12 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     private double lastTime;
     DrawableVectorFieldComponent vectorFieldManager => target as DrawableVectorFieldComponent;
 
-    Vector2 lastGridPosition;
-
+    // The cookie-shaped emitter map (built in OnBrushSettingsChange), wrapped as a VectorFieldBrushShape.FromMap so the
+    // tool paints through the same runtime API as gameplay.
     Vector2Map brushMap;
-    float gridDistance = 0;
-    float stepDistance = 1f;
+
+    // The in-progress paint stroke (a drag). Null between strokes.
+    VectorFieldStroke activeStroke;
 
     // Persisted in the settings singleton so they survive tool re-activation and domain reloads.
     public float pressure {
@@ -157,7 +155,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         VectorFieldRenderTextureUtils.EnsureValid(ref brushTexture, size);
         VectorFieldBrushTextureCreator.Dispatch(brushTexture, size, 1f, settings.brushSettings, mask);
 
-        // Read the generated brush back to the CPU so painting can sample it (GetBrushCells reads brushMap).
+        // Read the generated brush back to the CPU so painting can sample it (BuildBrush wraps brushMap via FromMap).
         var readbackRequest = AsyncGPUReadback.Request(brushTexture, 0, Callback);
         readbackRequest.WaitForCompletion();
         void Callback(AsyncGPUReadbackRequest request) {
@@ -213,28 +211,28 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
             // One undo entry per stroke: snapshot the component (incl. the painted field) before the first edit.
             Undo.RegisterCompleteObjectUndo(vectorFieldManager, "Paint Vector Field");
 
-            var gridPosition = lastGridPosition = vectorFieldManager.gridRenderer.cellCenter.WorldToGridPosition(hit.point);
-            gridDistance = 0;
-
-            if (shiftHeld)
-                EditVectorField(new List<Point>(Stamp(gridPosition, 1, brushMap, gridSpaceBrushSize)));
+            var brush = BuildBrush(activeOp);
+            if (shiftHeld) {
+                // Shift = a single stamp (the map's baked emitter direction, no stroke). Radial ops radiate from here.
+                vectorFieldManager.Stamp(brush, hit.point);
+            } else {
+                // Begin a continuous stroke; drag feeds it more points. Leading tip so paint tracks the cursor.
+                activeStroke = vectorFieldManager.BeginStroke(brush);
+                activeStroke.To(hit.point);
+            }
 
             GUIUtility.hotControl = controlId;
             e.Use();
         }
 
         if (hasHit && e.type == EventType.MouseDrag && e.button == 0 && !altHeld) {
-            var gridPosition = vectorFieldManager.gridRenderer.cellCenter.WorldToGridPosition(hit.point);
-
-            Move((gridPosition - lastGridPosition).magnitude);
-
-            ApplyStroke(activeOp, gridPosition, lastGridPosition);
-
-            lastGridPosition = gridPosition;
+            activeStroke?.To(hit.point);
             e.Use();
         }
 
         if (e.type == EventType.MouseUp && e.button == 0 && GUIUtility.hotControl == controlId) {
+            activeStroke?.End();
+            activeStroke = null;
             GUIUtility.hotControl = 0;
             e.Use();
         }
@@ -284,135 +282,17 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         }
     }
 
-    // Step the brush along the stroke and hand each step's cells to the core op, marking the touched region dirty.
-    void ApplyStroke(IVectorFieldBrushOp op, Vector2 gridPosition, Vector2 lastGridPosition) {
-        // Fixed-angle only applies to ops that paint the emitter direction; the rest always follow the stroke.
-        bool fixedAngle = op.UsesBrushDirection && settings.directionMode == VectorFieldDirectionMode.FixedAngle;
-        var steps = GetDrawingSteps(gridPosition, lastGridPosition, gridSpaceBrushSize, ref gridDistance, stepDistance);
-        foreach (var step in steps) {
-            var cells = GetBrushCells(step.gridPosition, step.drawForce, brushMap, gridSpaceBrushSize, fixedAngle);
-            if (VectorFieldBrushKernel.Apply(vectorFieldManager.PaintField, cells, pressure, op, out var dirty))
-                vectorFieldManager.MarkRegionDirty(dirty);
-        }
-    }
-
-    public struct DrawingStepParams {
-        public Vector2 gridPosition;
-        public Vector2 drawForce;
-    }
-    static List<DrawingStepParams> GetDrawingSteps(Vector2 gridPosition, Vector2 lastGridPosition, float gridSpaceBrushSize, ref float gridDistance, float stepDistance = 1) {
-        var deltaGridPosition = gridPosition - lastGridPosition;
-        var gridDistanceMovedThisFrame = deltaGridPosition.magnitude;
-        
-        List<DrawingStepParams> steps = new List<DrawingStepParams>();
-        // I don't really get this fudge factor. I guessed it such that the pressure is vaguely right after drawing. Maybe it relates to the brush falloff?
-        float sizePressureModifier = (1f / gridSpaceBrushSize) * 1.1225f;
-
-        // This approach has an exact step distance, but will not reach the target position exactly.
-        gridDistance += gridDistanceMovedThisFrame;
-        var numStepsToTake = Mathf.FloorToInt(gridDistance / stepDistance);
-        var distanceToMove = numStepsToTake * stepDistance;
-        float interval = stepDistance / (gridDistance - stepDistance);
-        int i = 0;
-        while (gridDistance >= stepDistance) {
-            var distanceTravelled = Mathf.Lerp(0, distanceToMove, interval * i);
-            Vector2 stepGridPosition = lastGridPosition + (gridPosition - lastGridPosition).normalized * distanceTravelled;
-            Vector2 drawForce = deltaGridPosition.normalized * stepDistance * sizePressureModifier;
-            var step = new DrawingStepParams() {
-                gridPosition = stepGridPosition,
-                drawForce = drawForce,
-            };
-            steps.Add(step);
-            gridDistance -= stepDistance;
-            i++;
-        }
-
-        return steps;
-    }
-
-    void Move(float gridDistanceMoved) { }
-
-
-    // The cells under the brush for a directional stroke step: each carries the raw brush sample (brushForce) and the
-    // brush vector scaled to the stroke magnitude and rotated to the stroke direction (finalForce). The op decides how
-    // to combine these with the existing field (see VectorFieldBrushOps).
-    List<VectorFieldBrushCell> GetBrushCells(Vector2 gridPosition, Vector2 strokeForce, Vector2Map brushMap, float gridSpaceBrushSize, bool fixedAngle) {
-        var cells = new List<VectorFieldBrushCell>();
-        var worldBounds = new Bounds(vectorFieldManager.gridRenderer.cellCenter.GridToWorldPoint(gridPosition), vectorFieldManager.gridRenderer.cellCenter.GridToWorldVector(gridSpaceBrushSize * Vector3.one));
-        var pointsOnGrid = vectorFieldManager.gridRenderer.GetPointsInWorldBounds(worldBounds);
-        var gridBrushSize = vectorFieldManager.gridRenderer.cellCenter.WorldToGridVector(Vector3.one * gridSpaceBrushSize);
-        var brushRect = RectX.CreateFromCenter(gridPosition, gridBrushSize);
-
-        float stepMag = strokeForce.magnitude;
-        float dragDegrees = Vector2X.Degrees(strokeForce);
-        // Emitter unit direction, used as the fallback where the brush sample is too small to have a direction.
-        float emitterAngle = settings.brushSettings.directionalAngle * Mathf.Deg2Rad;
-        Vector2 emitterDir = new Vector2(Mathf.Sin(emitterAngle), Mathf.Cos(emitterAngle));
-
-        foreach (var point in pointsOnGrid) {
-            var normalizedBrushPos = Rect.PointToNormalized(brushRect, point);
-            var brushForce = brushMap.GetValueAtNormalizedPosition(normalizedBrushPos);
-
-            Vector2 cellStroke, finalForce;
-            if (fixedAngle) {
-                // Paint the emitter direction. Use the per-cell brush sample direction (so Spot/vortex emitters keep
-                // their per-cell direction), falling back to the emitter angle where the sample is ~zero.
-                Vector2 dir = brushForce.sqrMagnitude > 1e-8f ? brushForce.normalized : emitterDir;
-                cellStroke = dir * stepMag;
-                finalForce = brushForce * stepMag;
-            } else {
-                // Follow the stroke: Draw points along the drag, and the emitter vector is rotated to align with it.
-                cellStroke = strokeForce;
-                finalForce = Vector2X.Rotate(brushForce * stepMag, dragDegrees);
-            }
-            cells.Add(new VectorFieldBrushCell { gridPoint = point, brushForce = brushForce, finalForce = finalForce, strokeForce = cellStroke, brushCenter = gridPosition });
-        }
-        return cells;
-    }
-
-    // The cells under the brush for a single non-directional stamp: finalForce is the brush sample scaled by magnitude.
-    List<VectorFieldBrushCell> GetStampCells(Vector2 gridPosition, float magnitude, Vector2Map brushMap, float gridSpaceBrushSize) {
-        var cells = new List<VectorFieldBrushCell>();
-        var worldBounds = new Bounds(vectorFieldManager.gridRenderer.cellCenter.GridToWorldPoint(gridPosition), vectorFieldManager.gridRenderer.cellCenter.GridToWorldVector(gridSpaceBrushSize * Vector3.one));
-        var pointsOnGrid = vectorFieldManager.gridRenderer.GetPointsInWorldBounds(worldBounds);
-        var gridBrushSize = vectorFieldManager.gridRenderer.cellCenter.WorldToGridVector(Vector2.one * gridSpaceBrushSize);
-        var brushRect = RectX.CreateFromCenter(gridPosition, gridBrushSize);
-
-        foreach (var point in pointsOnGrid) {
-            var normalizedBrushPos = Rect.PointToNormalized(brushRect, point);
-            var brushForce = brushMap.GetValueAtNormalizedPosition(normalizedBrushPos);
-            cells.Add(new VectorFieldBrushCell { gridPoint = point, brushForce = brushForce, finalForce = brushForce * magnitude, strokeForce = brushForce * magnitude, brushCenter = gridPosition });
-        }
-        return cells;
-    }
-
-    IEnumerable<Point> Stamp(Vector2 gridPosition, float magnitude, Vector2Map brushMap, float gridSpaceBrushSize) {
-        List<Point> editedPoints = new List<Point>();
-
-        foreach (var cell in GetStampCells(gridPosition, magnitude, brushMap, gridSpaceBrushSize)) {
-            vectorFieldManager.PaintField.SetValueAtGridPoint(cell.gridPoint, cell.finalForce);
-            editedPoints.Add(cell.gridPoint);
-        }
-        return editedPoints;
-    }
-
-    void EditVectorField(List<Point> editedPoints) {
-        if (editedPoints.Count == 0) {
-            // No region info — fall back to a full re-upload.
-            vectorFieldManager.SetDirty();
-            return;
-        }
-
-        // Report the bounding rect of the touched cells so only that region is uploaded to the GPU texture.
-        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
-        foreach (var p in editedPoints) {
-            if (p.x < minX) minX = p.x;
-            if (p.y < minY) minY = p.y;
-            if (p.x > maxX) maxX = p.x;
-            if (p.y > maxY) maxY = p.y;
-        }
-        // RectInt size is exclusive of the max, so +1 to include the max cell.
-        vectorFieldManager.MarkRegionDirty(new RectInt(minX, minY, maxX - minX + 1, maxY - minY + 1));
+    // Build the runtime brush for the current settings: the cookie-shaped emitter map as the shape, plus the active
+    // op, size, pressure, and direction mode from the overlay. The runtime stroke + Stamp then do the cell-building
+    // and the (frame-rate-independent, exact-overlap) application — the same code path gameplay uses.
+    VectorFieldBrush BuildBrush(IVectorFieldBrushOp op) {
+        var shape = VectorFieldBrushShape.FromMap(brushMap);
+        // gridSpaceBrushSize is the brush's full grid-space extent; the runtime brush wants a WORLD-space radius, which
+        // the stroke converts back to ~gridSpaceBrushSize/2 grid cells (exact for a uniform grid scale).
+        float worldRadius = vectorFieldManager.gridRenderer.cellCenter
+            .GridToWorldVector(new Vector3(gridSpaceBrushSize * 0.5f, 0f, 0f)).magnitude;
+        // Leading tip so the paint tracks the cursor with no lag (reads as responsive when drawing by hand).
+        return new VectorFieldBrush(shape, op, worldRadius, pressure, TipMode.Leading, settings.directionMode);
     }
 
     bool GetHitPoint(Vector2 mousePosition, out RaycastHit hit) {

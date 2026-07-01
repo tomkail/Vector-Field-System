@@ -293,7 +293,9 @@ void OnDisable()   => _stroke.End();
 
 Runnable examples in `Assets/Vector Fields/Examples/`: `Demo_VectorFieldTrail`, `Demo_VectorFieldBurst`, `Demo_VectorFieldBeam`, `Demo_VectorFieldWind`, `Demo_VectorFieldVortex`, `Demo_VectorFieldSimFade`, `Demo_VectorFieldGroupFade`.
 
-Full design in [Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md](Assets/Vector%20Fields/Brush/RUNTIME_PAINTING_SPEC.md). Implemented except the exact snapshot+coverage overlap path for compounding ops (Add/Smudge/Burn/Dodge/Erase), which currently apply live per span — correct for set‑style ops (Draw/Clamp/Normalize/Repel/Attract/Swirl).
+Strokes are **frame‑rate independent**: the painted result depends only on the stroke's geometry (identical at 30/60/144 fps) and is unchanged if the head holds still. Every op is applied to each cell exactly once, at the maximum coverage the stroke gave it — so nothing double‑applies, seams don't show, and compounding ops (Add/Burn/…) don't accumulate per frame. (This means "hold to build up" doesn't apply within a single stroke, by design.)
+
+Full design in [Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md](Assets/Vector%20Fields/Brush/RUNTIME_PAINTING_SPEC.md).
 
 ---
 

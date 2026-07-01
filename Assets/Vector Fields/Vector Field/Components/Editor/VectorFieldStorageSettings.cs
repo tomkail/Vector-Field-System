@@ -6,7 +6,7 @@ using UnityEngine;
 // Fully qualified: the project has another FilePathAttribute in scope, so an unqualified [FilePath] binds to the wrong
 // one. (Same reason the debug settings qualify it.)
 [UnityEditor.FilePath("ProjectSettings/VectorFieldStorageSettings.asset", UnityEditor.FilePathAttribute.Location.ProjectFolder)]
-public class VectorFieldStorageSettings : ScriptableSingleton<VectorFieldStorageSettings> {
+public class VectorFieldStorageSettings : UnityEditor.ScriptableSingleton<VectorFieldStorageSettings> {
     [SerializeField] public VectorFieldStorage.Format format = VectorFieldStorage.Format.Vector2Array;
     public void SaveChanges() => Save(true);
 }

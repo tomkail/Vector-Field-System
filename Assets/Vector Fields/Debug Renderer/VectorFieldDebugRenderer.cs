@@ -37,7 +37,7 @@ public class VectorFieldDebugRenderer : System.IDisposable
     public float maxMagnitude = 1;
 
     Material arrowMaterial;
-    ComputeBuffer argsBuffer;
+    GraphicsBuffer argsBuffer;
     int bufferInstanceCount = -1;
 
     private bool disposed = false;
@@ -87,8 +87,10 @@ public class VectorFieldDebugRenderer : System.IDisposable
         // (Re)allocate the indirect-args buffer only when the arrow count changes.
         if (argsBuffer == null || bufferInstanceCount != instanceCount) {
             argsBuffer?.Dispose();
-            argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
-            argsBuffer.SetData(new uint[5] { quad.GetIndexCount(0), (uint)instanceCount, 0, 0, 0 });
+            argsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1,
+                                            GraphicsBuffer.IndirectDrawIndexedArgs.size);
+            argsBuffer.SetData(new[] { new GraphicsBuffer.IndirectDrawIndexedArgs {
+                indexCountPerInstance = quad.GetIndexCount(0), instanceCount = (uint)instanceCount } });
             bufferInstanceCount = instanceCount;
         }
 
@@ -107,7 +109,16 @@ public class VectorFieldDebugRenderer : System.IDisposable
         arrowMaterial.SetFloat(BaseStride, baseStride);
         arrowMaterial.SetFloat(DetailFade, detailFade);
 
-        Graphics.DrawMeshInstancedIndirect(quad, 0, arrowMaterial, new Bounds(Vector3.zero, new Vector3(100000000, 100000000, 100000000)), argsBuffer, 0, null, ShadowCastingMode.Off, false, 0, camera, LightProbeUsage.Off);
+        // Modern SRP-native indirect draw (replaces Graphics.DrawMeshInstancedIndirect). Still a one-frame persistent
+        // draw targeting the given camera, so it's re-issued each render from RenderPipelineManager.beginCameraRendering.
+        var rp = new RenderParams(arrowMaterial) {
+            worldBounds = new Bounds(Vector3.zero, Vector3.one * 1e8f),
+            camera = camera,
+            shadowCastingMode = ShadowCastingMode.Off,
+            receiveShadows = false,
+            lightProbeUsage = LightProbeUsage.Off,
+        };
+        Graphics.RenderMeshIndirect(rp, quad, argsBuffer);
     }
 
     // Continuous cells-per-arrow needed to keep arrows ~targetSpacingPixels apart on screen, never below 1

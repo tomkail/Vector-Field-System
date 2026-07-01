@@ -19,11 +19,19 @@ public class Demo_VectorFieldGroupFade : MonoBehaviour {
     [Range(0f, 1f)] public float strength = 1f;
     public string opId = "repel";
 
-    float[] _age;   // per pooled field; <0 = free
+    float[] _age;                                        // per pooled field; <0 = free
+    GroupVectorFieldComponent.VectorFieldLayer[] _layer; // slot -> its group layer, resolved once (null if not a layer)
 
     void Awake() {
-        _age = new float[effectFields != null ? effectFields.Length : 0];
-        for (int i = 0; i < _age.Length; i++) { _age[i] = -1f; SetLayerStrength(effectFields[i], 0f); }
+        int n = effectFields != null ? effectFields.Length : 0;
+        _age = new float[n];
+        _layer = new GroupVectorFieldComponent.VectorFieldLayer[n];
+        for (int i = 0; i < n; i++) {
+            _age[i] = -1f;
+            _layer[i] = group != null && effectFields[i] != null
+                ? group.layers.Find(l => l.component == effectFields[i]) : null;   // resolved once, not per frame
+            SetLayerStrength(i, 0f);
+        }
     }
 
     public void Burst() => Burst(transform.position);
@@ -37,7 +45,7 @@ public class Demo_VectorFieldGroupFade : MonoBehaviour {
                                          VectorFieldBrushOpRegistry.ById(opId), worldRadius, strength);
         f.Stamp(brush, worldPosition);
         _age[slot] = 0f;
-        SetLayerStrength(f, fadeCurve.Evaluate(0f));
+        SetLayerStrength(slot, fadeCurve.Evaluate(0f));
     }
 
     void Update() {
@@ -48,11 +56,11 @@ public class Demo_VectorFieldGroupFade : MonoBehaviour {
             _age[i] += Time.deltaTime;
             float k = Mathf.Clamp01(_age[i] / Mathf.Max(0.01f, lifetime));
             if (k >= 1f) {                       // expired: recycle the slot
-                SetLayerStrength(effectFields[i], 0f);
+                SetLayerStrength(i, 0f);
                 effectFields[i].Clear();
                 _age[i] = -1f;
             } else {
-                SetLayerStrength(effectFields[i], fadeCurve.Evaluate(k));
+                SetLayerStrength(i, fadeCurve.Evaluate(k));
             }
         }
         if (group != null) group.SetDirty();      // re-blend with the new layer strengths
@@ -63,9 +71,7 @@ public class Demo_VectorFieldGroupFade : MonoBehaviour {
         return -1;
     }
 
-    void SetLayerStrength(DrawableVectorFieldComponent field, float s) {
-        if (group == null) return;
-        var layer = group.layers.Find(l => l.component == field);
-        if (layer != null) layer.strength = s;
+    void SetLayerStrength(int slot, float s) {
+        if (_layer[slot] != null) _layer[slot].strength = s;
     }
 }

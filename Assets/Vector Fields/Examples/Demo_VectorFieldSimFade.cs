@@ -18,7 +18,7 @@ public class Demo_VectorFieldSimFade : MonoBehaviour {
     [Range(0f, 1f)] public float strength = 1f;
     [Tooltip("Op id: repel (burst), attract (implosion), swirl (vortex), draw (directional).")] public string opId = "repel";
 
-    bool _clearPending;
+    int _impulseFrame = -1;   // frame the current impulse was painted; -1 = none pending
 
     void Start() {
         if (sim != null && source != null) {
@@ -34,15 +34,18 @@ public class Demo_VectorFieldSimFade : MonoBehaviour {
         var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.5f),
                                          VectorFieldBrushOpRegistry.ById(opId), worldRadius, strength);
         source.Stamp(brush, worldPosition);
-        _clearPending = true;
+        _impulseFrame = Time.frameCount;
     }
 
     void Update() {
-        if (Input.GetKeyDown(KeyCode.B)) Burst();
-    }
+        // Clear the impulse once we're in a LATER frame than it was painted, so it stays up for a full frame no matter
+        // whether the sim's Update (or an external Burst caller) runs before or after this one. Keying off the frame
+        // number — rather than a same-frame LateUpdate — means the sim reliably reads the impulse at least once, and a
+        // fresh Burst earlier in this same frame isn't wiped by mistake.
+        // Caveat to validate in-editor: the sim advances by a time accumulator, so a frame with several sub-steps
+        // absorbs the impulse more than once — scale `strength` to taste, or gate this on the sim actually stepping.
+        if (_impulseFrame >= 0 && Time.frameCount > _impulseFrame) { source.Clear(); _impulseFrame = -1; }
 
-    // Clear after the sim has consumed this frame's impulse, so it's a one-shot kick the sim then damps.
-    void LateUpdate() {
-        if (_clearPending) { source.Clear(); _clearPending = false; }
+        if (Input.GetKeyDown(KeyCode.B)) Burst();
     }
 }

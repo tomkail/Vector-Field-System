@@ -259,6 +259,8 @@ var brush = new VectorFieldBrush(
     pressure: 1f);                                   // op strength / magnitude reference
 ```
 
+For a textured / directional brush, use `VectorFieldBrushShape.FromMap(map)` — a 2D `Vector2Map` whose sampled vector is the brush contribution (magnitude = weight, direction = the emitter/cookie direction). The brush's `directionMode` then controls how a stroke orients it: `FollowStroke` (default) rotates the emitter to the path tangent; `FixedAngle` keeps the map's baked direction. The in‑editor [painting tool](#the-painting-tool) runs on exactly this API (its cookie‑shaped emitter wrapped via `FromMap`), so editor and runtime strokes are the same code.
+
 **One‑shots** (stateless, no allocation):
 
 ```csharp

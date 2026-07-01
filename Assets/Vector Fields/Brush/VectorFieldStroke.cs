@@ -13,19 +13,19 @@ using UnityEngine;
 //    tangent (~1 point of lag, smoothest). End() flushes the final tail so nothing is lost.
 //  - TipMode.Leading: draws all the way to the newest point with an extrapolated forward tangent (zero lag).
 //
-// Exact overlap (frame-rate independent, seam-free — every op):
-//   A thick swept stroke re-covers the cells just behind its moving head on consecutive frames. Applying an op live
-//   on each re-cover is frame-rate dependent for EVERY op — compounding ops (Add/Burn/…) double-apply, and even
-//   set-style ops (Draw/Repel/…) drift toward their target because they blend by falloff weight. So instead of
-//   applying live, each cell is applied EXACTLY ONCE, at the maximum coverage the stroke gave it, from the field
-//   value captured just before the head first reached it. The painted result then depends only on the stroke
-//   geometry, not on how many frames delivered it (identical at 30/60/144 fps) and not on how long the head lingers.
+// Coverage & overlap (frame-rate independent, seam-free — every op):
+//   Coverage accumulates by ARC LENGTH: a cell builds up as ∫ weight · ds while the brush sweeps across it, so the
+//   effect ramps with drag DISTANCE (a cell reaches full after the brush sweeps ~its own width across it) — not
+//   instantly, and not with dwell time. Because that integral is geometric it's identical at any frame rate and
+//   holding still adds nothing (no arc travelled). Each cell's op is applied ONCE from the field value captured just
+//   before the head first reached it, at its accumulated coverage — so re-covering the band behind the head on
+//   consecutive frames can't double-apply or drift, and joins between spans are seam-free.
 //
 //   Rather than snapshotting the whole stroke bounds up front (unbounded for a long trail, and it would fight a
 //   decay/sim draining the field), cells are held in a small "active" set only while within a brush radius of the
-//   head: snapshot on first touch, re-applied at the running max coverage while active, then evicted once the head
-//   moves past (their value is already final). So finalized cells are free to decay while the head stays fresh, and
-//   the cost is bounded by the brush footprint regardless of stroke length.
+//   head: snapshot on first touch, re-applied as coverage accumulates while active, then evicted once the head moves
+//   past (their value is final). So finalized cells are free to decay while the head stays fresh, and the cost is
+//   bounded by the brush footprint regardless of stroke length.
 //
 // Future (see Brush/RUNTIME_PAINTING_SPEC.md): pool the per-stroke neighbour snapshot (only allocated for
 // neighbour-reading ops like Smudge) across strokes.
@@ -41,22 +41,33 @@ public sealed class VectorFieldStroke {
     DrawableVectorFieldComponent _field;
     VectorFieldBrush _brush;
     float _gridRadius;
+    // Coverage added per unit arc-length swept at full weight (~1/radius), so effect builds up with drag distance and
+    // a cell reaches full coverage after the brush sweeps roughly its own width across it — the old tool's ramp feel,
+    // but geometric (identical at any frame rate). Raise/lower to make the ramp faster/slower.
+    float _accPerArc;
 
     // Ring of the last 4 path points in GRID space (4 is enough for one centripetal Catmull-Rom span). _head indexes
     // the newest; Pt(k) reads the point k steps before the newest, clamped to the oldest we still hold.
     readonly Vector2[] _ring = new Vector2[4];
     int _head = -1, _n;
 
-    // Per-span scratch (reused so painting doesn't allocate after the first stroke; single-threaded use).
-    readonly List<VectorFieldBrushCell> _cells = new List<VectorFieldBrushCell>();
+    // Per-span scratch (reused so painting doesn't allocate after the first stroke; single-threaded use). One entry
+    // per cell touched this span: coverage summed over the span's sub-steps (weight x arc-length), plus the
+    // direction/centre from its strongest sub-step (which fixes the painted direction).
+    struct SpanCell {
+        public Point point; public float coverage; public float maxWeight;
+        public Vector2 brushDir; public Vector2 strokeDir; public Vector2 center;
+    }
+    readonly List<SpanCell> _cells = new List<SpanCell>();
     readonly Dictionary<Point, int> _index = new Dictionary<Point, int>();   // cell -> index in _cells (per span)
 
-    // Exact-overlap state. One entry per cell currently within a brush radius of the head; carries the max coverage
-    // seen so far, the brush-sample direction (radial: the tangent; map: the emitter/cookie direction) and the stroke
-    // direction at that max, the radial-op centre, and the field value captured just before the head arrived.
+    // Exact-overlap state. One entry per cell currently within a brush radius of the head; carries the coverage
+    // ACCUMULATED along the swept path (so effect builds up with drag distance, capped at full), the strongest weight
+    // seen (which fixes the painted direction), the brush/stroke direction and radial-op centre at that strongest
+    // touch, and the field value captured just before the head arrived.
     struct Active {
-        public float maxCoverage; public Vector2 brushDir; public Vector2 strokeDir; public Vector2 center;
-        public Vector2 snapshot;
+        public float coverage; public float maxWeight; public Vector2 brushDir; public Vector2 strokeDir;
+        public Vector2 center; public Vector2 snapshot;
     }
     readonly Dictionary<Point, Active> _active = new Dictionary<Point, Active>();
     readonly List<Point> _evict = new List<Point>();
@@ -79,6 +90,7 @@ public sealed class VectorFieldStroke {
         s._brush = brush;
         var cc = field.gridRenderer.cellCenter;
         s._gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);
+        s._accPerArc = 1f / s._gridRadius;
         s._head = -1;
         s._n = 0;
         s._source = null;
@@ -160,15 +172,15 @@ public sealed class VectorFieldStroke {
         Vector2 prev = p1;
         for (int k = 1; k <= steps; k++) {
             Vector2 cur = CentripetalCatmullRom(p0, p1, p2, p3, k / (float)steps);
-            RasterizeCapsule(prev, cur);
+            RasterizeCapsule(prev, cur, Vector2.Distance(prev, cur));   // ds = this sub-step's arc length
             prev = cur;
         }
 
         CommitSpan();
     }
 
-    // Merge this span's coverage into the active set and apply each touched cell exactly once, at its running max
-    // coverage, from its pre-touch snapshot. Then evict cells the head has moved beyond so the set stays bounded.
+    // Add this span's coverage into the active set (accumulating along the sweep) and re-apply each touched cell from
+    // its pre-touch snapshot at the new coverage. Then evict cells the head has moved beyond so the set stays bounded.
     void CommitSpan() {
         if (_cells.Count == 0) return;
         var field = _field.PaintField;
@@ -184,24 +196,25 @@ public sealed class VectorFieldStroke {
         int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
         for (int i = 0; i < _cells.Count; i++) {
             var c = _cells[i];
-            Point p = c.gridPoint;
-            float w = c.brushForce.magnitude;      // this span's coverage at the cell
-            Vector2 brushDir = w > 1e-6f ? c.brushForce / w : c.strokeForce;   // emitter/cookie dir (unit)
-            Vector2 strokeDir = c.strokeForce;
-            Vector2 center = c.brushCenter;
+            Point p = c.point;
 
             if (_active.TryGetValue(p, out Active a)) {
-                if (w > a.maxCoverage) {
-                    a.maxCoverage = w; a.brushDir = brushDir; a.strokeDir = strokeDir; a.center = center; _active[p] = a;
+                a.coverage = Mathf.Min(1f, a.coverage + c.coverage);   // build up along the sweep, capped at full
+                if (c.maxWeight > a.maxWeight) {                        // strongest touch fixes the painted direction
+                    a.maxWeight = c.maxWeight; a.brushDir = c.brushDir; a.strokeDir = c.strokeDir; a.center = c.center;
                 }
+                _active[p] = a;
             } else {
-                a = new Active { maxCoverage = w, brushDir = brushDir, strokeDir = strokeDir, center = center,
-                                 snapshot = field.GetValueAtGridPoint(p) };   // value just before the head arrived
+                a = new Active {
+                    coverage = Mathf.Min(1f, c.coverage), maxWeight = c.maxWeight, brushDir = c.brushDir,
+                    strokeDir = c.strokeDir, center = c.center, snapshot = field.GetValueAtGridPoint(p),
+                };
                 _active[p] = a;
             }
 
-            // brushForce/finalForce carry the max coverage as magnitude (ctx.Weight); the op runs once from snapshot.
-            var ctx = new BrushApplyContext(a.snapshot, a.brushDir * a.maxCoverage, a.brushDir * a.maxCoverage,
+            // brushForce/finalForce carry the accumulated coverage as magnitude (ctx.Weight); the op runs once from
+            // the pre-touch snapshot, so the result depends only on the swept geometry (frame-rate independent).
+            var ctx = new BrushApplyContext(a.snapshot, a.brushDir * a.coverage, a.brushDir * a.coverage,
                                             a.strokeDir, _brush.pressure, p, a.center, source);
             field.SetValueAtGridPoint(p, op.Apply(ctx));
 
@@ -230,8 +243,9 @@ public sealed class VectorFieldStroke {
         for (int i = 0; i < _evict.Count; i++) _active.Remove(_evict[i]);
     }
 
-    // Accumulate every cell within _gridRadius of segment a->b, keeping the max weight per cell across this span.
-    void RasterizeCapsule(Vector2 a, Vector2 b) {
+    // Add every cell within _gridRadius of segment a->b to this span, contributing coverage = weight * ds (arc length)
+    // so a cell builds up as the brush sweeps across it, and tracking its strongest weight for the painted direction.
+    void RasterizeCapsule(Vector2 a, Vector2 b, float ds) {
         var size = _field.PaintField.size;
         int minX = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(a.x, b.x) - _gridRadius));
         int maxX = Mathf.Min(size.x - 1, Mathf.CeilToInt(Mathf.Max(a.x, b.x) + _gridRadius));
@@ -265,31 +279,30 @@ public sealed class VectorFieldStroke {
                     Vector2 brushDir = world / mag;
                     // FollowStroke paints along the drag (Draw follows the tangent); FixedAngle paints the emitter dir.
                     Vector2 strokeDir = _brush.directionMode == VectorFieldDirectionMode.FixedAngle ? brushDir : tangent;
-                    Accumulate(new Point(x, y), mag, brushDir, strokeDir, nearest);
+                    Accumulate(new Point(x, y), mag * ds * _accPerArc, mag, brushDir, strokeDir, nearest);
                 } else {
                     float dist = offset.magnitude;
                     if (dist > _gridRadius) continue;
                     float w = _brush.shape.Weight(dist * invR);
                     if (w <= 0f) continue;
-                    Accumulate(new Point(x, y), w, tangent, tangent, nearest);
+                    Accumulate(new Point(x, y), w * ds * _accPerArc, w, tangent, tangent, nearest);
                 }
             }
         }
     }
 
-    void Accumulate(Point gridPoint, float weight, Vector2 brushDir, Vector2 strokeDir, Vector2 center) {
-        var cell = new VectorFieldBrushCell {
-            gridPoint = gridPoint,
-            brushForce = brushDir * weight,         // magnitude = weight (the op's ctx.Weight)
-            finalForce = brushDir * weight,
-            strokeForce = strokeDir,                // direction the stroke is heading
-            brushCenter = center,
-        };
+    void Accumulate(Point gridPoint, float coverage, float weight, Vector2 brushDir, Vector2 strokeDir, Vector2 center) {
         if (_index.TryGetValue(gridPoint, out int i)) {
-            if (weight > _cells[i].brushForce.magnitude) _cells[i] = cell;   // keep the strongest touch this span
+            var e = _cells[i];
+            e.coverage += coverage;                            // sum along the sweep
+            if (weight > e.maxWeight) {                        // strongest sub-step fixes the direction/centre
+                e.maxWeight = weight; e.brushDir = brushDir; e.strokeDir = strokeDir; e.center = center;
+            }
+            _cells[i] = e;
         } else {
             _index[gridPoint] = _cells.Count;
-            _cells.Add(cell);
+            _cells.Add(new SpanCell { point = gridPoint, coverage = coverage, maxWeight = weight,
+                                      brushDir = brushDir, strokeDir = strokeDir, center = center });
         }
     }
 

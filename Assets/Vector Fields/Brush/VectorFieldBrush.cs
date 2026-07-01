@@ -1,12 +1,16 @@
+using System;
 using UnityEngine;
+using UnityEngine.Rendering;
 
-// The brush's spatial profile used by the runtime painting API (Stamp / PaintLine / strokes). Two flavours:
+// The brush's spatial profile used by the runtime painting API (Stamp / PaintLine / strokes). Three flavours:
 //  - Radial(softness): a pure-CPU radial falloff. No direction of its own — the painted direction comes from the
 //    stroke tangent (or a Stamp's direction argument). This is all most runtime effects need.
-//  - FromMap(map): wraps a prebuilt 2D brush map (e.g. the editor's cookie-shaped directional/spot emitter, read
-//    back from the GPU) for textured / per-cell-directional brushes. The sampled VECTOR is the brush contribution:
-//    its magnitude is the coverage weight and its direction (in the brush's local frame, local +Y = "forward") is
-//    the emitter/cookie direction.
+//  - FromMap(map): wraps a prebuilt 2D brush map for textured / per-cell-directional brushes. The sampled VECTOR is
+//    the brush contribution: its magnitude is the coverage weight and its direction (in the brush's local frame,
+//    local +Y = "forward") is the emitter/cookie direction.
+//  - FromCookie(cookie, emitter): builds that 2D map on the GPU from a cookie mask + directional/spot emitter (the
+//    same pipeline the editor tool uses), reads it back to the CPU, and wraps it via FromMap — the turnkey way to get
+//    a textured/directional brush at runtime.
 // Built once and reused.
 public sealed class VectorFieldBrushShape {
     readonly float softness;      // radial: 0 = hard edge, 1 = fully soft
@@ -17,6 +21,36 @@ public sealed class VectorFieldBrushShape {
 
     public static VectorFieldBrushShape Radial(float softness = 0.5f) => new VectorFieldBrushShape(softness);
     public static VectorFieldBrushShape FromMap(Vector2Map map) => new VectorFieldBrushShape(map);
+
+    // Build a textured/directional brush from a cookie mask + emitter, on the GPU, and cache it on the CPU. This is a
+    // one-time build (a synchronous GPU readback stalls briefly) — do it in setup, not per frame, and reuse the shape.
+    // Consumes the cookie's generated GPU mask (Falloff/Curve regenerate on demand if the cookie is reused).
+    public static VectorFieldBrushShape FromCookie(VectorFieldCookieSource cookie, VectorFieldBrushSettings emitter,
+                                                   int resolution = 32) {
+        if (emitter == null) throw new ArgumentNullException(nameof(emitter));
+        var size = new Vector2Int(Mathf.Max(1, resolution), Mathf.Max(1, resolution));
+        var mask = cookie != null ? cookie.Resolve(size) : null;
+
+        RenderTexture rt = null;
+        VectorFieldRenderTextureUtils.EnsureValid(ref rt, size);
+        VectorFieldBrushTextureCreator.Dispatch(rt, size, 1f, emitter, mask);   // emitter shaped by the mask, magnitude 1
+
+        Vector2Map built = null;
+        var req = AsyncGPUReadback.Request(rt, 0, r => {
+            if (r.hasError) { Debug.LogError("VectorFieldBrushShape.FromCookie: GPU readback failed."); return; }
+            built = new Vector2Map(new Point(r.width, r.height), VectorFieldUtils.ColorsToVectors(r.GetData<Color>(), 1));
+        });
+        req.WaitForCompletion();
+
+        VectorFieldRenderTextureUtils.Destroy(ref rt);
+        cookie?.Dispose();
+
+        if (built == null) {
+            Debug.LogError("VectorFieldBrushShape.FromCookie: brush map unavailable; using a radial fallback.");
+            return Radial(cookie != null ? cookie.falloffSoftness : 0.5f);
+        }
+        return FromMap(built);
+    }
 
     // True when this shape carries a 2D map (textured/directional); false for a pure radial falloff.
     public bool IsMap => map != null;

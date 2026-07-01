@@ -32,9 +32,15 @@ using UnityEngine;
 public sealed class VectorFieldStroke {
     const float SubStepCells = 0.5f;   // spline sampling resolution along the path, in grid cells
 
-    readonly DrawableVectorFieldComponent _field;
-    readonly VectorFieldBrush _brush;
-    readonly float _gridRadius;
+    // Idle strokes are pooled and reused (rent in BeginStroke, return in End) so many short-lived strokes — e.g. a
+    // per-frame PaintLine — don't churn GC: the collections below are allocated once per instance and reused. Capped
+    // so a burst of simultaneous End()s can't retain instances forever.
+    static readonly Stack<VectorFieldStroke> s_pool = new Stack<VectorFieldStroke>();
+    const int PoolCapacity = 32;
+
+    DrawableVectorFieldComponent _field;
+    VectorFieldBrush _brush;
+    float _gridRadius;
 
     // Ring of the last 4 path points in GRID space (4 is enough for one centripetal Catmull-Rom span). _head indexes
     // the newest; Pt(k) reads the point k steps before the newest, clamped to the oldest we still hold.
@@ -64,15 +70,28 @@ public sealed class VectorFieldStroke {
     // measures from (NOT the newest fed point, which is one span ahead in Smoothed mode).
     Vector2 _spanEnd;
 
-    public VectorFieldStroke(DrawableVectorFieldComponent field, in VectorFieldBrush brush) {
-        _field = field;
-        _brush = brush;
+    VectorFieldStroke() {}   // pooled — created via Rent (see BeginStroke)
+
+    // Rent an idle stroke (or make one) and initialise it for a new stroke. Called by field.BeginStroke.
+    internal static VectorFieldStroke Rent(DrawableVectorFieldComponent field, in VectorFieldBrush brush) {
+        var s = s_pool.Count > 0 ? s_pool.Pop() : new VectorFieldStroke();
+        s._field = field;
+        s._brush = brush;
         var cc = field.gridRenderer.cellCenter;
-        _gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);
+        s._gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);
+        s._head = -1;
+        s._n = 0;
+        s._source = null;
+        s._sourceReady = false;
+        s._cells.Clear();
+        s._index.Clear();
+        s._active.Clear();
+        s._evict.Clear();
+        return s;
     }
 
     public void To(Vector3 worldPosition) {
-        if (!_brush.IsValid) return;
+        if (_field == null || !_brush.IsValid) return;   // _field == null => already ended (and possibly pooled)
         Push(_field.gridRenderer.cellCenter.WorldToGridPosition(worldPosition));
         if (_n < 2) return;
 
@@ -86,13 +105,19 @@ public sealed class VectorFieldStroke {
     // look-ahead, so we flush it here (this is also what makes a 2-point PaintLine draw its single span). Active cells
     // already hold their final value (applied when last touched), so finishing just clears state.
     public void End() {
+        if (_field == null) return;   // already ended
         if (_brush.IsValid && _brush.tipMode == TipMode.Smoothed && _n >= 2)
             RenderSpanToNewest();
         _active.Clear();
+        _cells.Clear();
+        _index.Clear();
+        _evict.Clear();
         _source = null;
         _sourceReady = false;
         _head = -1;
         _n = 0;
+        _field = null;   // mark ended; guards To()/End() against use-after-return once pooled
+        if (s_pool.Count < PoolCapacity) s_pool.Push(this);
     }
 
     // --- internals --------------------------------------------------------------------------------------------------

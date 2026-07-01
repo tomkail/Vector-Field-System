@@ -15,9 +15,10 @@ using UnityEngine;
 public static class VectorFieldPainting {
     static readonly List<VectorFieldBrushCell> _stampCells = new List<VectorFieldBrushCell>();
 
-    // Begin a continuous stroke. Hold the result and call To() each frame; End() when finished.
+    // Begin a continuous stroke. Hold the result and call To() each frame; End() when finished (End returns the stroke
+    // to a pool for reuse, so don't touch it after — begin a new one).
     public static VectorFieldStroke BeginStroke(this DrawableVectorFieldComponent field, in VectorFieldBrush brush)
-        => new VectorFieldStroke(field, brush);
+        => VectorFieldStroke.Rent(field, brush);
 
     // Paint a single straight swept line (a one-shot stroke over two points).
     public static void PaintLine(this DrawableVectorFieldComponent field, in VectorFieldBrush brush, Vector3 fromWorld, Vector3 toWorld) {

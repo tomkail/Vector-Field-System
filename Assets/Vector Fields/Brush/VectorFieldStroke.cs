@@ -97,8 +97,7 @@ public sealed class VectorFieldStroke {
         s._accPerArc = 1f / s._gridRadius;
         s._head = -1;
         s._n = 0;
-        s._source = null;
-        s._sourceReady = false;
+        s._sourceReady = false;   // keep any pooled _source buffer for reuse; it's refilled on next capture
         s._cells.Clear();
         s._index.Clear();
         s._active.Clear();
@@ -132,8 +131,7 @@ public sealed class VectorFieldStroke {
         _cells.Clear();
         _index.Clear();
         _evict.Clear();
-        _source = null;
-        _sourceReady = false;
+        _sourceReady = false;   // keep the _source buffer on the pooled instance for reuse
         _head = -1;
         _n = 0;
         _field = null;   // mark ended; guards To()/End() against use-after-return once pooled
@@ -200,8 +198,13 @@ public sealed class VectorFieldStroke {
         var op = _brush.op;
 
         // Neighbour-reading ops need a stable pre-stroke snapshot to sample; capture it once, before any painting.
+        // Reuse the pooled buffer when the grid size matches (just copy the values), reallocating only on a size
+        // change — so repeated Smudge strokes don't each clone the whole field.
         if (op.NeedsSnapshot && !_sourceReady) {
-            _source = new Vector2Map(field.size, (Vector2[])field.values.Clone());
+            if (_source == null || _source.size.x != field.size.x || _source.size.y != field.size.y)
+                _source = new Vector2Map(field.size, (Vector2[])field.values.Clone());
+            else
+                System.Array.Copy(field.values, _source.values, field.values.Length);
             _sourceReady = true;
         }
         Vector2Map source = op.NeedsSnapshot ? _source : field;

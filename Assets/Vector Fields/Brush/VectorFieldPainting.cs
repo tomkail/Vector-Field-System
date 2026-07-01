@@ -27,13 +27,16 @@ public static class VectorFieldPainting {
         stroke.End();
     }
 
-    // Stamp a single radial dab of the brush op centred at a world position (no path direction — best for radial ops
-    // like Repel/Attract/Swirl, or a one-off Draw dab).
-    public static void Stamp(this DrawableVectorFieldComponent field, in VectorFieldBrush brush, Vector3 worldPosition) {
+    // Stamp a single dab of the brush op centred at a world position. `direction` is the vector painted by
+    // direction-using ops (Draw/Add) — pass a facing/velocity for a directional dab, or leave it default (Vector2.up).
+    // Radial ops (Repel/Attract/Swirl) derive their direction from the stamp centre and ignore it.
+    public static void Stamp(this DrawableVectorFieldComponent field, in VectorFieldBrush brush, Vector3 worldPosition,
+                             Vector2 direction = default) {
         if (field == null || !brush.IsValid) return;
         var cc = field.gridRenderer.cellCenter;
         Vector2 gridCenter = cc.WorldToGridPosition(worldPosition);
         float gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);
+        Vector2 dir = direction.sqrMagnitude > 1e-8f ? direction.normalized : Vector2.up;
 
         _stampCells.Clear();
         var size = field.PaintField.size;
@@ -50,9 +53,9 @@ public static class VectorFieldPainting {
                 if (w <= 0f) continue;
                 _stampCells.Add(new VectorFieldBrushCell {
                     gridPoint = new Point(x, y),
-                    brushForce = Vector2.up * w,        // magnitude = weight; a stamp has no path direction
-                    finalForce = Vector2.up * w,
-                    strokeForce = Vector2.up,
+                    brushForce = dir * w,               // magnitude = weight; direction used only by Draw/Add
+                    finalForce = dir * w,
+                    strokeForce = dir,
                     brushCenter = gridCenter,            // radial ops radiate from here
                 });
             }

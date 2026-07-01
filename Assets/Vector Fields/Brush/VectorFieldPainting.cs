@@ -1,10 +1,11 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 // The friendly runtime painting API: extension methods on DrawableVectorFieldComponent so gameplay code can paint a
 // field the same way the editor tool does, without touching grid math or the kernel directly.
 //
-//   var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.6f), VectorFieldBrushOpRegistry.ById("draw"), size: 2f);
+//   var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.6f), VectorFieldBrushOpRegistry.Draw, size: 2f);
 //   field.Stamp(brush, hitPoint);                 // a single dab / burst
 //   field.PaintLine(brush, origin, target);       // a straight swept line
 //   var stroke = field.BeginStroke(brush);        // a continuous, smoothed stroke
@@ -15,10 +16,26 @@ using UnityEngine;
 public static class VectorFieldPainting {
     static readonly List<VectorFieldBrushCell> _stampCells = new List<VectorFieldBrushCell>();
 
+    // Fail fast with a clear message on misuse, rather than a silent no-op or a NullReferenceException from deep in the
+    // grid math. field/brush are the caller's contract; a missing GridRenderer means the component isn't ready yet.
+    static void Validate(DrawableVectorFieldComponent field, in VectorFieldBrush brush) {
+        if (field == null)
+            throw new ArgumentNullException(nameof(field), "Cannot paint into a null vector field.");
+        if (field.gridRenderer == null)
+            throw new InvalidOperationException(
+                $"'{field.name}' has no GridRenderer yet — paint after the component is enabled/initialised.");
+        if (!brush.IsValid)
+            throw new ArgumentException(
+                "Brush is invalid: it needs a shape (VectorFieldBrushShape.Radial/FromCookie/FromMap) and an op " +
+                "(VectorFieldBrushOpRegistry).", nameof(brush));
+    }
+
     // Begin a continuous stroke. Hold the result and call To() each frame; End() when finished (End returns the stroke
     // to a pool for reuse, so don't touch it after — begin a new one).
-    public static VectorFieldStroke BeginStroke(this DrawableVectorFieldComponent field, in VectorFieldBrush brush)
-        => VectorFieldStroke.Rent(field, brush);
+    public static VectorFieldStroke BeginStroke(this DrawableVectorFieldComponent field, in VectorFieldBrush brush) {
+        Validate(field, brush);
+        return VectorFieldStroke.Rent(field, brush);
+    }
 
     // Paint a single straight swept line (a one-shot stroke over two points).
     public static void PaintLine(this DrawableVectorFieldComponent field, in VectorFieldBrush brush, Vector3 fromWorld, Vector3 toWorld) {
@@ -33,7 +50,7 @@ public static class VectorFieldPainting {
     // Radial ops (Repel/Attract/Swirl) derive their direction from the stamp centre and ignore it.
     public static void Stamp(this DrawableVectorFieldComponent field, in VectorFieldBrush brush, Vector3 worldPosition,
                              Vector2 direction = default) {
-        if (field == null || !brush.IsValid) return;
+        Validate(field, brush);
         var cc = field.gridRenderer.cellCenter;
         Vector2 gridCenter = cc.WorldToGridPosition(worldPosition);
         float gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);

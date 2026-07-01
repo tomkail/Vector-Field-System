@@ -1,10 +1,23 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
-public class DrawableVectorFieldComponent : VectorFieldComponent {
-    // The painted field — the authored source of truth, edited by the drawing tool and serialized with the
-    // component. The render texture (and the cookie-masked CPU copy in base.vectorField that consumers read back)
-    // are derived from this each render, so masking and readback never touch the paint data.
-    [SerializeField] Vector2Map paintField;
+public class DrawableVectorFieldComponent : VectorFieldComponent, ISerializationCallbackReceiver {
+    // The painted field — the authored source of truth, edited by the drawing tool. The render texture (and the
+    // cookie-masked CPU copy in base.vectorField that consumers read back) are derived from this each render, so
+    // masking and readback never touch the paint data. It's the WORKING copy, not serialized directly: it's written
+    // to / rebuilt from the backing store below (see OnBeforeSerialize / OnAfterDeserialize) so the on-disk format can
+    // be chosen per project (see VectorFieldStorage) without changing the runtime representation.
+    [System.NonSerialized] Vector2Map paintField;
+
+    // Serialized backing. The data always lives on the component (never an asset), stored in exactly ONE of these per
+    // VectorFieldStorage.format: `storedValues` (verbose Vector2 array) or `storedBytes` (compact packed blob). Reading
+    // detects which is populated, so switching the project setting doesn't break existing scenes.
+    [SerializeField, HideInInspector] Point storedSize;
+    [SerializeField, HideInInspector] Vector2[] storedValues;
+    [SerializeField, HideInInspector] byte[] storedBytes;
+    // Migration: older scenes serialized the whole Vector2Map under `paintField`. FormerlySerializedAs redirects that
+    // to here; OnAfterDeserialize lifts it into the working field and clears it, so it re-saves in the current format.
+    [SerializeField, HideInInspector, FormerlySerializedAs("paintField")] Vector2Map legacyPaintField;
 
     // The painted field, created/resized to the current grid on demand. The drawing tool reads and writes this.
     // A deserialized Vector2Map can come back non-null with a null `values` array (Unity rebuilds the managed object
@@ -15,6 +28,41 @@ public class DrawableVectorFieldComponent : VectorFieldComponent {
             if (!IsValid(paintField, size))
                 paintField = new Vector2Map(size);
             return paintField;
+        }
+    }
+
+    // Write the working field into the chosen backing (clearing the other), so the scene stores it in the project's
+    // format. Reads only a plain static (VectorFieldStorage.format) — safe from a serialization callback. Runs in the
+    // editor at save time; players never call this.
+    public void OnBeforeSerialize() {
+        legacyPaintField = null;   // migrated away; don't keep re-serializing the old representation
+        if (paintField == null || paintField.values == null || paintField.values.Length == 0) {
+            storedValues = null;
+            storedBytes = null;
+            return;
+        }
+        storedSize = paintField.size;
+        if (VectorFieldStorage.format == VectorFieldStorage.Format.ByteArray) {
+            storedBytes = VectorFieldStorage.Pack(paintField.values);
+            storedValues = null;
+        } else {
+            storedValues = paintField.values;
+            storedBytes = null;
+        }
+    }
+
+    // Rebuild the working field from whichever backing is populated (or migrate a legacy paintField). Pure array work,
+    // no Unity API, so it's safe on the deserialization thread. The grid-size reconciliation stays in PaintField's getter.
+    public void OnAfterDeserialize() {
+        if (legacyPaintField != null && legacyPaintField.values != null && legacyPaintField.values.Length > 0) {
+            paintField = legacyPaintField;
+            legacyPaintField = null;
+        } else if (storedBytes != null && storedBytes.Length > 0) {
+            paintField = new Vector2Map(storedSize, VectorFieldStorage.Unpack(storedBytes, storedSize.x * storedSize.y));
+        } else if (storedValues != null && storedValues.Length > 0) {
+            paintField = new Vector2Map(storedSize, storedValues);
+        } else {
+            paintField = null;   // built lazily by PaintField
         }
     }
 

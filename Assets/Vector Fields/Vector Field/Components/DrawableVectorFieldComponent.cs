@@ -1,7 +1,13 @@
 using UnityEngine;
 using UnityEngine.Serialization;
 
-public class DrawableVectorFieldComponent : VectorFieldComponent, ISerializationCallbackReceiver {
+public class DrawableVectorFieldComponent : VectorFieldComponent, ISerializationCallbackReceiver, IPaintTarget<Vector2> {
+    // IPaintTarget<Vector2>: the generic painting core (PaintStroke<Vector2>, the brush kernel) drives this component.
+    // gridRenderer and MarkRegionDirty already satisfy the interface; PaintField/CreateMap need explicit impls because
+    // the interface is typed on the base TypeMap<Vector2> while our members are the Vector2Map subtype.
+    TypeMap<Vector2> IPaintTarget<Vector2>.PaintField => PaintField;
+    TypeMap<Vector2> IPaintTarget<Vector2>.CreateMap(Point size) => new Vector2Map(size);
+
     // The painted field — the authored source of truth, edited by the drawing tool. The render texture (and the
     // cookie-masked CPU copy in base.vectorField that consumers read back) are derived from this each render, so
     // masking and readback never touch the paint data. It's the WORKING copy, not serialized directly: it's written

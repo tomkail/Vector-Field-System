@@ -12,7 +12,7 @@ public sealed class DrawBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => false;   // sets toward a target; stable under re-apply
     public bool UsesBrushDirection => true;     // paints the emitter's direction
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         // Take only the DIRECTION from the stroke — its magnitude carries a 1/size factor (good for Add's accumulation,
         // wrong for a set op). Target magnitude is the pressure, blended toward the current magnitude by the falloff,
         // so the painted strength is independent of brush size.
@@ -32,7 +32,7 @@ public sealed class AdditiveBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => true;    // current + force accumulates
     public bool UsesBrushDirection => true;     // paints the emitter's direction
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         return ctx.current + ctx.finalForce * ctx.pressure;
     }
 }
@@ -53,7 +53,7 @@ public sealed class SmudgeBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => true;     // each pass drags further; not idempotent
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         Vector2 dir = ctx.strokeForce.sqrMagnitude > 1e-8f ? ctx.strokeForce.normalized : Vector2.zero;
         if (dir == Vector2.zero || ctx.source == null) return ctx.current;
         // Sample where the brush came from and blend the cell toward it, dragging the existing flow forward.
@@ -74,7 +74,7 @@ public sealed class EraseBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => true;    // multiplies down; re-apply darkens further
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         return ctx.current * (1f - Mathf.Clamp01(ctx.Weight * ctx.pressure));
     }
 }
@@ -90,7 +90,7 @@ public sealed class BurnBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => true;    // grows magnitude; re-apply grows further
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         return ctx.current + ((Vector2)ctx.current.normalized) * (ctx.Weight * ctx.pressure);
     }
 }
@@ -105,7 +105,7 @@ public sealed class DodgeBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => true;    // shrinks magnitude; re-apply shrinks further
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         float newMag = Mathf.Max(0f, ctx.current.magnitude - ctx.Weight * ctx.pressure);
         return ((Vector2)ctx.current.normalized) * newMag;
     }
@@ -123,7 +123,7 @@ public sealed class ClampBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => false;   // drives toward min(mag, ceiling); stable under re-apply
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         float mag = ctx.current.magnitude;
         float target = Mathf.Min(mag, ctx.pressure);
         return ((Vector2)ctx.current.normalized) * Mathf.Lerp(mag, target, ctx.Weight);
@@ -141,7 +141,7 @@ public sealed class NormalizeBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => false;   // drives toward a fixed length; stable under re-apply
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         if (ctx.current == Vector2.zero) return ctx.current;
         return ((Vector2)ctx.current.normalized) * Mathf.Lerp(ctx.current.magnitude, ctx.pressure, ctx.Weight);
     }
@@ -158,7 +158,7 @@ public sealed class RepelBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => false;   // sets toward an outward target; stable under re-apply
     public bool UsesBrushDirection => false;    // direction comes from the brush centre, not the emitter
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         Vector2 toCell = new Vector2(ctx.gridPoint.x, ctx.gridPoint.y) - ctx.brushCenter;
         Vector2 dir = toCell.sqrMagnitude > 1e-6f ? toCell.normalized : Vector2.zero;
         return Vector2.Lerp(ctx.current, dir * ctx.pressure, ctx.Weight);
@@ -175,7 +175,7 @@ public sealed class AttractBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => false;
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         Vector2 toCenter = ctx.brushCenter - new Vector2(ctx.gridPoint.x, ctx.gridPoint.y);
         Vector2 dir = toCenter.sqrMagnitude > 1e-6f ? toCenter.normalized : Vector2.zero;
         return Vector2.Lerp(ctx.current, dir * ctx.pressure, ctx.Weight);
@@ -192,7 +192,7 @@ public sealed class SwirlBrushOp : IVectorFieldBrushOp {
     public bool CompoundsOnReapply => false;
     public bool UsesBrushDirection => false;
 
-    public Vector2 Apply(in BrushApplyContext ctx) {
+    public Vector2 Apply(in BrushApplyContext<Vector2> ctx) {
         Vector2 toCell = new Vector2(ctx.gridPoint.x, ctx.gridPoint.y) - ctx.brushCenter;
         // 90° CCW perpendicular gives the tangential (circulating) direction.
         Vector2 tangent = new Vector2(-toCell.y, toCell.x);

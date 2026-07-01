@@ -23,10 +23,10 @@ public static class VectorFieldBrushSelfTests {
 
         // --- Ops: construct a per-cell context and assert the op's core behaviour ------------------------------------
         // Helper: brushForce/finalForce carry the weight as magnitude (ctx.Weight); strokeForce is the unit direction.
-        BrushApplyContext Ctx(Vector2 current, Vector2 dir, float weight, float pressure, Point gp, Vector2 center) {
+        BrushApplyContext<Vector2> Ctx(Vector2 current, Vector2 dir, float weight, float pressure, Point gp, Vector2 center) {
             Vector2 u = dir.sqrMagnitude > 0f ? dir.normalized : Vector2.zero;
             Vector2 f = u * weight;
-            return new BrushApplyContext(current, f, f, u, pressure, gp, center, null);
+            return new BrushApplyContext<Vector2>(current, f, f, u, pressure, gp, center, null);
         }
         var origin = new Point(0, 0);
 

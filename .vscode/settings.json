@@ -56,7 +56,7 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "Vector Field System.sln",
+    "dotnet.defaultSolution": "Vector Field System.slnx",
     "dotnetAcquisitionExtension.existingDotnetPath": [
         {
             "extensionId": "ms-dotnettools.csharp",

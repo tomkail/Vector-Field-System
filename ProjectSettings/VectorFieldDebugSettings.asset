@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &1
+MonoBehaviour:
+  m_ObjectHideFlags: 53
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b6b90ef5986ae44ff95ae5e96057518a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp-Editor::VectorFieldDebugProjectSettings
+  _appearance:
+    arrowTexture: {fileID: 2800000, guid: f830cbc0d89084c599479dcbb2d5d77c, type: 3}
+    colorMode: 1
+    fixedColor: {r: 1, g: 1, b: 1, a: 1}
+    lowColor: {r: 0.21580064, g: 0, b: 1, a: 1}
+    highColor: {r: 1, g: 0.35, b: 0.1, a: 1}
+    maxMagnitude: 1
+    opacity: 1

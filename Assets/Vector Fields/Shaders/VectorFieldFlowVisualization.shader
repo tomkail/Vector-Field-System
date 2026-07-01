@@ -1,6 +1,6 @@
 ﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
 
-Shader "El and Six/Vector Field/Vector Field Flow Visualization" {
+Shader "Vector Fields/Vector Field Flow Visualization" {
 	Properties {
 		_MainTex ("Vector Field", 2D) = "white" {}
 		_Tex ("Texture", 2D) = "white" {}
@@ -9,13 +9,15 @@ Shader "El and Six/Vector Field/Vector Field Flow Visualization" {
 		_Speed ("Speed", Range(0,500)) = 20
 		_TextureScale ("Texture Scale", Range(0,1000)) = 10
 		_Brightness ("Brightness", Range(0,50)) = 8
-		[Enum(Cell Blend (Legacy),0,Continuous Single,1,Continuous Multi,2)] _FlowSamplingMode ("Flow Sampling Mode", Float) = 0
-		[Enum(Off,0,Amplitude,1,Streak Brightness,2,Amplitude Alpha,3,Final Alpha,4)] _DebugView ("Debug View (opaque)", Float) = 0
-		[Enum(Off,0,2x2,1,4x4,2)] _SupersampleLevel ("Anti-alias (supersample)", Float) = 0
+		[Enum(Cell Blend Legacy,0,Cell Blend Seam Masked,1,Cell Blend Seam Copy,2)] _FlowSamplingMode ("Flow Sampling Mode", Float) = 1
+		_SeamBand ("Seam Mask Band (px)", Range(0,8)) = 2
+		_SeamReach ("Seam Mask Reach (px)", Range(0,16)) = 4
+		[Toggle] _ContinuousAmplitude ("Continuous Amplitude", Float) = 1
+		[Toggle] _SeamDebug ("Seam Debug (nearest-good dir)", Float) = 0
 		[Toggle] _UseTextureColor ("Use Texture Color", Float) = 0
 		[Enum(Magnitude,0,Luminance,1)] _GradientSource ("Recolor Gradient Source", Float) = 0
 		_ColorGradient ("Recolor Gradient", 2D) = "white" {}
-		[Enum(0,0,90,1,180,2,270,3)] _TextureRotation ("Texture Rotation (deg)", Float) = 0
+		[Enum(Rotate 0,0,Rotate 90,1,Rotate 180,2,Rotate 270,3)] _TextureRotation ("Texture Rotation", Float) = 0
 		_AmplitudeRamp ("Amplitude Alpha Ramp (curve)", 2D) = "white" {}
 	}
 
@@ -28,6 +30,8 @@ Shader "El and Six/Vector Field/Vector Field Flow Visualization" {
 			Fog { Mode Off }
 
 			CGPROGRAM
+			// NOTE: editing VectorFieldFlow.cginc alone may not trigger a recompile in Unity — touch this file (or
+			// reimport the shader) to force it. Bump this when the .cginc changes: rev 16
 			#include "VectorFieldFlow.cginc"
 
 			#pragma fragment frag

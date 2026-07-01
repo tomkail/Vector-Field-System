@@ -7,13 +7,14 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: El and Six_Vector Field_Vector Field Flow Visualization
+  m_Name: Vector Field Flow
   m_Shader: {fileID: 4800000, guid: 1221ae386a8b54665ab7def2b3f4b02d, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
   m_InvalidKeywords:
   - _AMPLITUDETOALPHA_ON
+  - _CONTINUOUSAMPLITUDE_ON
   - _CONTINUOUSSAMPLING_ON
   - _USETEXTURECOLOR_ON
   m_LightmapFlags: 4
@@ -44,14 +45,21 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _AdvectLength: 7.3
     - _AmplitudeAlphaScale: 1.6
     - _AmplitudeToAlpha: 1
+    - _BasisSharpness: 10.7
     - _Brightness: 1
+    - _ContinuousAmplitude: 1
     - _ContinuousSampling: 1
-    - _FlowSamplingMode: 0
+    - _DebugView: 0
+    - _FlowSamplingMode: 2
     - _GradientSource: 0
     - _GridCellCount: 60
-    - _Speed: 228
+    - _SeamBand: 1
+    - _SeamDebug: 0
+    - _SeamReach: 1
+    - _Speed: 93
     - _TextureRotation: 0
     - _TextureScale: 10
     - _UseTextureColor: 1

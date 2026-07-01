@@ -18,22 +18,25 @@ uniform sampler2D _ColorGradient;
 uniform float _GradientSource;
 // Rotates the sampled _Tex frame by k*90 degrees: 0 = 0, 1 = 90, 2 = 180, 3 = 270.
 uniform float _TextureRotation;
-// Flow sampling mode: 0 = legacy four-corner cell blend (shows the per-cell seam), 1 = continuous single sample
-// (no seam, but loses the multi-directional woven look), 2 = continuous multi-sample (4-direction blend on a
-// floor-free sliding stencil — aims to keep the look without the seam).
+// Flow sampling mode: 0 = Cell Blend (Legacy, has the seam), 1 = Cell Blend Seam Masked (bridge/blur across the seam),
+// 2 = Cell Blend Seam Copy (replace seam pixels with the nearest good pixel — no blend). See FLOW_VISUALIZATION_NOTES.md.
 uniform float _FlowSamplingMode;
-// Diagnostic: 0 = normal, otherwise output one intermediate term as opaque grayscale to localise the seam.
-uniform float _DebugView;
-// Supersampling level: 0 = off (1 sample), 1 = 2x2, 2 = 4x4. Integrates several sub-pixel evaluations per fragment to
-// anti-alias the streak's per-cell directional quantisation (intrinsic to the legacy look) without altering it.
-uniform float _SupersampleLevel;
+// Seam-mask (mode 1) band half-width, in screen pixels: how wide a strip around each cell edge gets the bridge.
+uniform float _SeamBand;
+// Seam-mask (mode 1) reach, in screen pixels: how far across the seam to sample for the bridge. Keep > _SeamBand so
+// the bridge samples land in clean cell interiors, clear of the kink.
+uniform float _SeamReach;
+// 1 = sample amplitude continuously (default; smooth alpha). 0 = legacy four-corner amplitude blend (shows its own
+// per-cell seam). Toggle to A/B whether the continuous-amplitude fix is still needed.
+uniform float _ContinuousAmplitude;
+// Debug: when 1, show whether each seam pixel's mode-2 COPY TARGET is clean. green = clean source (copy works),
+// red = target still inside a seam band (reach too small), black = interior (not copied).
+uniform float _SeamDebug;
 // Maps flow magnitude (x in 0..1) to an alpha multiplier (r). Baked from an AnimationCurve by VectorFieldTextureRenderer.
 uniform sampler2D _AmplitudeRamp;
 
 // TODO: Pull out to varying
 float2 fragGridCellFrac;
-
-float2 cellSizeNorm;
 float2 midGrid;
 
 // Cubic B-spline weights for the four taps straddling a sample position (fractional offset v in [0,1]).
@@ -78,14 +81,6 @@ float4 sampleBicubic(sampler2D tex, float2 uv, float4 texelSize) {
     return lerp(lerp(sample3, sample2, sx), lerp(sample1, sample0, sx), sy);
 }
 
-// Quintic smootherstep (Perlin). Unlike smoothstep it has zero FIRST AND SECOND derivative at t=0 and t=1, so blending
-// adjacent tiles with it is C2-continuous across cell boundaries. smoothstep is only C1 there; its second-derivative
-// jump shows up as a perceptual ~1px line on every cell edge (independent of zoom, scaling with _GridCellCount).
-float smootherstep(float t) {
-    t = saturate(t);
-    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-}
-
 // Rotate a UV by a multiple of 90 degrees (steps in {0,1,2,3}) about the origin. Used to reorient the sampled _Tex
 // frame relative to flow.
 float2 rotateUV90(float2 uv, float steps) {
@@ -98,37 +93,35 @@ float2 rotateUV90(float2 uv, float steps) {
 // Streak colour for one sample point `loc` (in field UV space). Samples the flow direction there and walks the streak
 // texture along it. Called once per fragment at the fragment's own position — sampling at discrete cell corners and
 // blending is what produced the per-cell seam.
-float3 sampleStreakAtPoint(float2 loc)
+// Streak colour for an EXPLICIT constant flow direction. Because flowDir is fixed (not a function of position), the
+// streak UV dot(flowDir, fragVec) is a clean linear ramp -> broad, filament-free streaks. This is the building block
+// for both the legacy corner blend and the steerable-basis mode; varying the direction *per pixel* instead is what
+// turns those broad streaks into fine filaments (the global-position lever arm amplifies dD/dP), see NOTES.
+float3 streakForDirection(float2 flowDir, float flowMag)
 {
-    // Sample the flow direction. Bicubic so the field is smooth across its texel boundaries.
-    float2 flowVec  = -1.0 * ( sampleBicubic(_MainTex, loc, _MainTex_TexelSize).rg  - float2(0.5, 0.5) );
-
-    // Find direction and magnitude of this flow. Guard the zero-flow case: normalize(0) is NaN, which would punch
-    // black/garbage texels into still regions of the field.
-    float flowMag = length(flowVec);
-    float2 flowDir = flowMag > 1e-5 ? flowVec / flowMag : float2(1.0, 0.0);
     float2 flowSide = float2(flowDir.y, -flowDir.x);
 
-    // Use UV of exact pixel position to lookup a UV on the fluid texture
-    float scalar = 1.0;///200.0;
-    float2 fragVec = scalar * (fragGridCellFrac-midGrid);
-    float2 fluidTexUV = float2( dot(flowDir,  fragVec), 
-                            dot(flowSide, fragVec) );
+    float2 fragVec = fragGridCellFrac - midGrid;
+    float2 fluidTexUV = float2( dot(flowDir, fragVec), dot(flowSide, fragVec) );
 
-    // Scroll the UV in the direction of flow on texture (X)
-    fluidTexUV.x += flowMag * _Speed * scalar * _AnimationTime;
+    // Scroll along flow (texture X) over time.
+    fluidTexUV.x += flowMag * _Speed * _AnimationTime;
 
-    fluidTexUV = fluidTexUV / _TextureScale;
-
-    fluidTexUV /= scalar;
-
+    fluidTexUV /= _TextureScale;
     fluidTexUV = rotateUV90(fluidTexUV, _TextureRotation);
 
-    float3 texPixel = tex2D(_Tex, fluidTexUV).rgb;
+    // Animated streak pattern only; amplitude drives alpha separately in CalculateFrag.
+    return _Brightness * tex2D(_Tex, fluidTexUV).rgb;
+}
 
-    // The animated streak pattern only. Amplitude is no longer baked in here — it now drives alpha separately
-    // (see CalculateFrag), so the pattern stays crisp and opacity is a clean function of flow magnitude.
-    return _Brightness * texPixel;
+float3 sampleStreakAtPoint(float2 loc)
+{
+    // Sample the flow direction. Bicubic so the field is smooth across its texel boundaries. Guard the zero-flow case:
+    // normalize(0) is NaN, which would punch black/garbage texels into still regions of the field.
+    float2 flowVec  = -1.0 * ( sampleBicubic(_MainTex, loc, _MainTex_TexelSize).rg  - float2(0.5, 0.5) );
+    float flowMag = length(flowVec);
+    float2 flowDir = flowMag > 1e-5 ? flowVec / flowMag : float2(1.0, 0.0);
+    return streakForDirection(flowDir, flowMag);
 }
 
 // Flow magnitude (amplitude) at one sample point, decoded the same way as above.
@@ -138,56 +131,143 @@ float sampleAmplitudeAtPoint(float2 loc)
     return length(flowVec);
 }
 
-float4 CalculateFragSingle(float2 uv) {
+// Legacy four-corner cell blend: samples the flow at the four cell corners and bilinearly blends the streak lookups.
+// Uses the globals fragGridCellFrac / midGrid (set by the caller). This is what defines the woven, cell-locked look —
+// and the per-cell direction quantisation it relies on is what leaves the boundary seam.
+float3 legacyStreakBlend(float2 uv)
+{
+    // Set the global the streak UV's fragVec reads from, so this can be evaluated at any (possibly offset) position.
+    fragGridCellFrac = uv * _GridCellCount;
+    float2 cellCoordBaseIdx = floor(fragGridCellFrac);
+    float2 topLeftNorm = cellCoordBaseIdx / _GridCellCount;
+    float2 botRightNorm = (cellCoordBaseIdx + float2(1.0,1.0)) / _GridCellCount;
+    float2 topRightNorm = float2( botRightNorm.x, topLeftNorm.y );
+    float2 botLeftNorm = float2( topLeftNorm.x, botRightNorm.y );
+
+    float3 texelFromTopLeftTile  = sampleStreakAtPoint(topLeftNorm);
+    float3 texelFromBotRightTile = sampleStreakAtPoint(botRightNorm);
+    float3 texelFromTopRightTile = sampleStreakAtPoint(topRightNorm);
+    float3 texelFromBotLeftTile  = sampleStreakAtPoint(botLeftNorm);
+
+    // Plain LINEAR interpolation between the corners. smoothstep/smootherstep weights have zero slope at the cell
+    // edges, which flattens the blended surface at every grid line and tiles into a visible quilt of ridges/valleys.
+    // Linear has no forced-flat edges, so the corners blend without that per-cell pillowing — same woven look, no quilt.
+    float2 xyInCell = fragGridCellFrac - cellCoordBaseIdx;
+    float smoothX = xyInCell.x;
+    float smoothY = xyInCell.y;
+
+    float3 top = lerp(texelFromTopLeftTile, texelFromTopRightTile, smoothX);
+    float3 bot = lerp(texelFromBotLeftTile, texelFromBotRightTile, smoothX);
+    return lerp(top, bot, smoothY);
+}
+
+float4 CalculateFrag(float2 uv) {
     fragGridCellFrac = uv * _GridCellCount;
     midGrid = float2(0.5, 0.5) * _GridCellCount;
 
-    // Amplitude only gates alpha — it carries none of the directional streak look or animation — so sample it
-    // continuously in every mode. The legacy four-corner bilinear blend of amplitude showed a per-cell line here (a
-    // corner-interpolation artifact in the smooth magnitude field); since the colour is flat white by default, that
-    // line bleeds straight into the visible alpha. A single continuous sample is smooth and removes it, with no effect
-    // on the streak look.
-    float amplitude = sampleAmplitudeAtPoint(uv);
+    // Debug: for each seam pixel, is its COPY TARGET (the pixel mode 2 samples) a clean pixel or still on a seam?
+    // green = target is clean (copy works), red = target still inside a seam band (reach too small / source dirty),
+    // black = interior (not a seam pixel). Uses the exact same target math as mode 2.
+    if (_SeamDebug > 0.5) {
+        float2 g = uv * _GridCellCount;
+        float2 sd = g - floor(g + 0.5);
+        float2 cellsPerPx = max(fwidth(g), 1e-5);
+        bool inX = abs(sd.x) < _SeamBand * cellsPerPx.x;
+        bool inY = abs(sd.y) < _SeamBand * cellsPerPx.y;
+        if (!inX && !inY) return float4(0.0, 0.0, 0.0, 1.0);          // interior = black
+
+        float2 targetG = g;                                           // same shift as mode 2
+        if (inX) targetG.x = g.x + (sd.x >= 0.0 ? 1.0 : -1.0) * _SeamReach * cellsPerPx.x;
+        if (inY) targetG.y = g.y + (sd.y >= 0.0 ? 1.0 : -1.0) * _SeamReach * cellsPerPx.y;
+
+        float2 tSd = targetG - floor(targetG + 0.5);
+        bool targetOnSeam = (abs(tSd.x) < _SeamBand * cellsPerPx.x) || (abs(tSd.y) < _SeamBand * cellsPerPx.y);
+        return targetOnSeam ? float4(1,0,0,1) : float4(0,1,0,1);      // red = still on a seam, green = clean source
+    }
+
+    // Amplitude gates alpha. Sampling it CONTINUOUSLY (default) removes a per-cell line that the legacy four-corner
+    // bilinear blend produced in the smooth magnitude field — visible straight through the flat-white alpha. The
+    // toggle re-enables the legacy blend so its contribution can be compared.
+    float amplitude;
+    if (_ContinuousAmplitude > 0.5) {
+        amplitude = sampleAmplitudeAtPoint(uv);
+    } else {
+        // Legacy: bilinear blend of the flow magnitude sampled at the four cell corners (the old amplitude seam).
+        float2 cellBase = floor(fragGridCellFrac);
+        float2 tl = cellBase / _GridCellCount;
+        float2 br = (cellBase + float2(1.0, 1.0)) / _GridCellCount;
+        float2 f = fragGridCellFrac - cellBase;
+        float aTop = lerp(sampleAmplitudeAtPoint(tl), sampleAmplitudeAtPoint(float2(br.x, tl.y)), f.x);
+        float aBot = lerp(sampleAmplitudeAtPoint(float2(tl.x, br.y)), sampleAmplitudeAtPoint(br), f.x);
+        amplitude = lerp(aTop, aBot, f.y);
+    }
 
     float3 streak;
     if (_FlowSamplingMode < 0.5) {
-        // Mode 0 — legacy four-corner cell blend. Samples the flow at the four cell corners and blends. The corner SET
-        // is snapped to the grid via floor() and jumps by one cell at every boundary; that discrete jump in the sample
-        // positions is the per-cell seam (it survives any blend smoothing / mip / filter change, which is how we
-        // localised it). Kept for comparison and because it defines the original look.
-        float2 cellCoordBaseIdx = floor(fragGridCellFrac);
-        float2 topLeftNorm = cellCoordBaseIdx / _GridCellCount;
-        float2 botRightNorm = (cellCoordBaseIdx + float2(1.0,1.0)) / _GridCellCount;
-        float2 topRightNorm = float2( botRightNorm.x, topLeftNorm.y );
-        float2 botLeftNorm = float2( topLeftNorm.x, botRightNorm.y );
-
-        float3 texelFromTopLeftTile  = sampleStreakAtPoint(topLeftNorm);
-        float3 texelFromBotRightTile = sampleStreakAtPoint(botRightNorm);
-        float3 texelFromTopRightTile = sampleStreakAtPoint(topRightNorm);
-        float3 texelFromBotLeftTile  = sampleStreakAtPoint(botLeftNorm);
-
-        float2 xyInCell = fragGridCellFrac - cellCoordBaseIdx;
-        float smoothX = smootherstep(xyInCell.x);
-        float smoothY = smootherstep(xyInCell.y);
-
-        float3 top = lerp(texelFromTopLeftTile, texelFromTopRightTile, smoothX);
-        float3 bot = lerp(texelFromBotLeftTile, texelFromBotRightTile, smoothX);
-        streak = lerp(top, bot, smoothY);
+        // Mode 0 — Cell Blend (Legacy). The original effect; carries the per-cell seam (see FLOW_VISUALIZATION_NOTES.md).
+        streak = legacyStreakBlend(uv);
     } else if (_FlowSamplingMode < 1.5) {
-        // Mode 1 — continuous single sample. No floor / cell index / corner set, so uv -> bicubic flow dir ->
-        // streak UV -> tex2D is continuous end to end: no seam, but only one flow direction, so the woven look is lost.
-        streak = sampleStreakAtPoint(uv);
+        // Mode 1 — Cell Blend, Seam Masked. The legacy effect everywhere, but in a thin band straddling each cell edge
+        // we COVER the seam: sample the legacy streak reached ACROSS the seam into each neighbouring cell's interior
+        // (perpendicular to that edge) and bridge between them. Because the reach clears the kink, the bridge is an
+        // interpolation of two clean interior values — it paints over the seam with its own neighbours. The seam is
+        // intrinsic to the legacy algorithm (orienting an anisotropic texture over rotational flow — see NOTES), so
+        // this masks it, it does not remove it. Knobs: _SeamBand (mask width, px), _SeamReach (reach across, px).
+        float2 g = uv * _GridCellCount;
+        float2 fr = frac(g);
+        float2 sdCells = fr - step(0.5, fr);                 // SIGNED dist to nearest cell edge (cell units, -0.5..0.5)
+        float2 px = max(fwidth(g), 1e-5);
+        float2 sdPx = sdCells / px;                          // signed dist in screen px (<0 one side, >0 the other)
+
+        // Derivatives must be taken in uniform control flow.
+        float2 dpx = ddx(uv);
+        float2 dpy = ddy(uv);
+
+        float3 result = legacyStreakBlend(uv);
+
+        // Vertical seam (near an x-edge) -> bridge horizontally. Position-weighted: a pixel left of the seam reads the
+        // clean LEFT interior, one to the right reads the clean RIGHT interior, and only the exact centre line averages
+        // the two. So contrast is preserved across the band (no flat 50/50 dimming) — the average that greys out the
+        // streaks happens on one line, not the whole strip.
+        // Anchor the two bridge samples to the SEAM (hop to the edge via -sdPx first, then reach out), NOT to the
+        // current pixel. That way both always land _SeamReach px into the clean interiors, clear of the kink, for
+        // EVERY pixel in the band. Sampling relative to the pixel let off-centre band pixels pull one sample back onto
+        // the line — re-including the very seam we're masking. Keep _SeamReach > _SeamBand so the anchors clear the band.
+        float wv = 1.0 - smoothstep(0.0, _SeamBand, abs(sdPx.x));
+        if (wv > 0.001) {
+            float3 leftS  = legacyStreakBlend(uv - dpx * (sdPx.x + _SeamReach));
+            float3 rightS = legacyStreakBlend(uv - dpx * (sdPx.x - _SeamReach));
+            float t = saturate(0.5 + 0.5 * sdPx.x / max(_SeamReach, 1e-3));
+            result = lerp(result, lerp(leftS, rightS, t), wv);
+        }
+        // Horizontal seam (near a y-edge) -> bridge vertically, same scheme.
+        float wh = 1.0 - smoothstep(0.0, _SeamBand, abs(sdPx.y));
+        if (wh > 0.001) {
+            float3 downS = legacyStreakBlend(uv - dpy * (sdPx.y + _SeamReach));
+            float3 upS   = legacyStreakBlend(uv - dpy * (sdPx.y - _SeamReach));
+            float t = saturate(0.5 + 0.5 * sdPx.y / max(_SeamReach, 1e-3));
+            result = lerp(result, lerp(downS, upS, t), wh);
+        }
+        streak = result;
     } else {
-        // Mode 2 — continuous multi-sample. Keeps the four-direction blend that gives the legacy look, but takes the
-        // four samples from a stencil CENTRED on the fragment (±half a cell) that slides continuously with uv, instead
-        // of snapping to cell corners via floor(). No discrete jump in sample positions -> no seam. Weights are equal
-        // (legacy's per-cell varying weights are a function of frac(grid) and would reintroduce the discontinuity).
-        float h = 0.5 / _GridCellCount;
-        float3 s0 = sampleStreakAtPoint(uv + float2(-h, -h));
-        float3 s1 = sampleStreakAtPoint(uv + float2( h, -h));
-        float3 s2 = sampleStreakAtPoint(uv + float2(-h,  h));
-        float3 s3 = sampleStreakAtPoint(uv + float2( h,  h));
-        streak = (s0 + s1 + s2 + s3) * 0.25;
+        // Mode 2 — Cell Blend, Seam Copy (experiment). Instead of blending across the seam, COPY the nearest good
+        // (non-seam) pixel: for a seam-band pixel, sample the legacy streak offset to just past the band edge in the
+        // escape direction (diagonal in corners). No averaging -> no orientation ghost; the tradeoff is a hard ~1px
+        // changeover at the exact seam centre, where the escape sign flips and adjacent pixels copy from opposite sides.
+        // Each seam pixel samples relative to ITS OWN position (parallel outward shift of _SeamReach px on its own
+        // side), so the band is a shifted copy of the adjacent content, not a flat distant column. _SeamBand selects
+        // seam pixels; _SeamReach is the shift. Never-zero sign so a pixel exactly on the boundary still picks a side.
+        float2 g = uv * _GridCellCount;
+        float2 sd = g - floor(g + 0.5);                      // signed dist to nearest edge (cell units)
+        float2 cellsPerPx = max(fwidth(g), 1e-5);            // cell units per screen px
+
+        float2 targetG = g;
+        if (abs(sd.x) < _SeamBand * cellsPerPx.x) targetG.x = g.x + (sd.x >= 0.0 ? 1.0 : -1.0) * _SeamReach * cellsPerPx.x;
+        if (abs(sd.y) < _SeamBand * cellsPerPx.y) targetG.y = g.y + (sd.y >= 0.0 ? 1.0 : -1.0) * _SeamReach * cellsPerPx.y;
+
+        float2 targetUv = targetG / _GridCellCount;
+        streak = legacyStreakBlend(targetUv);
+        amplitude = sampleAmplitudeAtPoint(targetUv);        // copy amplitude too, so alpha matches the neighbour
     }
 
     float streakBrightness = (streak.r + streak.g + streak.b) * 0.33;
@@ -209,45 +289,5 @@ float4 CalculateFragSingle(float2 uv) {
     float3 streakColor = lerp(gradientColor, streak, _UseTextureColor);
     float4 pathColor = float4(streakColor, streakBrightness * amplitudeAlpha);
 
-    // Diagnostic: output a single intermediate term as opaque grayscale so we can see which one carries the seam.
-    if (_DebugView > 0.5) {
-        float dbg = amplitude;                          // 1: field magnitude (bilinear-blended)
-        if (_DebugView > 1.5) dbg = streakBrightness;   // 2: blended streak luminance (texture path)
-        if (_DebugView > 2.5) dbg = amplitudeAlpha;     // 3: alpha from the amplitude ramp
-        if (_DebugView > 3.5) dbg = pathColor.a;        // 4: final alpha (streakBrightness * amplitudeAlpha)
-        return float4(dbg, dbg, dbg, 1.0);
-    }
-
     return pathColor;
-}
-
-// Entry point. Optionally supersamples: evaluates the per-fragment result at a regular grid of sub-pixel offsets and
-// averages. This is the legacy effect integrated over the pixel — it changes nothing about the look or animation, it
-// only anti-aliases the cell-boundary line left by the streak's intrinsic per-cell directional quantisation. Sub-pixel
-// offsets are derived from the screen-space derivatives of uv, so they track zoom automatically.
-float4 CalculateFrag(float2 uv) {
-    if (_SupersampleLevel < 0.5) return CalculateFragSingle(uv);
-
-    float2 dx = ddx(uv);
-    float2 dy = ddy(uv);
-
-    if (_SupersampleLevel < 1.5) {
-        // 2x2 ordered grid: sample centres at ±0.25 px.
-        float4 acc = float4(0,0,0,0);
-        [unroll] for (int j = 0; j < 2; j++)
-            [unroll] for (int i = 0; i < 2; i++) {
-                float2 o = (float2(i, j) + 0.5) * 0.5 - 0.5;   // -0.25, +0.25
-                acc += CalculateFragSingle(uv + o.x * dx + o.y * dy);
-            }
-        return acc * 0.25;
-    }
-
-    // 4x4 ordered grid.
-    float4 acc = float4(0,0,0,0);
-    [unroll] for (int j = 0; j < 4; j++)
-        [unroll] for (int i = 0; i < 4; i++) {
-            float2 o = (float2(i, j) + 0.5) * 0.25 - 0.5;
-            acc += CalculateFragSingle(uv + o.x * dx + o.y * dy);
-        }
-    return acc / 16.0;
 }

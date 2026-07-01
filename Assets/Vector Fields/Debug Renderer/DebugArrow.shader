@@ -18,6 +18,7 @@ Shader "VectorField/InstanceDebugRenderer" {
         float2 uv : TEXCOORD0;
         float2 value : TEXCOORD1;
         float alpha : TEXCOORD2;
+        float2 cellPos : TEXCOORD3;   // this fragment's position in grid-cell space, for clipping to the field bounds
     };
 
     sampler2D _MainTex;
@@ -28,8 +29,12 @@ Shader "VectorField/InstanceDebugRenderer" {
     float _Opacity;
     float2 fieldSize;        // field resolution in cells (= RenderTexture size)
     float displayWidth;      // arrows drawn along x at the current LOD (whole number; float for reliable binding)
-    float baseStride;        // cells per arrow (power of two; float for reliable binding)
-    float detailFade;        // LOD cross-fade weight for arrows not shared with the coarser octave
+    float2 arrowSpacing;     // cells between adjacent arrows (per axis); the grid spans edge-to-edge
+    float2 detailFade;       // per-axis cross-fade weight for the odd-index arrows the finer level adds
+    float colorMode;         // 0 = direction (hue), 1 = magnitude (low->high gradient), 2 = fixed colour
+    float4 fixedColor;       // Fixed mode tint
+    float4 lowColor;         // Magnitude mode colour at zero magnitude
+    float4 highColor;        // Magnitude mode colour at (and above) maxMagnitude
 
     float4x4 TranslationMatrix(float3 translation)
     {
@@ -108,21 +113,16 @@ Shader "VectorField/InstanceDebugRenderer" {
     v2f vert (appdata v) {
         v2f o;
 
-        // Reconstruct this arrow's cell from the instance id and the current LOD. The grid is strided by baseStride and
-        // anchored on the field's centre cell (kept fixed across octaves), so coarser levels are exact subsets of finer
-        // ones — shared arrows keep the same position as you zoom and only the in-between arrows fade. The anchor is
-        // derived here from fieldSize + baseStride so we don't depend on extra uniforms.
+        // Reconstruct this arrow's cell from the instance id and the current LOD. The grid is laid out edge-to-edge:
+        // index 0 sits on cell 0 and the last index on the far-edge cell, spaced by arrowSpacing (a power-of-two
+        // division of the field span). That keeps both edges covered with balanced margins, and each coarser level is
+        // the exact even-index subset of the finer one, so shared arrows never move as you zoom.
         uint w = (uint)(displayWidth + 0.5);
         uint ix = v.instanceID % w;
         uint iy = v.instanceID / w;
+        float2 cell = float2(ix, iy) * arrowSpacing;
 
-        float stride = max(1.0, baseStride);
-        float2 anchor = floor((fieldSize - 1.0) * 0.5);      // centre cell of the field
-        float2 leftCount = floor(anchor / stride);           // arrows between the anchor and cell 0 (per axis)
-        float2 firstCell = anchor - leftCount * stride;      // cell of instance (0,0)
-        float2 cell = firstCell + float2(ix, iy) * stride;
-
-        // Sample the vector straight from the field texture (texel centre) and decode it.
+        // Sample the field (bilinearly) at the arrow position; the arrow no longer sits exactly on a cell centre.
         float2 uv = (cell + 0.5) / fieldSize;
         float2 value = (tex2Dlod(_FieldTex, float4(uv, 0, 0)).rg - 0.5) * 2.0;
 
@@ -135,22 +135,43 @@ Shader "VectorField/InstanceDebugRenderer" {
         transformation = mul(transformation, ScaleMatrix(scaleFactor));
 
         o.vertex = UnityObjectToClipPos(mul(transformation, v.vertex));
+        // Where this vertex lands in cell space (= cell centre + the rotated/scaled quad offset). gridToWorldMatrix is
+        // linear so applying it to (cell + offset) equals worldPoint + gridToWorld*offset; we keep the pre-world value
+        // here so the fragment shader can clip anything that spills past the field's [-0.5, fieldSize-0.5] bounds.
+        float4 cellOffset = mul(RotateAroundAxis(rotationAxis, value), mul(ScaleMatrix(scaleFactor), v.vertex));
+        o.cellPos = cell + cellOffset.xy;
         o.uv = v.uv;
         o.value = value;
-        // Arrows shared with the next-coarser octave are the even-k ones measured from the anchor (k = index -
-        // leftCount). Those stay solid; the in-between arrows fade via detailFade. frac(k/2) is 0 for even k, 0.5 for
-        // odd (works for negative k too), so a small threshold tells them apart.
-        float2 k = float2(ix, iy) - leftCount;
-        bool survivesToCoarser = (frac(k.x * 0.5) < 0.25) && (frac(k.y * 0.5) < 0.25);
-        o.alpha = survivesToCoarser ? 1.0 : detailFade;
+        // Even-index arrows are the ones the next-coarser level keeps; the odd-index ones are the extra detail that
+        // fades out as we coarsen. frac(i/2) is 0 for even, 0.5 for odd. Fade per axis, and an arrow that's "extra" on
+        // either axis follows the sooner of the two fades (min), so it's gone by the time that axis coarsens.
+        float ax = (frac(ix * 0.5) > 0.25) ? detailFade.x : 1.0;
+        float ay = (frac(iy * 0.5) > 0.25) ? detailFade.y : 1.0;
+        o.alpha = min(ax, ay);
         return o;
     }
 
     half4 frag (v2f i) : SV_Target {
-        half4 sampledColor = tex2D(_MainTex, i.uv);
-        half4 color = DirectionToColor(i.value, maxMagnitude);
+        // Clip anything outside the field rectangle so arrows near the edge don't overflow the bounds.
+        if (any(i.cellPos < -0.5) || any(i.cellPos > fieldSize - 0.5)) discard;
+        half4 shape = tex2D(_MainTex, i.uv); // arrow glyph (alpha mask + its own texture colour)
+
+        half4 color;
+        if (colorMode < 0.5) {
+            // Direction: hue from the vector's angle, opacity from its magnitude.
+            color = DirectionToColor(i.value, maxMagnitude);
+        } else if (colorMode < 1.5) {
+            // Magnitude: low -> high colour gradient by |v| / maxMagnitude.
+            float t = maxMagnitude > 1e-5 ? saturate(length(i.value) / maxMagnitude) : 0.0;
+            color = lerp(lowColor, highColor, t);
+            color.a *= _Opacity;
+        } else {
+            // Fixed: a single flat colour.
+            color = fixedColor;
+            color.a *= _Opacity;
+        }
         color.a *= i.alpha; // LOD cross-fade weight
-        return sampledColor * color;
+        return shape * color;
     }
     ENDCG
 

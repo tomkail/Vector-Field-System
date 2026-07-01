@@ -2,16 +2,22 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // A continuous, smooth paint stroke into a DrawableVectorFieldComponent. Feed it world positions with To(); it sweeps
-// a soft capsule along a Catmull-Rom-smoothed path (no dabbing) and marks the touched region dirty. Frame-rate
-// independent: the painted band depends on the geometry between points, not on how many frames delivered them.
+// a soft capsule along a centripetal-Catmull-Rom-smoothed path (no dabbing) and marks the touched region dirty.
+// Frame-rate independent for set-style ops: each point-to-point span is rendered exactly once, so the painted band
+// depends on the geometry between points, not on how many frames delivered them.
 //
 // Created via field.BeginStroke(brush). Hold the returned instance and call To() each frame; call End() when done.
 //
-// First-cut simplifications (vs Brush/RUNTIME_PAINTING_SPEC.md), all flagged for follow-up:
-//  - Uniform Catmull-Rom (not centripetal): can overshoot slightly on very uneven point spacing.
-//  - Zero-lag tip only (draws up to the newest point with an extrapolated forward tangent); no Smoothed/Leading toggle.
+// Path smoothing:
+//  - Centripetal Catmull-Rom (alpha = 0.5): passes through the points with no overshoot/cusps on sharp turns or
+//    uneven spacing (unlike the uniform variant).
+//  - TipMode.Smoothed (default): draws up to the second-newest point, using the newest only as look-ahead for the
+//    tangent (~1 point of lag, smoothest). End() flushes the final tail so nothing is lost.
+//  - TipMode.Leading: draws all the way to the newest point with an extrapolated forward tangent (zero lag).
+//
+// Remaining first-cut simplification (flagged for follow-up, see Brush/RUNTIME_PAINTING_SPEC.md):
 //  - "Cheap" overlap handling: each span is applied live. Correct for set-style ops (Draw/Clamp/Normalize/Repel/...);
-//    for compounding ops (Add/Smudge/Burn/Dodge/Erase) joins between frames may double-apply. The exact
+//    for compounding ops (Add/Smudge/Burn/Dodge/Erase) joins between spans may double-apply. The exact
 //    snapshot+coverage path (op.CompoundsOnReapply / NeedsSnapshot) is still TODO.
 public sealed class VectorFieldStroke {
     const float SubStepCells = 0.5f;   // spline sampling resolution along the path, in grid cells
@@ -20,9 +26,10 @@ public sealed class VectorFieldStroke {
     readonly VectorFieldBrush _brush;
     readonly float _gridRadius;
 
-    // Last few path points in GRID space (newest last). 3 is enough for the uniform Catmull-Rom span we draw.
-    readonly Vector2[] _pts = new Vector2[3];
-    int _count;
+    // Ring of the last 4 path points in GRID space (4 is enough for one centripetal Catmull-Rom span). _head indexes
+    // the newest; Pt(k) reads the point k steps before the newest, clamped to the oldest we still hold.
+    readonly Vector2[] _ring = new Vector2[4];
+    int _head = -1, _n;
 
     // Reused per-span so painting doesn't allocate after the first stroke. (Single-threaded use.)
     readonly List<VectorFieldBrushCell> _cells = new List<VectorFieldBrushCell>();
@@ -38,28 +45,53 @@ public sealed class VectorFieldStroke {
     public void To(Vector3 worldPosition) {
         if (!_brush.IsValid) return;
         Push(_field.gridRenderer.cellCenter.WorldToGridPosition(worldPosition));
-        if (_count < 2) return;
+        if (_n < 2) return;
 
-        Vector2 pNew = _pts[_count - 1];
-        Vector2 pPrev = _pts[_count - 2];
-        Vector2 pPrevPrev = _count >= 3 ? _pts[_count - 3] : pPrev;
-        Vector2 pNext = pNew + (pNew - pPrev);   // extrapolated forward tangent (zero-lag tip)
-
-        RenderSpan(pPrevPrev, pPrev, pNew, pNext);
+        if (_brush.tipMode == TipMode.Leading)
+            RenderSpanToNewest();                 // draw the freshest span [prev -> newest], zero lag
+        else if (_n >= 3)
+            RenderSmoothedSpan();                 // draw [prev2 -> prev]; newest is look-ahead only
     }
 
-    public void End() { _count = 0; }   // (buffers are reusable; pooling them is a future optimization)
+    // Draw whatever tail hasn't been rendered yet. In Smoothed mode the newest span is still pending look-ahead, so we
+    // flush it here (this is also what makes a 2-point PaintLine draw its single span). Leading has nothing left.
+    public void End() {
+        if (_brush.IsValid && _brush.tipMode == TipMode.Smoothed && _n >= 2)
+            RenderSpanToNewest();
+        _head = -1;
+        _n = 0;
+    }
 
     // --- internals --------------------------------------------------------------------------------------------------
 
     void Push(Vector2 gridPoint) {
-        if (_count < _pts.Length) { _pts[_count++] = gridPoint; return; }
-        _pts[0] = _pts[1];
-        _pts[1] = _pts[2];
-        _pts[2] = gridPoint;
+        _head = (_head + 1) & 3;
+        _ring[_head] = gridPoint;
+        if (_n < 4) _n++;
     }
 
-    // Sweep the Catmull-Rom segment p1->p2 (p0/p3 set the tangents) as a chain of soft capsules.
+    // The path point k steps before the newest (0 = newest), clamped to the oldest point we still hold. The ring is
+    // sized to a power of two, so two's-complement AND with 3 gives the correct non-negative index even when
+    // (_head - k) is negative.
+    Vector2 Pt(int k) {
+        if (k >= _n) k = _n - 1;
+        return _ring[(_head - k) & 3];
+    }
+
+    // Zero-lag span: sweep [prev -> newest], extrapolating the forward tangent past the newest point.
+    void RenderSpanToNewest() {
+        Vector2 p1 = Pt(1), p2 = Pt(0);
+        Vector2 p0 = Pt(2);
+        Vector2 p3 = p2 + (p2 - p1);   // extrapolated look-ahead
+        RenderSpan(p0, p1, p2, p3);
+    }
+
+    // Lagging span: sweep [prev2 -> prev], using the newest point as the real look-ahead tangent.
+    void RenderSmoothedSpan() {
+        RenderSpan(Pt(3), Pt(2), Pt(1), Pt(0));
+    }
+
+    // Sweep the centripetal Catmull-Rom segment p1->p2 (p0/p3 set the tangents) as a chain of soft capsules.
     void RenderSpan(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3) {
         _cells.Clear();
         _index.Clear();
@@ -67,7 +99,7 @@ public sealed class VectorFieldStroke {
         int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(p1, p2) / SubStepCells));
         Vector2 prev = p1;
         for (int k = 1; k <= steps; k++) {
-            Vector2 cur = CatmullRom(p0, p1, p2, p3, k / (float)steps);
+            Vector2 cur = CentripetalCatmullRom(p0, p1, p2, p3, k / (float)steps);
             RasterizeCapsule(prev, cur);
             prev = cur;
         }
@@ -120,13 +152,23 @@ public sealed class VectorFieldStroke {
         }
     }
 
-    // Uniform Catmull-Rom, evaluating the p1->p2 segment at t in [0,1]. Robust (no divisions); mild overshoot on
-    // uneven spacing is acceptable for brush paths.
-    static Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t) {
-        float t2 = t * t, t3 = t2 * t;
-        return 0.5f * ((2f * p1)
-                       + (-p0 + p2) * t
-                       + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2
-                       + (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
+    // Centripetal Catmull-Rom (alpha = 0.5), evaluating the p1->p2 segment at t in [0,1] via the Barry-Goldman
+    // pyramid. Knot spacing uses sqrt(chord length) so the curve passes through the points without the overshoot the
+    // uniform variant shows on uneven spacing / sharp turns. Each interval is floored to eps so coincident or
+    // duplicated control points (stroke start/end) can't divide by zero.
+    static Vector2 CentripetalCatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t) {
+        const float eps = 1e-4f;
+        float t0 = 0f;
+        float t1 = t0 + Mathf.Max(eps, Mathf.Sqrt(Vector2.Distance(p0, p1)));
+        float t2 = t1 + Mathf.Max(eps, Mathf.Sqrt(Vector2.Distance(p1, p2)));
+        float t3 = t2 + Mathf.Max(eps, Mathf.Sqrt(Vector2.Distance(p2, p3)));
+
+        float tt = Mathf.Lerp(t1, t2, t);
+        Vector2 a1 = Vector2.LerpUnclamped(p0, p1, (tt - t0) / (t1 - t0));
+        Vector2 a2 = Vector2.LerpUnclamped(p1, p2, (tt - t1) / (t2 - t1));
+        Vector2 a3 = Vector2.LerpUnclamped(p2, p3, (tt - t2) / (t3 - t2));
+        Vector2 b1 = Vector2.LerpUnclamped(a1, a2, (tt - t0) / (t2 - t0));
+        Vector2 b2 = Vector2.LerpUnclamped(a2, a3, (tt - t1) / (t3 - t1));
+        return Vector2.LerpUnclamped(b1, b2, (tt - t1) / (t2 - t1));
     }
 }

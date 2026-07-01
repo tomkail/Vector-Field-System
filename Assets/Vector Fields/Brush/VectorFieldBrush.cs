@@ -20,19 +20,32 @@ public sealed class VectorFieldBrushShape {
     }
 }
 
-// A reusable, configured brush: shape + op + size + pressure. The friendly runtime API takes one of these. Cheap to
-// copy (holds two references plus two floats); build once on a prefab/field and reuse every frame.
+// How a continuous stroke renders its moving head (see VectorFieldStroke).
+public enum TipMode {
+    // ~1-point lag: the head follows the centripetal spline, using the newest point only as look-ahead for the
+    // tangent. Smoothest; the default. The stroke's final tail is flushed on End() so nothing is lost.
+    Smoothed,
+    // Zero lag: the head is drawn all the way to the newest point, with a forward tangent extrapolated from recent
+    // velocity. Use for beams / visible heads where lag reads as latency. Slightly less smooth on hard turns.
+    Leading,
+}
+
+// A reusable, configured brush: shape + op + size + pressure + tip mode. The friendly runtime API takes one of these.
+// Cheap to copy (holds two references plus scalars); build once on a prefab/field and reuse every frame.
 public struct VectorFieldBrush {
     public VectorFieldBrushShape shape;
     public IVectorFieldBrushOp op;
-    public float size;       // brush radius in WORLD units
-    public float pressure;   // op strength / magnitude reference (0..1 for the set ops)
+    public float size;         // brush radius in WORLD units
+    public float pressure;     // op strength / magnitude reference (0..1 for the set ops)
+    public TipMode tipMode;    // how a continuous stroke renders its head; ignored by Stamp/PaintLine
 
-    public VectorFieldBrush(VectorFieldBrushShape shape, IVectorFieldBrushOp op, float size = 1.5f, float pressure = 1f) {
+    public VectorFieldBrush(VectorFieldBrushShape shape, IVectorFieldBrushOp op, float size = 1.5f,
+                            float pressure = 1f, TipMode tipMode = TipMode.Smoothed) {
         this.shape = shape;
         this.op = op;
         this.size = size;
         this.pressure = pressure;
+        this.tipMode = tipMode;
     }
 
     public bool IsValid => shape != null && op != null;

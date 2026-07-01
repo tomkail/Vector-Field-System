@@ -31,6 +31,10 @@ using UnityEngine;
 // neighbour-reading ops like Smudge) across strokes.
 public sealed class VectorFieldStroke {
     const float SubStepCells = 0.5f;   // spline sampling resolution along the path, in grid cells
+    // A new point closer than this to the last one is coalesced (not rendered yet): a span shorter than this has no
+    // reliable direction, so rendering it would paint the start cells in an arbitrary (fallback) direction before the
+    // drag direction is known. Waiting for real movement is also what the old tool did (it stepped only after ~a cell).
+    const float MinStepCells = 0.5f;
 
     // Idle strokes are pooled and reused (rent in BeginStroke, return in End) so many short-lived strokes — e.g. a
     // per-frame PaintLine — don't churn GC: the collections below are allocated once per instance and reused. Capped
@@ -104,7 +108,11 @@ public sealed class VectorFieldStroke {
 
     public void To(Vector3 worldPosition) {
         if (_field == null || !_brush.IsValid) return;   // _field == null => already ended (and possibly pooled)
-        Push(_field.gridRenderer.cellCenter.WorldToGridPosition(worldPosition));
+        Vector2 g = _field.gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+        // Coalesce moves too small to define a direction, so the first rendered span carries the real drag direction
+        // (otherwise the click / stroke-start cells get painted in a fallback direction before the drag is known).
+        if (_n > 0 && (g - Pt(0)).sqrMagnitude < MinStepCells * MinStepCells) return;
+        Push(g);
         if (_n < 2) return;
 
         if (_brush.tipMode == TipMode.Leading)

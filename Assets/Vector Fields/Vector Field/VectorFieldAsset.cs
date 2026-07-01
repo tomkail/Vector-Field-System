@@ -12,8 +12,9 @@ public class VectorFieldAsset : ScriptableObject, ISerializationCallbackReceiver
     [System.NonSerialized] Vector2Map field;
 
     [SerializeField, HideInInspector] Point storedSize;
-    [SerializeField, HideInInspector] Vector2[] storedValues;
-    [SerializeField, HideInInspector] byte[] storedBytes;
+    [SerializeField, HideInInspector] Vector2[] storedValues;   // Vector2Array format
+    [SerializeField, HideInInspector] string[] storedRows;      // ByteArray format: one base64 row per line (local diffs)
+    [SerializeField, HideInInspector] byte[] storedBytes;       // legacy single-blob byte format — read only, for migration
 
     // The painted grid this asset holds (may be null until a component sizes/paints it).
     public Vector2Map Field { get => field; set => field = value; }
@@ -27,19 +28,22 @@ public class VectorFieldAsset : ScriptableObject, ISerializationCallbackReceiver
     }
 
     public void OnBeforeSerialize() {
+        storedBytes = null;   // legacy blob never written now; clearing it completes migration on re-save
         if (field == null || field.values == null || field.values.Length == 0) {
-            storedValues = null; storedBytes = null; return;
+            storedValues = null; storedRows = null; return;
         }
         storedSize = field.size;
         if (VectorFieldStorage.format == VectorFieldStorage.Format.ByteArray) {
-            storedBytes = VectorFieldStorage.Pack(field.values); storedValues = null;
+            storedRows = VectorFieldStorage.PackRows(field.values, field.size); storedValues = null;
         } else {
-            storedValues = field.values; storedBytes = null;
+            storedValues = field.values; storedRows = null;
         }
     }
 
     public void OnAfterDeserialize() {
-        if (storedBytes != null && storedBytes.Length > 0)
+        if (storedRows != null && storedRows.Length > 0)
+            field = new Vector2Map(storedSize, VectorFieldStorage.UnpackRows(storedRows, storedSize));
+        else if (storedBytes != null && storedBytes.Length > 0)   // migrate old single-blob byte format
             field = new Vector2Map(storedSize, VectorFieldStorage.Unpack(storedBytes, storedSize.x * storedSize.y));
         else if (storedValues != null && storedValues.Length > 0)
             field = new Vector2Map(storedSize, storedValues);

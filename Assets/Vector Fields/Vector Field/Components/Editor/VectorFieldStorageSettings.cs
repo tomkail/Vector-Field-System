@@ -30,8 +30,8 @@ static class VectorFieldStorageSettingsProvider {
                     "component — never an asset.\n\n" +
                     "• Vector2 Array: human-readable YAML, but one line per cell (a 128×128 field is ~16k lines) " +
                     "— large scenes, slow save/load, merge-hostile diffs.\n" +
-                    "• Byte Array: the same data packed into one compact blob — small scenes and clean diffs, " +
-                    "but not human-readable.\n\n" +
+                    "• Byte Array: the same data packed compactly, one base64 line per grid row — small scenes AND " +
+                    "local diffs (an edit rewrites only its row), but not human-readable.\n\n" +
                     "Changing this re-serializes each field the next time its scene/prefab is saved; existing fields " +
                     "load either way.",
                     MessageType.Info);

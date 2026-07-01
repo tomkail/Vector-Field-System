@@ -1,6 +1,7 @@
 using UnityEngine;
 
 [ExecuteAlways]
+[AddComponentMenu("Vector Fields/Particles/Kill Out Of Bounds Particles")]
 public class KillOutOfBoundsParticles : MonoBehaviour
 {
 	[Header("Boundary Settings")]

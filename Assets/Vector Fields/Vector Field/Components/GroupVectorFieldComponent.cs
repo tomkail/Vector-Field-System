@@ -6,6 +6,7 @@ using UnityEngine;
 // Editor-facing wrapper around the code-callable VectorFieldCombiner: collects child vector fields as layers and
 // blends them on the GPU. The actual blend (per-layer blit, transform projection, ping-pong) lives in
 // VectorFieldCombiner, so the same combine can be driven from code without a Group component.
+[AddComponentMenu("Vector Fields/Group Vector Field")]
 public class GroupVectorFieldComponent : VectorFieldComponent {
 	[System.Serializable]
 	public class VectorFieldLayer {
@@ -88,7 +89,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		}
 
 		EnsureHasValidRenderTexture();
-		VectorFieldCombiner.Combine(renderTexture, new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y), transform.localToWorldMatrix, inputs);
+		VectorFieldCombiner.Combine(renderTexture, GridSize, transform.localToWorldMatrix, inputs);
 	}
 
 
@@ -98,12 +99,9 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 
 	// Re-blend on changes to any layer's settings (strength / blend mode / component mask / the component
 	// referenced). Inspector edits also come through OnValidate; this covers runtime mutation.
-	int lastLayersHash;
-	protected override bool ParametersChanged() {
-		bool changed = base.ParametersChanged();
-		int hash = ComputeLayersHash();
-		if (lastLayersHash != hash) { lastLayersHash = hash; changed = true; }
-		return changed;
+	protected override void CollectParameters(ref HashCode hash) {
+		base.CollectParameters(ref hash);
+		hash.Add(ComputeLayersHash());
 	}
 
 	int ComputeLayersHash() {

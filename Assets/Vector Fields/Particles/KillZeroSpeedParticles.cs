@@ -1,6 +1,7 @@
 using UnityEngine;
 
 [ExecuteAlways]
+[AddComponentMenu("Vector Fields/Particles/Kill Zero Speed Particles")]
 public class KillZeroSpeedParticles : MonoBehaviour
 {
     ParticleSystem ps;

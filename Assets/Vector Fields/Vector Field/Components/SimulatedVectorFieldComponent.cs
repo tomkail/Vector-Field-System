@@ -15,6 +15,7 @@ using UnityEngine;
 //                 NoiseVectorFieldComponent at it for gusty wind, or a StampVectorFieldComponent for a fan/emitter.
 //   obstacles   — a mask texture (e.g. rasterized from a PolygonVectorField) the fluid flows around.
 [ExecuteAlways]
+[AddComponentMenu("Vector Fields/Simulated Vector Field")]
 public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
 	static ComputeShader fluidComputeShader;
@@ -108,6 +109,37 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
 	const int ThreadsX = 8, ThreadsY = 8;
 
+	// Cached shader property IDs. Set*(string, …) re-hashes the name via Shader.PropertyToID on every call; the solver
+	// binds hundreds of these per frame (the pressure Jacobi loop alone rebinds two textures × pressureIterations ×
+	// substeps), which showed up in the profiler. Resolve each name once.
+	static readonly int ID_width = Shader.PropertyToID("width");
+	static readonly int ID_height = Shader.PropertyToID("height");
+	static readonly int ID_dt = Shader.PropertyToID("dt");
+	static readonly int ID_viscosityDamp = Shader.PropertyToID("viscosityDamp");
+	static readonly int ID_boundaryMode = Shader.PropertyToID("boundaryMode");
+	static readonly int ID_hasObstacles = Shader.PropertyToID("hasObstacles");
+	static readonly int ID_hasForce = Shader.PropertyToID("hasForce");
+	static readonly int ID_forceStrength = Shader.PropertyToID("forceStrength");
+	static readonly int ID_forceMapping = Shader.PropertyToID("forceMapping");
+	static readonly int ID_vorticityStrength = Shader.PropertyToID("vorticityStrength");
+	static readonly int ID_outputScale = Shader.PropertyToID("outputScale");
+	static readonly int ID_simGridToWorld = Shader.PropertyToID("simGridToWorld");
+	static readonly int ID_forceWorldToGrid = Shader.PropertyToID("forceWorldToGrid");
+	static readonly int ID_forceGridSize = Shader.PropertyToID("forceGridSize");
+	static readonly int ID_forceToSimDir = Shader.PropertyToID("forceToSimDir");
+	static readonly int ID_ForceField = Shader.PropertyToID("ForceField");
+	static readonly int ID_VelocityIn = Shader.PropertyToID("VelocityIn");
+	static readonly int ID_VelocityOut = Shader.PropertyToID("VelocityOut");
+	static readonly int ID_ForwardVelocity = Shader.PropertyToID("ForwardVelocity");
+	static readonly int ID_CurlIn = Shader.PropertyToID("CurlIn");
+	static readonly int ID_CurlOut = Shader.PropertyToID("CurlOut");
+	static readonly int ID_DivergenceIn = Shader.PropertyToID("DivergenceIn");
+	static readonly int ID_DivergenceOut = Shader.PropertyToID("DivergenceOut");
+	static readonly int ID_PressureIn = Shader.PropertyToID("PressureIn");
+	static readonly int ID_PressureOut = Shader.PropertyToID("PressureOut");
+	static readonly int ID_Result = Shader.PropertyToID("Result");
+	static readonly int ID_Obstacles = Shader.PropertyToID("Obstacles");
+
 	bool ShouldSimulate => Application.isPlaying || simulateInEditMode;
 
 	// The tick wrinkle: drive the fixed-step accumulator and force a re-render every frame while simulating, so the
@@ -150,11 +182,11 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	// One fixed-dt solver step: forces -> advect -> project (divergence, pressure solve, gradient subtract).
 	void Step(float dt) {
 		var cs = FluidComputeShader;
-		cs.SetInt("width", gridRenderer.gridSize.x);
-		cs.SetInt("height", gridRenderer.gridSize.y);
-		cs.SetFloat("dt", dt);
-		cs.SetFloat("viscosityDamp", viscosityDamp);
-		cs.SetInt("boundaryMode", (int)boundaryMode);
+		cs.SetInt(ID_width, gridRenderer.gridSize.x);
+		cs.SetInt(ID_height, gridRenderer.gridSize.y);
+		cs.SetFloat(ID_dt, dt);
+		cs.SetFloat(ID_viscosityDamp, viscosityDamp);
+		cs.SetInt(ID_boundaryMode, (int)boundaryMode);
 
 		// The advection/MacCormack samplers honour the texture wrap mode, so it must match the boundary mode:
 		// Repeat for periodic edges, Clamp otherwise.
@@ -162,44 +194,44 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		velA.wrapMode = velB.wrapMode = velC.wrapMode = wrap;
 
 		bool hasObstacles = obstacles != null;
-		cs.SetInt("hasObstacles", hasObstacles ? 1 : 0);
+		cs.SetInt(ID_hasObstacles, hasObstacles ? 1 : 0);
 
 		// 1) Inject forces (+ apply viscosity damp). velA -> velB.
 		// Ignore a force field pointed back at ourselves — it would feed the solver its own encoded output as a force.
 		bool hasForce = forceField != null && forceField != this && forceField.renderTexture != null;
-		cs.SetInt("hasForce", hasForce ? 1 : 0);
-		cs.SetFloat("forceStrength", forceStrength);
-		cs.SetInt("forceMapping", (int)forceMapping);
-		cs.SetTexture(kAddForces, "ForceField", hasForce ? forceField.renderTexture : (Texture)Texture2D.blackTexture);
+		cs.SetInt(ID_hasForce, hasForce ? 1 : 0);
+		cs.SetFloat(ID_forceStrength, forceStrength);
+		cs.SetInt(ID_forceMapping, (int)forceMapping);
+		cs.SetTexture(kAddForces, ID_ForceField, hasForce ? forceField.renderTexture : (Texture)Texture2D.blackTexture);
 
 		// WorldSpace mapping needs the grid<->world transforms of both fields and the relative rotation that brings the
 		// force field's local vectors into ours. (Only consulted when hasForce && forceMapping == WorldSpace.)
 		if (hasForce && forceMapping == ForceMapping.WorldSpace) {
-			cs.SetMatrix("simGridToWorld", gridRenderer.cellCenter.gridToWorldMatrix);
-			cs.SetMatrix("forceWorldToGrid", forceField.gridRenderer.cellCenter.gridToWorldMatrix.inverse);
-			cs.SetVector("forceGridSize", new Vector4(forceField.gridRenderer.gridSize.x, forceField.gridRenderer.gridSize.y, 0, 0));
+			cs.SetMatrix(ID_simGridToWorld, gridRenderer.cellCenter.gridToWorldMatrix);
+			cs.SetMatrix(ID_forceWorldToGrid, forceField.gridRenderer.cellCenter.gridToWorldMatrix.inverse);
+			cs.SetVector(ID_forceGridSize, new Vector4(forceField.gridRenderer.gridSize.x, forceField.gridRenderer.gridSize.y, 0, 0));
 			var relativeRotation = Quaternion.Inverse(transform.rotation) * forceField.transform.rotation;
-			cs.SetMatrix("forceToSimDir", Matrix4x4.Rotate(relativeRotation));
+			cs.SetMatrix(ID_forceToSimDir, Matrix4x4.Rotate(relativeRotation));
 		}
 		BindObstacles(kAddForces, hasObstacles);
-		cs.SetTexture(kAddForces, "VelocityIn", velA);
-		cs.SetTexture(kAddForces, "VelocityOut", velB);
+		cs.SetTexture(kAddForces, ID_VelocityIn, velA);
+		cs.SetTexture(kAddForces, ID_VelocityOut, velB);
 		Dispatch(kAddForces);
 		Swap(ref velA, ref velB);
 
 		// 2) Advect velocity through itself.
 		// Forward semi-Lagrangian: velA -> velB.
 		BindObstacles(kAdvect, hasObstacles);
-		cs.SetTexture(kAdvect, "VelocityIn", velA);
-		cs.SetTexture(kAdvect, "VelocityOut", velB);
+		cs.SetTexture(kAdvect, ID_VelocityIn, velA);
+		cs.SetTexture(kAdvect, ID_VelocityOut, velB);
 		Dispatch(kAdvect);
 
 		if (advectionMode == AdvectionMode.MacCormack) {
 			// Correction pass: original velA (φ) + forward velB (φ̂) -> corrected velC. Then velC becomes current.
 			BindObstacles(kAdvectMacCormack, hasObstacles);
-			cs.SetTexture(kAdvectMacCormack, "VelocityIn", velA);
-			cs.SetTexture(kAdvectMacCormack, "ForwardVelocity", velB);
-			cs.SetTexture(kAdvectMacCormack, "VelocityOut", velC);
+			cs.SetTexture(kAdvectMacCormack, ID_VelocityIn, velA);
+			cs.SetTexture(kAdvectMacCormack, ID_ForwardVelocity, velB);
+			cs.SetTexture(kAdvectMacCormack, ID_VelocityOut, velC);
 			Dispatch(kAdvectMacCormack);
 			Swap(ref velA, ref velC);
 		} else {
@@ -209,54 +241,54 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
 		// 2b) Vorticity confinement: re-inject the swirl diffusion eats. velA -> curl, then (velA, curl) -> velB.
 		if (vorticityStrength > 0f) {
-			cs.SetFloat("vorticityStrength", vorticityStrength);
+			cs.SetFloat(ID_vorticityStrength, vorticityStrength);
 			BindObstacles(kComputeVorticity, hasObstacles);
-			cs.SetTexture(kComputeVorticity, "VelocityIn", velA);
-			cs.SetTexture(kComputeVorticity, "CurlOut", curl);
+			cs.SetTexture(kComputeVorticity, ID_VelocityIn, velA);
+			cs.SetTexture(kComputeVorticity, ID_CurlOut, curl);
 			Dispatch(kComputeVorticity);
 
 			BindObstacles(kVorticityConfinement, hasObstacles);
-			cs.SetTexture(kVorticityConfinement, "VelocityIn", velA);
-			cs.SetTexture(kVorticityConfinement, "CurlIn", curl);
-			cs.SetTexture(kVorticityConfinement, "VelocityOut", velB);
+			cs.SetTexture(kVorticityConfinement, ID_VelocityIn, velA);
+			cs.SetTexture(kVorticityConfinement, ID_CurlIn, curl);
+			cs.SetTexture(kVorticityConfinement, ID_VelocityOut, velB);
 			Dispatch(kVorticityConfinement);
 			Swap(ref velA, ref velB);
 		}
 
 		// 3a) Divergence of velA -> divergence.
 		BindObstacles(kDivergence, hasObstacles);
-		cs.SetTexture(kDivergence, "VelocityIn", velA);
-		cs.SetTexture(kDivergence, "DivergenceOut", divergence);
+		cs.SetTexture(kDivergence, ID_VelocityIn, velA);
+		cs.SetTexture(kDivergence, ID_DivergenceOut, divergence);
 		Dispatch(kDivergence);
 
 		// 3b) Solve ∇²p = div with Jacobi iterations, ping-ponging pressureA/pressureB. Start from zero.
 		ClearTexture(pressureA);
 		BindObstacles(kPressure, hasObstacles);
-		cs.SetTexture(kPressure, "DivergenceIn", divergence);
+		cs.SetTexture(kPressure, ID_DivergenceIn, divergence);
 		for (int i = 0; i < pressureIterations; i++) {
-			cs.SetTexture(kPressure, "PressureIn", pressureA);
-			cs.SetTexture(kPressure, "PressureOut", pressureB);
+			cs.SetTexture(kPressure, ID_PressureIn, pressureA);
+			cs.SetTexture(kPressure, ID_PressureOut, pressureB);
 			Dispatch(kPressure);
 			Swap(ref pressureA, ref pressureB);
 		}
 
 		// 3c) Subtract pressure gradient: velA - ∇pressureA -> velB.
 		BindObstacles(kProject, hasObstacles);
-		cs.SetTexture(kProject, "VelocityIn", velA);
-		cs.SetTexture(kProject, "PressureIn", pressureA);
-		cs.SetTexture(kProject, "VelocityOut", velB);
+		cs.SetTexture(kProject, ID_VelocityIn, velA);
+		cs.SetTexture(kProject, ID_PressureIn, pressureA);
+		cs.SetTexture(kProject, ID_VelocityOut, velB);
 		Dispatch(kProject);
 		Swap(ref velA, ref velB);
 	}
 
 	void Encode() {
 		var cs = FluidComputeShader;
-		cs.SetInt("width", gridRenderer.gridSize.x);
-		cs.SetInt("height", gridRenderer.gridSize.y);
-		cs.SetInt("boundaryMode", (int)boundaryMode);
-		cs.SetFloat("outputScale", outputScale);
-		cs.SetTexture(kEncode, "VelocityIn", velA);
-		cs.SetTexture(kEncode, "Result", renderTexture);
+		cs.SetInt(ID_width, gridRenderer.gridSize.x);
+		cs.SetInt(ID_height, gridRenderer.gridSize.y);
+		cs.SetInt(ID_boundaryMode, (int)boundaryMode);
+		cs.SetFloat(ID_outputScale, outputScale);
+		cs.SetTexture(kEncode, ID_VelocityIn, velA);
+		cs.SetTexture(kEncode, ID_Result, renderTexture);
 		// Encode calls InBounds, which the compiler ties to the same boundary block as Obstacles — so the kernel's
 		// resource table includes Obstacles and Unity demands it be bound even though Encode never samples it.
 		BindObstacles(kEncode, obstacles != null);
@@ -266,7 +298,7 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	// Every kernel declares Obstacles, so it must be bound on each even when unused — bind a black (all-zero, i.e.
 	// "no solid") fallback when there's no mask. Unity errors on any declared-but-unbound texture property.
 	void BindObstacles(int kernel, bool hasObstacles) {
-		FluidComputeShader.SetTexture(kernel, "Obstacles", hasObstacles ? (Texture)obstacles : Texture2D.blackTexture);
+		FluidComputeShader.SetTexture(kernel, ID_Obstacles, hasObstacles ? (Texture)obstacles : Texture2D.blackTexture);
 	}
 
 	void Dispatch(int kernel) {
@@ -352,14 +384,11 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
 	// The forceField participates in our output, so we must re-render when it changes. The base already re-renders
 	// every frame while simulating, so this mainly matters for the edit-mode-paused case.
-	VectorFieldComponent lastForceField;
-	float lastForceStrength = float.NaN, lastOutputScale = float.NaN, lastViscosityDamp = float.NaN;
-	protected override bool ParametersChanged() {
-		bool changed = base.ParametersChanged();
-		if (lastForceField != forceField)       { lastForceField = forceField;       changed = true; }
-		if (lastForceStrength != forceStrength)  { lastForceStrength = forceStrength;  changed = true; }
-		if (lastOutputScale != outputScale)      { lastOutputScale = outputScale;      changed = true; }
-		if (lastViscosityDamp != viscosityDamp)  { lastViscosityDamp = viscosityDamp;  changed = true; }
-		return changed;
+	protected override void CollectParameters(ref System.HashCode hash) {
+		base.CollectParameters(ref hash);
+		hash.Add(forceField != null ? forceField.GetHashCode() : 0);
+		hash.Add(forceStrength);
+		hash.Add(outputScale);
+		hash.Add(viscosityDamp);
 	}
 }

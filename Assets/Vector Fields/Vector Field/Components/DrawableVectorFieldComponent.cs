@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[AddComponentMenu("Vector Fields/Drawable Vector Field")]
 public class DrawableVectorFieldComponent : VectorFieldComponent, ISerializationCallbackReceiver, IPaintTarget<Vector2> {
     // IPaintTarget<Vector2>: the generic painting core (PaintStroke<Vector2>, the brush kernel) drives this component.
     // gridRenderer and MarkRegionDirty already satisfy the interface; PaintField/CreateMap need explicit impls because

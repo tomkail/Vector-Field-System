@@ -4,6 +4,7 @@ using UnityEngine;
 // from) the nearest polygon edge. Holds the settings, detects changes, and feeds the grid/transform into the core.
 // I'd be interested in having this work using Unity's spline system too.
 [ExecuteAlways]
+[AddComponentMenu("Vector Fields/Polygon Vector Field")]
 public class PolygonVectorField : VectorFieldComponent {
     public PolygonRenderer polygonRenderer;
 
@@ -27,29 +28,18 @@ public class PolygonVectorField : VectorFieldComponent {
     // This field is driven by an external PolygonRenderer, so track its transform and polygon shape (neither of
     // which routes through this component's OnValidate). In-place edits the JSON snapshot can't see still need a
     // manual SetDirty.
-    PolygonRenderer lastPolygonRenderer;
-    SerializableTransform lastPolygonTransform;
-    string lastPolygonJson;
-    PolygonVectorFieldGenerator.Sides lastSides;
-    PolygonVectorFieldGenerator.BoundaryFlip lastBoundaryFlip;
-    float lastInnerFalloff = float.NaN;
-    float lastOuterFalloff = float.NaN;
-    float lastAngle = float.NaN;
-    protected override bool ParametersChanged() {
-        bool changed = base.ParametersChanged();
-        if (lastPolygonRenderer != polygonRenderer) { lastPolygonRenderer = polygonRenderer; changed = true; }
+    protected override void CollectParameters(ref System.HashCode hash) {
+        base.CollectParameters(ref hash);
+        hash.Add(polygonRenderer != null ? polygonRenderer.GetHashCode() : 0);
         if (polygonRenderer != null) {
-            var t = new SerializableTransform(polygonRenderer.transform);
-            if (lastPolygonTransform != t) { lastPolygonTransform = t; changed = true; }
-            string json = JsonUtility.ToJson(polygonRenderer.polygon);
-            if (lastPolygonJson != json) { lastPolygonJson = json; changed = true; }
+            hash.Add(polygonRenderer.transform.localToWorldMatrix);
+            hash.Add(JsonUtility.ToJson(polygonRenderer.polygon));
         }
-        if (lastSides != sides) { lastSides = sides; changed = true; }
-        if (lastBoundaryFlip != boundaryFlip) { lastBoundaryFlip = boundaryFlip; changed = true; }
-        if (lastInnerFalloff != innerFalloff) { lastInnerFalloff = innerFalloff; changed = true; }
-        if (lastOuterFalloff != outerFalloff) { lastOuterFalloff = outerFalloff; changed = true; }
-        if (lastAngle != angle) { lastAngle = angle; changed = true; }
-        return changed;
+        hash.Add((int)sides);
+        hash.Add((int)boundaryFlip);
+        hash.Add(innerFalloff);
+        hash.Add(outerFalloff);
+        hash.Add(angle);
     }
 
     // GPU buffer holding the polygon's vertices for the compute dispatch. Owned here (created/grown by the generator,
@@ -58,7 +48,6 @@ public class PolygonVectorField : VectorFieldComponent {
 
     protected override void RenderInternal() {
         EnsureHasValidRenderTexture();
-        var gridSize = new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y);
 
         // Driven by an external PolygonRenderer that may be unassigned (or have no polygon yet); a null vertex array
         // makes the generator write a defined zero field.
@@ -70,11 +59,11 @@ public class PolygonVectorField : VectorFieldComponent {
         // per-cell matrix work. Only meaningful when there's a polygon; identity otherwise (unused on the zero path).
         Matrix4x4 gridToPolygonLocal = Matrix4x4.identity, polygonToFieldVector = Matrix4x4.identity;
         if (vertices != null) {
-            gridToPolygonLocal = polygonRenderer.transform.worldToLocalMatrix * gridRenderer.cellCenter.gridToWorldMatrix;
+            gridToPolygonLocal = polygonRenderer.transform.worldToLocalMatrix * GridToWorldMatrix;
             polygonToFieldVector = transform.worldToLocalMatrix * polygonRenderer.transform.localToWorldMatrix;
         }
 
-        PolygonVectorFieldGenerator.Dispatch(renderTexture, ref vertexBuffer, gridSize, vertices,
+        PolygonVectorFieldGenerator.Dispatch(renderTexture, ref vertexBuffer, GridSize, vertices,
             gridToPolygonLocal, polygonToFieldVector,
             sides, boundaryFlip, innerFalloff, outerFalloff, angle, magnitude);
     }

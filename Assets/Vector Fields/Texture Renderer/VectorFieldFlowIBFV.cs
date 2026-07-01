@@ -10,6 +10,7 @@ using UnityEngine;
 // Status: prototype / exploration, not a finished feature. Compare it against the sand shader's Mode 1 before deciding
 // whether it's worth productionising. See FLOW_VISUALIZATION_NOTES.md.
 [ExecuteAlways]
+[AddComponentMenu("Vector Fields/Renderers/Flow (IBFV)")]
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
 public class VectorFieldFlowIBFV : MonoBehaviour {
     static readonly int MainTex = Shader.PropertyToID("_MainTex");

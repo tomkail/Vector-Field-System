@@ -7,6 +7,7 @@ using UnityEngine;
 // only this renderer's instance — it never edits the shared material asset, and never replaces the material you
 // assigned in the inspector (e.g. the Vector Field Flow Visualization material).
 [ExecuteAlways]
+[AddComponentMenu("Vector Fields/Renderers/Texture Renderer")]
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
 public class VectorFieldTextureRenderer : MonoBehaviour {
 	static readonly int MainTex = Shader.PropertyToID("_MainTex");

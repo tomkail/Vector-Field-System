@@ -28,6 +28,14 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	public GridRenderer gridRenderer { get; private set; }
 	public Vector3 planeNormal => transform.forward;
 
+	// Grid convenience surface. Subclasses (and consumers) go through these instead of reaching into gridRenderer
+	// directly, so the field's dependency on GridRenderer lives behind one small API — the single seam to swap if the
+	// grid is ever folded onto the component itself.
+	public Vector2Int GridSize => gridRenderer != null ? new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y) : Vector2Int.zero;
+	public Matrix4x4 GridToWorldMatrix => gridRenderer.cellCenter.gridToWorldMatrix;
+	public Matrix4x4 GridToLocalMatrix => gridRenderer.cellCenter.gridToLocalMatrix;
+	public Vector2 WorldToGridPosition(Vector3 worldPosition) => gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+
 	[Space]
 	[NonSerialized] public RenderTexture renderTexture;
 
@@ -129,6 +137,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	protected virtual void OnDestroy() {
 		DestroyRenderTexture();
 		cookie?.Dispose();
+		regionUploader.Dispose();
 	}
 
 #if UNITY_EDITOR
@@ -169,21 +178,33 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		return false;
 	}
 
-	// Snapshot of output-affecting parameters. Each override compares-and-caches its own fields (calling base),
-	// updating every cached field on every call (no short-circuiting) so a change to any one is never missed.
-	float lastMagnitude = float.NaN;
-	Point lastGridSize = new Point(-1, -1);
-	int lastCookieHash;
-	protected virtual bool ParametersChanged() {
-		bool changed = false;
-		if (lastMagnitude != magnitude) { lastMagnitude = magnitude; changed = true; }
-		var gridSize = gridRenderer != null ? gridRenderer.gridSize : Point.zero;
-		if (lastGridSize != gridSize) { lastGridSize = gridSize; changed = true; }
+	// Contributes this field's output-affecting parameters to the per-tick change hash. Each override calls base then
+	// adds its own fields; the base owns the compare-and-cache (ParametersChanged below), so subclasses never keep
+	// their own lastX mirror — adding a watched field is one hash.Add line, and forgetting to cache one can't happen.
+	protected virtual void CollectParameters(ref HashCode hash) {
+		hash.Add(magnitude);
+		var gridSize = GridSize;
+		hash.Add(gridSize.x);
+		hash.Add(gridSize.y);
 		// Content hash catches any cookie field change (mode/softness/curve/texture) without enumerating them, and
 		// without allocating a JSON string every tick.
-		int cookieHash = cookie != null ? cookie.GetContentHash() : 0;
-		if (lastCookieHash != cookieHash) { lastCookieHash = cookieHash; changed = true; }
-		return changed;
+		hash.Add(cookie != null ? cookie.GetContentHash() : 0);
+	}
+
+	// Hashes the current parameters (via CollectParameters) and compares to the previous tick. Returns true on the
+	// first call and on any change. Non-virtual — subclasses customize the *inputs* through CollectParameters, not
+	// this compare. A hash collision would skip one re-render; accepted (and already relied on for cookie/brush/layer
+	// hashing), negligible over a HashCode of the actual values.
+	bool haveParametersHash;
+	int lastParametersHash;
+	protected bool ParametersChanged() {
+		var hash = new HashCode();
+		CollectParameters(ref hash);
+		int current = hash.ToHashCode();
+		if (haveParametersHash && current == lastParametersHash) return false;
+		haveParametersHash = true;
+		lastParametersHash = current;
+		return true;
 	}
 
 	// Marks this field (and its parent group, recursively up the chain) as needing a re-render. Does NOT render
@@ -219,7 +240,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		// Mask the rendered field by the cookie (no-op when None). Applied to the GPU render texture before consumers
 		// read it, so the group blend, the shader visualizer, and any GPU-mode readback see the masked field.
 		if (cookie != null && cookie.Enabled && renderTexture != null)
-			cookie.Apply(renderTexture, new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y));
+			cookie.Apply(renderTexture, GridSize);
 
 		OnRendered?.Invoke();
 
@@ -327,6 +348,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// full path whenever the mirror isn't already a valid full copy (first render / grid resize). Region is in grid
 	// coordinates (origin bottom-left, matching the field and the readback) and is clamped to the field bounds.
 	Color[] regionColors;
+	readonly GpuRegionUploader regionUploader = new GpuRegionUploader();
 	protected void WriteVectorFieldRegionToRenderTexture(RectInt region) {
 		var src = UploadSource;
 		int width = src != null ? src.size.x : 0;
@@ -345,13 +367,18 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		int w = x1 - x0, h = y1 - y0;
 		if (w <= 0 || h <= 0) return;
 
-		// SetPixels(block) requires the array length to equal the block exactly, so size it precisely; the region is
-		// brush-sized, so this stays tiny next to the old full-grid encode/upload it replaces.
+		// Encode just this sub-rect (brush-sized, so tiny next to the old full-grid encode). Array length must equal the
+		// block exactly for both the region copy and the SetPixels fallback below.
 		int count = w * h;
 		if (regionColors == null || regionColors.Length != count) regionColors = new Color[count];
 		for (int ry = 0; ry < h; ry++)
 			for (int rx = 0; rx < w; rx++)
 				regionColors[ry * w + rx] = VectorFieldUtils.VectorToColor(src.GetValueAtGridPoint(x0 + rx, y0 + ry), 1);
+
+		// Transfer ONLY this region to the GPU (renderTexture already holds a complete field to patch). This is the win
+		// for painting: no full-texture Apply/Blit per frame. If region copies aren't supported, fall back to the mirror
+		// + full re-upload path.
+		if (regionUploader.TryUploadRegion(regionColors, w, h, renderTexture, x0, y0)) return;
 
 		uploadTexture.SetPixels(x0, y0, w, h, regionColors);
 		uploadTexture.Apply(false);

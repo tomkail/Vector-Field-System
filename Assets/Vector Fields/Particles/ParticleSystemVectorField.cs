@@ -7,6 +7,7 @@ using UnityEngine.Animations;
 // Allows using a Vector Field Component as a force field in a particle system.
 // Creates a 3D texture which is used by ParticleSystemForceField, which can be referenced by Particle System
 [ExecuteAlways]
+[AddComponentMenu("Vector Fields/Consumers/Particle System Vector Field")]
 [RequireComponent(typeof(ParticleSystemForceField))]
 [RequireComponent(typeof(PositionConstraint), typeof(RotationConstraint), typeof(ScaleConstraint))]
 public class ParticleSystemVectorField : MonoBehaviour

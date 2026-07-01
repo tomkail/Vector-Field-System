@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEditor;
 
 [InitializeOnLoad]
@@ -12,7 +13,14 @@ public static class VectorFieldComponentDrawer
 
     static VectorFieldComponentDrawer()
     {
-        SceneView.duringSceneGui += OnSceneGUI;
+        // The instanced arrow draw is a one-frame persistent draw, so it must be (re)issued right before the camera
+        // that shows it renders. Under a Scriptable Render Pipeline (URP) that moment is
+        // RenderPipelineManager.beginCameraRendering. IMGUI's SceneView.duringSceneGui runs AFTER the SRP has already
+        // rendered the camera, so issuing the draw there is a frame late and flickers on zoom/pan. Built-in RP has no
+        // per-camera callback and composites IMGUI differently, so it keeps using duringSceneGui. Exactly one path is
+        // active, chosen by the current pipeline (see the guards in each handler).
+        SceneView.duringSceneGui += OnSceneGui;
+        RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
         UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += OnAssemblyReload;
         Selection.selectionChanged += SceneView.RepaintAll;
     }
@@ -22,12 +30,24 @@ public static class VectorFieldComponentDrawer
         renderers.Clear();
     }
 
-    private static void OnSceneGUI(SceneView sceneView) {
-        // duringSceneGui fires for every event (Layout, mouse, Repaint...). Issuing the instanced draw on more than
-        // one of them stacks transparent draws in the same render, doubling the opacity (the flicker on zoom/pan).
-        // Draw only on Repaint so each scene view renders the arrows exactly once.
-        if (Event.current.type != EventType.Repaint) return;
+    // Built-in render pipeline only: draw during the scene GUI's Repaint.
+    static void OnSceneGui(SceneView sceneView) {
+        if (GraphicsSettings.currentRenderPipeline != null) return;   // an SRP is active — OnBeginCameraRendering handles it
+        if (Event.current.type != EventType.Repaint) return;          // one draw per render, not per IMGUI event
+        DrawSelected(sceneView.camera);
+    }
 
+    // Scriptable Render Pipeline (URP): fires per camera immediately before it renders — the correct time to register
+    // the instanced draw so it lands in that exact render (no one-frame lag, no flicker).
+    static void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera) {
+        if (GraphicsSettings.currentRenderPipeline == null) return;   // built-in RP — OnSceneGui handles it
+        if (camera.cameraType != CameraType.SceneView) return;        // scene-view arrows only, as before
+        DrawSelected(camera);
+    }
+
+    // Issue the arrow draw for every selected, gizmo-enabled vector field into the given camera, and release renderers
+    // for components no longer selected.
+    static void DrawSelected(Camera camera) {
         drawnThisFrame.Clear();
         foreach (var obj in Selection.objects) {
             GameObject go = obj as GameObject;
@@ -41,7 +61,8 @@ public static class VectorFieldComponentDrawer
                 renderer = new VectorFieldDebugRenderer();
                 renderers[component] = renderer;
             }
-            renderer.Draw(component, 1, sceneView.camera,
+            renderer.Draw(component, camera,
+                VectorFieldDebugProjectSettings.instance.appearance,
                 VectorFieldDebugSettings.VariableResolution,
                 VectorFieldDebugSettings.TargetSpacingPixels,
                 VectorFieldDebugSettings.MaxArrows);

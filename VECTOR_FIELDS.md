@@ -295,7 +295,7 @@ void OnDisable()   => _stroke.End();
 
 Runnable examples in `Assets/Vector Fields/Examples/`: `Demo_VectorFieldTrail`, `Demo_VectorFieldBurst`, `Demo_VectorFieldBeam`, `Demo_VectorFieldWind`, `Demo_VectorFieldVortex`, `Demo_VectorFieldSimFade`, `Demo_VectorFieldGroupFade`.
 
-Strokes are **frame‑rate independent**: the painted result depends only on the stroke's geometry (identical at 30/60/144 fps) and is unchanged if the head holds still. Every op is applied to each cell exactly once, at the maximum coverage the stroke gave it — so nothing double‑applies, seams don't show, and compounding ops (Add/Burn/…) don't accumulate per frame. (This means "hold to build up" doesn't apply within a single stroke, by design.)
+Strokes are **frame‑rate independent**: the painted result depends only on the stroke's geometry (identical at 30/60/144 fps). Effect builds up with drag **distance** — a cell ramps up as the brush sweeps across it and reaches full after roughly a brush‑width of travel (like a real brush), so a slight nudge makes a slight mark. Holding still adds nothing (no distance travelled), and each cell's op is applied once from its pre‑stroke value, so nothing double‑applies and span joins are seam‑free.
 
 Full design in [Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md](Assets/Vector%20Fields/Brush/RUNTIME_PAINTING_SPEC.md).
 

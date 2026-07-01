@@ -3,22 +3,32 @@ using UnityEngine;
 
 // A continuous, smooth paint stroke into a DrawableVectorFieldComponent. Feed it world positions with To(); it sweeps
 // a soft capsule along a centripetal-Catmull-Rom-smoothed path (no dabbing) and marks the touched region dirty.
-// Frame-rate independent for set-style ops: each point-to-point span is rendered exactly once, so the painted band
-// depends on the geometry between points, not on how many frames delivered them.
 //
 // Created via field.BeginStroke(brush). Hold the returned instance and call To() each frame; call End() when done.
 //
 // Path smoothing:
 //  - Centripetal Catmull-Rom (alpha = 0.5): passes through the points with no overshoot/cusps on sharp turns or
-//    uneven spacing (unlike the uniform variant).
+//    uneven point spacing (unlike the uniform variant).
 //  - TipMode.Smoothed (default): draws up to the second-newest point, using the newest only as look-ahead for the
 //    tangent (~1 point of lag, smoothest). End() flushes the final tail so nothing is lost.
 //  - TipMode.Leading: draws all the way to the newest point with an extrapolated forward tangent (zero lag).
 //
-// Remaining first-cut simplification (flagged for follow-up, see Brush/RUNTIME_PAINTING_SPEC.md):
-//  - "Cheap" overlap handling: each span is applied live. Correct for set-style ops (Draw/Clamp/Normalize/Repel/...);
-//    for compounding ops (Add/Smudge/Burn/Dodge/Erase) joins between spans may double-apply. The exact
-//    snapshot+coverage path (op.CompoundsOnReapply / NeedsSnapshot) is still TODO.
+// Exact overlap (frame-rate independent, seam-free — every op):
+//   A thick swept stroke re-covers the cells just behind its moving head on consecutive frames. Applying an op live
+//   on each re-cover is frame-rate dependent for EVERY op — compounding ops (Add/Burn/…) double-apply, and even
+//   set-style ops (Draw/Repel/…) drift toward their target because they blend by falloff weight. So instead of
+//   applying live, each cell is applied EXACTLY ONCE, at the maximum coverage the stroke gave it, from the field
+//   value captured just before the head first reached it. The painted result then depends only on the stroke
+//   geometry, not on how many frames delivered it (identical at 30/60/144 fps) and not on how long the head lingers.
+//
+//   Rather than snapshotting the whole stroke bounds up front (unbounded for a long trail, and it would fight a
+//   decay/sim draining the field), cells are held in a small "active" set only while within a brush radius of the
+//   head: snapshot on first touch, re-applied at the running max coverage while active, then evicted once the head
+//   moves past (their value is already final). So finalized cells are free to decay while the head stays fresh, and
+//   the cost is bounded by the brush footprint regardless of stroke length.
+//
+// Future (see Brush/RUNTIME_PAINTING_SPEC.md): pool the per-stroke neighbour snapshot (only allocated for
+// neighbour-reading ops like Smudge) across strokes.
 public sealed class VectorFieldStroke {
     const float SubStepCells = 0.5f;   // spline sampling resolution along the path, in grid cells
 
@@ -31,9 +41,24 @@ public sealed class VectorFieldStroke {
     readonly Vector2[] _ring = new Vector2[4];
     int _head = -1, _n;
 
-    // Reused per-span so painting doesn't allocate after the first stroke. (Single-threaded use.)
+    // Per-span scratch (reused so painting doesn't allocate after the first stroke; single-threaded use).
     readonly List<VectorFieldBrushCell> _cells = new List<VectorFieldBrushCell>();
     readonly Dictionary<Point, int> _index = new Dictionary<Point, int>();   // cell -> index in _cells (per span)
+
+    // Exact-overlap state. One entry per cell currently within a brush radius of the head; carries the max coverage
+    // seen so far, the stroke tangent/centre at that max, and the field value captured just before the head arrived.
+    struct Active { public float maxCoverage; public Vector2 tangent; public Vector2 center; public Vector2 snapshot; }
+    readonly Dictionary<Point, Active> _active = new Dictionary<Point, Active>();
+    readonly List<Point> _evict = new List<Point>();
+
+    // Pre-stroke field clone, for neighbour-reading ops (Smudge) so their upstream samples are stable and
+    // order-independent. Only allocated when the op needs it.
+    Vector2Map _source;
+    bool _sourceReady;
+
+    // End point (grid space) of the span just rendered — the next span starts here, so it's the frontier eviction
+    // measures from (NOT the newest fed point, which is one span ahead in Smoothed mode).
+    Vector2 _spanEnd;
 
     public VectorFieldStroke(DrawableVectorFieldComponent field, in VectorFieldBrush brush) {
         _field = field;
@@ -53,11 +78,15 @@ public sealed class VectorFieldStroke {
             RenderSmoothedSpan();                 // draw [prev2 -> prev]; newest is look-ahead only
     }
 
-    // Draw whatever tail hasn't been rendered yet. In Smoothed mode the newest span is still pending look-ahead, so we
-    // flush it here (this is also what makes a 2-point PaintLine draw its single span). Leading has nothing left.
+    // Draw whatever tail hasn't been rendered yet, then reset. In Smoothed mode the newest span is still pending
+    // look-ahead, so we flush it here (this is also what makes a 2-point PaintLine draw its single span). Active cells
+    // already hold their final value (applied when last touched), so finishing just clears state.
     public void End() {
         if (_brush.IsValid && _brush.tipMode == TipMode.Smoothed && _n >= 2)
             RenderSpanToNewest();
+        _active.Clear();
+        _source = null;
+        _sourceReady = false;
         _head = -1;
         _n = 0;
     }
@@ -91,10 +120,12 @@ public sealed class VectorFieldStroke {
         RenderSpan(Pt(3), Pt(2), Pt(1), Pt(0));
     }
 
-    // Sweep the centripetal Catmull-Rom segment p1->p2 (p0/p3 set the tangents) as a chain of soft capsules.
+    // Sweep the centripetal Catmull-Rom segment p1->p2 (p0/p3 set the tangents) as a chain of soft capsules, then
+    // fold the resulting coverage into the exact-overlap active set and apply.
     void RenderSpan(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3) {
         _cells.Clear();
         _index.Clear();
+        _spanEnd = p2;   // the next span starts here; eviction keeps cells near it
 
         int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(p1, p2) / SubStepCells));
         Vector2 prev = p1;
@@ -104,9 +135,67 @@ public sealed class VectorFieldStroke {
             prev = cur;
         }
 
-        if (_cells.Count > 0 &&
-            VectorFieldBrushKernel.Apply(_field.PaintField, _cells, _brush.pressure, _brush.op, out RectInt dirty))
-            _field.MarkRegionDirty(dirty);
+        CommitSpan();
+    }
+
+    // Merge this span's coverage into the active set and apply each touched cell exactly once, at its running max
+    // coverage, from its pre-touch snapshot. Then evict cells the head has moved beyond so the set stays bounded.
+    void CommitSpan() {
+        if (_cells.Count == 0) return;
+        var field = _field.PaintField;
+        var op = _brush.op;
+
+        // Neighbour-reading ops need a stable pre-stroke snapshot to sample; capture it once, before any painting.
+        if (op.NeedsSnapshot && !_sourceReady) {
+            _source = new Vector2Map(field.size, (Vector2[])field.values.Clone());
+            _sourceReady = true;
+        }
+        Vector2Map source = op.NeedsSnapshot ? _source : field;
+
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        for (int i = 0; i < _cells.Count; i++) {
+            var c = _cells[i];
+            Point p = c.gridPoint;
+            float w = c.brushForce.magnitude;      // this span's coverage at the cell
+            Vector2 tangent = c.strokeForce;
+            Vector2 center = c.brushCenter;
+
+            if (_active.TryGetValue(p, out Active a)) {
+                if (w > a.maxCoverage) { a.maxCoverage = w; a.tangent = tangent; a.center = center; _active[p] = a; }
+            } else {
+                a = new Active { maxCoverage = w, tangent = tangent, center = center,
+                                 snapshot = field.GetValueAtGridPoint(p) };   // value just before the head arrived
+                _active[p] = a;
+            }
+
+            // brushForce/finalForce carry the max coverage as magnitude (ctx.Weight); the op runs once from snapshot.
+            var ctx = new BrushApplyContext(a.snapshot, a.tangent * a.maxCoverage, a.tangent * a.maxCoverage,
+                                            a.tangent, _brush.pressure, p, a.center, source);
+            field.SetValueAtGridPoint(p, op.Apply(ctx));
+
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+        }
+        _field.MarkRegionDirty(new RectInt(minX, minY, maxX - minX + 1, maxY - minY + 1));
+
+        EvictBehindHead();
+    }
+
+    // Drop active cells more than a brush radius from the head: the head won't re-cover them, so their value is final
+    // (already written). Keeps the active set ~brush-footprint sized regardless of stroke length. If the path later
+    // curves back over an evicted cell it's re-snapshotted as a genuinely separate touch.
+    void EvictBehindHead() {
+        float er = _gridRadius + 1f;   // one cell of margin so a cell isn't dropped right as the next span reaches it
+        float erSqr = er * er;
+        _evict.Clear();
+        foreach (var kv in _active) {
+            if (_index.ContainsKey(kv.Key)) continue;   // touched this span — still under the head
+            float dx = kv.Key.x - _spanEnd.x, dy = kv.Key.y - _spanEnd.y;
+            if (dx * dx + dy * dy > erSqr) _evict.Add(kv.Key);
+        }
+        for (int i = 0; i < _evict.Count; i++) _active.Remove(_evict[i]);
     }
 
     // Accumulate every cell within _gridRadius of segment a->b, keeping the max weight per cell across this span.

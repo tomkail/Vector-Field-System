@@ -224,9 +224,21 @@ public static class VectorFieldBrushOpRegistry {
     // Flattened in group order — the source of truth for cycling and id lookup.
     public static readonly IReadOnlyList<IVectorFieldBrushOp> Ops = Flatten(Groups);
 
-    // The action key forces this op as a temporary override; also the fallback when an id is unknown.
-    public static readonly IVectorFieldBrushOp Erase = ById("erase");
-    public static readonly IVectorFieldBrushOp Default = ById("draw");
+    // Named accessors so code doesn't hand-type op ids (a typo in ById(...) silently falls back to Draw). Prefer these
+    // for hardcoded ops; ById is for ids that arrive as data (serialized fields, config). Default/Erase double as the
+    // fallback op and the action-key override in the editor tool.
+    public static readonly IVectorFieldBrushOp Draw      = ById("draw");
+    public static readonly IVectorFieldBrushOp Additive  = ById("additive");
+    public static readonly IVectorFieldBrushOp Smudge    = ById("smudge");
+    public static readonly IVectorFieldBrushOp Erase     = ById("erase");
+    public static readonly IVectorFieldBrushOp Burn      = ById("burn");
+    public static readonly IVectorFieldBrushOp Dodge     = ById("dodge");
+    public static readonly IVectorFieldBrushOp Clamp     = ById("clamp");
+    public static readonly IVectorFieldBrushOp Normalize = ById("normalize");
+    public static readonly IVectorFieldBrushOp Repel     = ById("repel");
+    public static readonly IVectorFieldBrushOp Attract   = ById("attract");
+    public static readonly IVectorFieldBrushOp Swirl     = ById("swirl");
+    public static readonly IVectorFieldBrushOp Default   = Draw;
 
     static IVectorFieldBrushOp[] Flatten(IReadOnlyList<VectorFieldBrushOpGroup> groups) {
         var list = new List<IVectorFieldBrushOp>();
@@ -234,9 +246,13 @@ public static class VectorFieldBrushOpRegistry {
         return list.ToArray();
     }
 
+    // Resolve an op by its stable id. Unknown ids warn and fall back to the default op (rather than silently), so a
+    // typo surfaces instead of quietly painting with the wrong tool.
     public static IVectorFieldBrushOp ById(string id) {
         for (int i = 0; i < Ops.Count; i++)
             if (Ops[i].Id == id) return Ops[i];
+        Debug.LogWarning($"[VectorFieldBrushOpRegistry] Unknown brush op id '{id}'; using '{Ops[0].Id}'. " +
+                         "See VectorFieldBrushOpRegistry.Ops for valid ids, or use the named accessors (Draw, Erase, ...).");
         return Ops[0];
     }
 

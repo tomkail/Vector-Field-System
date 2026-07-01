@@ -27,7 +27,7 @@ public class Demo_VectorFieldWind : MonoBehaviour {
         float rad = windDirection * Mathf.Deg2Rad;
         Vector2 dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
         var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(softness),
-                                         VectorFieldBrushOpRegistry.ById("draw"), worldRadius, strength);
+                                         VectorFieldBrushOpRegistry.Draw, worldRadius, strength);
         field.Stamp(brush, transform.position, dir);
     }
 }

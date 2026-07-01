@@ -12,6 +12,8 @@ public class Demo_VectorFieldBurst : MonoBehaviour {
     [Range(0f, 1f)] public float strength = 1f;
     [Tooltip("Op id: repel (burst), attract (implosion), or swirl (vortex).")] public string opId = "repel";
 
+    void Start() => VectorFieldDecay.WarnIfNoFadeStrategy(field, this);
+
     public void Burst() => Burst(transform.position);
 
     public void Burst(Vector3 worldPosition) {

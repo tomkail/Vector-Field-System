@@ -19,6 +19,15 @@ public class VectorFieldDecay : MonoBehaviour {
 
     DrawableVectorFieldComponent _field;
 
+    // One-shot setup hint for transient-effect demos: transient effects (trails, bursts, beams, vortices) paint into a
+    // field and rely on something draining it. Warns if `field` has no VectorFieldDecay attached. A field faded via a
+    // simulator or group layer legitimately has none, so this is a hint, not an error.
+    public static void WarnIfNoFadeStrategy(DrawableVectorFieldComponent field, Object context) {
+        if (field != null && field.GetComponent<VectorFieldDecay>() == null)
+            Debug.LogWarning($"'{field.name}' has no VectorFieldDecay — painted effects won't fade unless another " +
+                             "fade strategy (a simulator or a group layer) drains the field.", context);
+    }
+
     void Awake() => _field = GetComponent<DrawableVectorFieldComponent>();
 
     void Update() {

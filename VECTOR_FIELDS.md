@@ -254,12 +254,14 @@ Paint fields from gameplay — smooth, frame‑rate‑independent strokes and st
 ```csharp
 var brush = new VectorFieldBrush(
     VectorFieldBrushShape.Radial(softness: 0.6f),   // CPU radial falloff (0 = hard edge, 1 = fully soft)
-    VectorFieldBrushOpRegistry.ById("draw"),        // any brush op
+    VectorFieldBrushOpRegistry.Draw,                 // any brush op — named accessors (Draw, Erase, Repel, ...)
     size: 2f,                                        // brush radius in WORLD units
     pressure: 1f);                                   // op strength / magnitude reference
 ```
 
-For a textured / directional brush, use `VectorFieldBrushShape.FromMap(map)` — a 2D `Vector2Map` whose sampled vector is the brush contribution (magnitude = weight, direction = the emitter/cookie direction). The brush's `directionMode` then controls how a stroke orients it: `FollowStroke` (default) rotates the emitter to the path tangent; `FixedAngle` keeps the map's baked direction. The in‑editor [painting tool](#the-painting-tool) runs on exactly this API (its cookie‑shaped emitter wrapped via `FromMap`), so editor and runtime strokes are the same code.
+Prefer the named op accessors (`VectorFieldBrushOpRegistry.Draw`, `.Repel`, …) over `ById("draw")`; `ById` is for ids that arrive as data (a serialized field), and warns if the id is unknown. The facades validate their arguments — a null field, an un‑initialised field (no `GridRenderer`), or a brush missing its shape/op throws a clear exception rather than silently doing nothing.
+
+For a textured / directional brush, use `VectorFieldBrushShape.FromCookie(cookie, emitter)` — it builds the 2D brush map on the GPU from a cookie mask + a directional/spot emitter (the same pipeline the editor uses) and caches it on the CPU; build it once in setup and reuse. (`FromMap(map)` wraps a `Vector2Map` you already have.) The brush's `directionMode` controls how a stroke orients a map brush: `FollowStroke` (default) rotates the emitter to the path tangent; `FixedAngle` keeps the map's baked direction. The in‑editor [painting tool](#the-painting-tool) runs on exactly this API, so editor and runtime strokes are the same code.
 
 **One‑shots** (stateless, no allocation):
 

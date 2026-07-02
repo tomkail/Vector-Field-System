@@ -155,7 +155,9 @@ public class MeshVectorField : VectorFieldComponent {
 		// the parity meaningless), so sides = Inside just works when the geometry supports it and is empty when it can't.
 		bool hasInsideTest = anyClosed;
 		MeshVectorFieldGenerator.Dispatch(renderTexture, ref segmentBuffer, gridSize, segments, GridToLocalMatrix,
-			sides, boundaryFlip, innerFalloff, outerFalloff, angle, magnitude, hasInsideTest);
+				// Unit strength: the base applies `magnitude` (and cookie) as an output transform in Render(),
+				// so passing `magnitude` here would double-apply it.
+				sides, boundaryFlip, innerFalloff, outerFalloff, angle, 1f, hasInsideTest);
 	}
 
 	protected override void OnDisable() {

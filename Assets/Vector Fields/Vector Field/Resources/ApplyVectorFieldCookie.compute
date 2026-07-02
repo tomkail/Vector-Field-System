@@ -1,25 +1,37 @@
 #pragma kernel CSMain
 
-// Multiplies a vector field's strength by a cookie/falloff mask, in place.
+// Applies a vector field's OUTPUT transform in place: multiplies its strength by a scalar (the field's `magnitude`)
+// and by a cookie/falloff mask. Either can be a no-op (strength 1, all-white mask).
 //
-// Vectors are stored encoded as colour = vector * 0.5 + 0.5 (see VectorFieldUtils), so scaling the vector by the
-// mask is just scaling the *centred* colour: c' = (c - 0.5) * mask + 0.5. That keeps this independent of the
-// magnitude/maxComponent the field was encoded with.
+// Vectors are stored encoded as colour = vector * 0.5 + 0.5 (see VectorFieldUtils), so scaling the vector is just
+// scaling the *centred* colour: c' = (c - 0.5) * (strength * mask) + 0.5. That keeps this independent of the
+// maxComponent the field was encoded with.
+//
+// The transform can be limited to a sub-rect (offsetX/Y + regionWidth/Height) so a drawable that uploaded only the
+// painted region re-transforms only those texels — the rest keep the transform they were already baked with. `width`
+// and `height` are always the FULL grid, so the cookie is sampled at the texel's absolute position regardless of the
+// region. For a whole-grid pass, offset = 0 and region = full grid.
 
 RWTexture2D<float4> Result;
 Texture2D<float4> Cookie;
 SamplerState sampler_Cookie;
 int width;
 int height;
+int offsetX;
+int offsetY;
+int regionWidth;
+int regionHeight;
+float strength;
 
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID) {
-	if (id.x >= (uint)width || id.y >= (uint)height) return;
+	if (id.x >= (uint)regionWidth || id.y >= (uint)regionHeight) return;
+	uint2 p = uint2((uint)offsetX + id.x, (uint)offsetY + id.y);
 
-	float2 uv = (float2(id.xy) + 0.5) / float2(width, height);
+	float2 uv = (float2(p) + 0.5) / float2(width, height);
 	float mask = Cookie.SampleLevel(sampler_Cookie, uv, 0).r;
 
-	float4 c = Result[id.xy];
-	c.xy = (c.xy - 0.5) * mask + 0.5;
-	Result[id.xy] = c;
+	float4 c = Result[p];
+	c.xy = (c.xy - 0.5) * (strength * mask) + 0.5;
+	Result[p] = c;
 }

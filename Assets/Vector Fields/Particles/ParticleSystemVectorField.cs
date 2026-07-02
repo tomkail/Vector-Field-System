@@ -138,7 +138,9 @@ public class ParticleSystemVectorField : MonoBehaviour
 		texture3D.hideFlags = HideFlags.DontSave;
 
 		forceField.vectorField = texture3D;
-		forceField.vectorFieldSpeed = _vectorFieldComponent.magnitude;
+		// magnitude is now baked into the field's output (and thus into vectorField / texture3D above), so the force
+		// field speed is a plain 1 — folding in magnitude here too would apply it twice.
+		forceField.vectorFieldSpeed = 1f;
 	}
 
 	// Bake the amplitude curve into a LUT once, so Refresh's per-voxel remap is a cheap lookup. Reuses the array in

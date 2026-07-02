@@ -63,9 +63,11 @@ public class PolygonVectorField : VectorFieldComponent {
             polygonToFieldVector = transform.worldToLocalMatrix * polygonRenderer.transform.localToWorldMatrix;
         }
 
+        // Unit strength: the base applies `magnitude` (and cookie) as an output transform in Render(), so passing
+        // `magnitude` here would double-apply it.
         PolygonVectorFieldGenerator.Dispatch(renderTexture, ref vertexBuffer, GridSize, vertices,
             gridToPolygonLocal, polygonToFieldVector,
-            sides, boundaryFlip, innerFalloff, outerFalloff, angle, magnitude);
+            sides, boundaryFlip, innerFalloff, outerFalloff, angle, 1f);
     }
 
     protected override void OnDisable() {

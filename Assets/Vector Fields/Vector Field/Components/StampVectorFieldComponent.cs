@@ -14,7 +14,9 @@ public class StampVectorFieldComponent : VectorFieldComponent {
 
 	protected override void RenderInternal() {
 		EnsureHasValidRenderTexture();
-		VectorFieldBrushTextureCreator.Dispatch(renderTexture, GridSize, magnitude, brushSettingsParams, null);
+		// Unit strength: the base applies `magnitude` (and cookie) as an output transform in Render(), so passing
+		// `magnitude` here would double-apply it.
+		VectorFieldBrushTextureCreator.Dispatch(renderTexture, GridSize, 1f, brushSettingsParams, null);
 	}
 
 	// Re-render when the brush settings change (the base handles magnitude/grid/cookie). A content hash catches any

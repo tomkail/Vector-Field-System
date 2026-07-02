@@ -14,7 +14,9 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
 
     protected override void RenderInternal() {
         EnsureHasValidRenderTexture();
-        NoiseVectorField.Dispatch(renderTexture, GridSize, GridToSampleMatrix(), noiseSampler.properties, vortexAngle, magnitude);
+        // Render at unit magnitude — the base applies `magnitude` (and cookie) as an output transform in Render(), so
+        // it's scaled once, consistently with every other field type. (Passing `magnitude` here would double-apply it.)
+        NoiseVectorField.Dispatch(renderTexture, GridSize, GridToSampleMatrix(), noiseSampler.properties, vortexAngle, 1f);
     }
 
     // Maps a grid cell into the space the noise is sampled in. World mode samples in world space (so the field

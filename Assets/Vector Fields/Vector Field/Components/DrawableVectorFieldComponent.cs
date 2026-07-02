@@ -174,10 +174,13 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         // uploading just the painted region when we have one (and the texture's already a valid full copy), else the
         // whole field (first render, resize, Clear, or any non-paint change).
         //
-        // A cookie multiplies the whole render texture each render; the region path leaves earlier texels untouched,
-        // so they'd be masked repeatedly and compound. Force a full re-upload (from the unmasked paint field) whenever
-        // a cookie is active, so each render masks exactly once.
-        bool useRegion = pendingDirtyRegion.HasValue && !resized && !(cookie != null && cookie.Enabled);
+        // The base applies the output transform (magnitude + cookie) per-region right after this, so an active cookie
+        // no longer forces a full upload every render — a region upload re-transforms only its own texels. But a
+        // *change* to the transform (magnitude or cookie) must re-derive the WHOLE texture from the raw paint field,
+        // since a region upload would leave the rest baked with the old transform; OutputTransformChangedSinceLastRender
+        // catches that (call it exactly once per render).
+        bool transformChanged = OutputTransformChangedSinceLastRender();
+        bool useRegion = pendingDirtyRegion.HasValue && !resized && !transformChanged;
         if (useRegion)
             WriteVectorFieldRegionToRenderTexture(pendingDirtyRegion.Value);
         else

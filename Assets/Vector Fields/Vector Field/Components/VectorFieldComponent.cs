@@ -45,11 +45,16 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// authored data (Drawable) lives in its own paintField.
 	[NonSerialized] public Vector2Map vectorField;
 
+	// A uniform scalar on the field's OUTPUT. Together with `cookie` it forms the field's output transform: applied to
+	// the rendered result in Render() (see ApplyOutputTransform), NOT baked into the component's internal/authored
+	// state. So the simulator's solver and a drawable's paint field never see it, but every consumer does — the GPU
+	// render texture, the group blend, the visualizer, and the read-back CPU vectorField are all pre-scaled, so
+	// EvaluateVector / TrySample* must NOT re-multiply by it.
 	public float magnitude = 1;
 
-	// Optional mask applied to this field's output after it's rendered: multiplies the field's strength by the
-	// cookie (radial falloff, curve, or texture). Defaults to None (no masking). Applied uniformly to every
-	// component — including groups, where it masks the combined result — by Render().
+	// Optional mask on this field's output: multiplies the field's strength by the cookie (radial falloff, curve, or
+	// texture). Defaults to None (no masking). Part of the same output transform as `magnitude` (applied by Render(),
+	// after RenderInternal, over the extent just written) — including on groups, where it masks the combined result.
 	public VectorFieldCookieSource cookie = new VectorFieldCookieSource();
 
 	// Fired synchronously when the field has been rendered (the GPU renderTexture is current). For consumers that
@@ -207,6 +212,23 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		return true;
 	}
 
+	// True on the first render and whenever the output transform (magnitude or cookie) changed since the previous
+	// render. A producer that writes the render texture in sub-rects (the drawable's region upload) uses this to force
+	// a whole-grid re-write when the transform changed, since a region write would leave the rest of the texture baked
+	// with the old transform. Advances its own cached hash, so call it exactly once per render.
+	bool haveOutputTransformHash;
+	int lastOutputTransformHash;
+	protected bool OutputTransformChangedSinceLastRender() {
+		var hash = new HashCode();
+		hash.Add(magnitude);
+		hash.Add(cookie != null ? cookie.GetContentHash() : 0);
+		int current = hash.ToHashCode();
+		bool changed = !haveOutputTransformHash || current != lastOutputTransformHash;
+		haveOutputTransformHash = true;
+		lastOutputTransformHash = current;
+		return changed;
+	}
+
 	// Marks this field (and its parent group, recursively up the chain) as needing a re-render. Does NOT render
 	// immediately — rendering is deferred to the next EnsureUpToDate, so repeated calls in a frame coalesce.
 	public virtual void SetDirty() {
@@ -239,13 +261,24 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		Render();
 	}
 
+	// Set by RenderInternal (via the Write* helpers) to the sub-rect it just wrote, so the output transform below runs
+	// over only those texels; null = whole grid. Reset each Render(). This is what lets a drawable's region upload stay
+	// region-scoped even with a magnitude/cookie active — the transform only ever re-scales freshly-written raw texels,
+	// never the already-transformed rest, so it can't compound.
+	protected RectInt? outputTransformRegion;
+
 	public void Render() {
+		outputTransformRegion = null;
 		RenderInternal();
 
-		// Mask the rendered field by the cookie (no-op when None). Applied to the GPU render texture before consumers
-		// read it, so the group blend, the shader visualizer, and any GPU-mode readback see the masked field.
-		if (cookie != null && cookie.Enabled && renderTexture != null)
-			cookie.Apply(renderTexture, GridSize);
+		// Apply the field's output transform — magnitude (scalar) and cookie (mask) — to the render texture in place,
+		// over the extent RenderInternal just wrote (outputTransformRegion; whole grid when null). This is OUTPUT-space:
+		// it scales the encoded field every consumer reads (GPU texture, group blend, visualizer, and the CPU readback
+		// below) exactly once, without touching the component's internal/authored state — so consumers always
+		// experience magnitude+cookie whether they sample on the GPU or the CPU. No-op when magnitude ≈ 1 and cookie is
+		// None. (Pure CPU-mode producers with no render texture — none exist today — would need to bake this themselves.)
+		if (renderTexture != null && cookie != null)
+			cookie.Apply(renderTexture, GridSize, magnitude, outputTransformRegion);
 
 		OnRendered?.Invoke();
 
@@ -253,7 +286,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 			// CPU-mode: RenderInternal already built vectorField, so it's ready now.
 			OnCpuDataReady?.Invoke();
 		} else if (WantsCpuData) {
-			// GPU-mode with a registered CPU consumer: read the (cookie-masked) texture back into vectorField
+			// GPU-mode with a registered CPU consumer: read the (output-transformed) texture back into vectorField
 			// (synchronously if any consumer needs it this frame, otherwise async with no stall). HandleReadback
 			// fires OnCpuDataReady. vectorField is the consumer-facing output copy — for components that author their
 			// field on the CPU (see UploadSource), it's distinct from the authored buffer so this never clobbers it.
@@ -337,6 +370,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	}
 
 	protected void WriteVectorFieldToRenderTexture() {
+		// Whole grid rewritten (raw) → the output transform must cover the whole grid.
+		outputTransformRegion = null;
 		if (!EnsureUploadTexture()) return;
 		var src = UploadSource;
 		int count = src.values.Length;
@@ -370,7 +405,12 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		int x1 = Mathf.Clamp(region.xMax, 0, width);
 		int y1 = Mathf.Clamp(region.yMax, 0, height);
 		int w = x1 - x0, h = y1 - y0;
-		if (w <= 0 || h <= 0) return;
+		if (w <= 0 || h <= 0) {
+			// Nothing written → transform nothing (an empty region, NOT null, which would mean "whole grid" and
+			// wrongly re-scale texels already transformed by a prior render, compounding them).
+			outputTransformRegion = new RectInt(x0, y0, 0, 0);
+			return;
+		}
 
 		// Encode just this sub-rect (brush-sized, so tiny next to the old full-grid encode). Array length must equal the
 		// block exactly for both the region copy and the SetPixels fallback below.
@@ -383,11 +423,17 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		// Transfer ONLY this region to the GPU (renderTexture already holds a complete field to patch). This is the win
 		// for painting: no full-texture Apply/Blit per frame. If region copies aren't supported, fall back to the mirror
 		// + full re-upload path.
-		if (regionUploader.TryUploadRegion(regionColors, w, h, renderTexture, x0, y0)) return;
+		if (regionUploader.TryUploadRegion(regionColors, w, h, renderTexture, x0, y0)) {
+			// Only this region was overwritten with raw values → transform only it; the rest keeps its prior transform.
+			outputTransformRegion = new RectInt(x0, y0, w, h);
+			return;
+		}
 
+		// Fallback: the whole mirror is blitted, so the whole texture was rewritten raw → transform the whole grid.
 		uploadTexture.SetPixels(x0, y0, w, h, regionColors);
 		uploadTexture.Apply(false);
 		Graphics.Blit(uploadTexture, renderTexture);
+		outputTransformRegion = null;
 	}
 
 	public void ReleaseRenderTexture() {
@@ -420,7 +466,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 			return Vector2.zero;
 		}
 		var gridPosition = gridRenderer.cellCenter.WorldToGridPosition(position);
-		return vectorField.GetValueAtGridPosition(gridPosition) * magnitude;
+		// magnitude is already baked into vectorField (read back from the output-transformed texture), so no re-scale.
+		return vectorField.GetValueAtGridPosition(gridPosition);
 	}
 
 	public Quaternion EvaluateRotation(Vector3 position) {
@@ -448,7 +495,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		request.WaitForCompletion();
 		if (request.hasError) return false;
 
-		localVector = SampleRegion(request.GetData<Color>(), region, gridPosition) * magnitude;
+		// magnitude is already baked into the texture by the output transform, so no re-scale here.
+		localVector = SampleRegion(request.GetData<Color>(), region, gridPosition);
 		return true;
 	}
 
@@ -469,7 +517,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		var region = GetSampleRegion(gridPosition);
 		AsyncGPUReadback.Request(renderTexture, 0, region.x, region.width, region.y, region.height, 0, 1, TextureFormat.RGBAFloat, request => {
 			if (request.hasError || this == null) return;
-			var local = SampleRegion(request.GetData<Color>(), region, gridPosition) * magnitude;
+			var local = SampleRegion(request.GetData<Color>(), region, gridPosition);   // magnitude already baked in
 			onComplete(transform.TransformDirection(local));
 		});
 	}
@@ -496,7 +544,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 
 		var data = request.GetData<Color>();
 		for (int i = 0; i < gridPositions.Length; i++)
-			results[i] = SampleRegion(data, region, gridPositions[i]) * magnitude;
+			results[i] = SampleRegion(data, region, gridPositions[i]);   // magnitude already baked in
 		return true;
 	}
 

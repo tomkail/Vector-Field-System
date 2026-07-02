@@ -76,8 +76,7 @@ All field types share the base knobs and sampling API in [VectorFieldComponent](
 The abstract base for every field. Owns the render/dirty cycle, the GPU `renderTexture`, optional CPU readback, and all sampling.
 
 **Inspector**
-- **Magnitude** — multiplies the field's output strength at sample time.
-- **Cookie** — an optional [falloff mask](#cookies-falloff-masks) applied to the whole rendered field.
+- **Magnitude** & **Cookie** — the field's **output transform**. Together they scale the field's *rendered output*: `magnitude` is a uniform multiplier, `cookie` is an optional [falloff mask](#cookies-falloff-masks). They're applied once in `Render()` (after the field is produced), *not* baked into the component's internal/authored state — so a simulator's solver and a drawable's paint data never see them, but **every consumer does**: the GPU render texture, the group blend, the visualizer, and the read-back CPU field are all pre-scaled. (So `EvaluateVector`/`TrySample*` return the already-transformed value — they don't re-apply magnitude.)
 
 **Common API**
 - `SetDirty()` / `EnsureUpToDate()` — request a re‑render / guarantee the field is fresh before sampling.
@@ -309,7 +308,7 @@ Full design in [Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md](Assets/Vect
 
 - **Mode** — `None`, `Falloff` (radial **softness** 0–1), `Curve` (radial profile via `AnimationCurve`), `Texture` (red channel = mask).
 - `Resolve(Vector2Int size)` → the mask texture (generated on demand for Falloff/Curve).
-- `Apply(RenderTexture target, Vector2Int size)` → multiply a rendered field's strength by the mask in place.
+- `Apply(RenderTexture target, Vector2Int size, float strength = 1, RectInt? region = null)` → apply a field's output transform in place: multiply its strength by `strength` (the field's magnitude) **and** by this cookie's mask. `strength` alone (with `Mode.None`) is a pure magnitude scale; `region` limits the pass to a sub-rect (the drawable's region upload uses this). No-op when `strength ≈ 1` and mode is `None`.
 - `Dispose()` → release generated textures.
 
 ```csharp

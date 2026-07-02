@@ -102,23 +102,45 @@ public class VectorFieldCookieSource : IDisposable {
 		return generated;
 	}
 
-	// Multiplies the strength of an already-rendered vector field (the encoded ARGBFloat render texture) by this
-	// cookie's mask, in place. No-op when the cookie is None. `size` is the field's grid size. Code-callable: any
-	// field producer can mask its output through this, not just the components.
-	public void Apply(RenderTexture target, Vector2Int size) {
-		if (!Enabled || target == null || size.x <= 0 || size.y <= 0) return;
-		var mask = Resolve(size);
-		if (mask == null) return;
+	// Applies a field's OUTPUT transform to an already-rendered vector field (the encoded ARGBFloat render texture),
+	// in place: multiplies its strength by `strength` (the field's magnitude) and by this cookie's mask. `size` is the
+	// field's full grid size. Optionally limited to a sub-rect via `region` (in grid coords, origin bottom-left) so a
+	// caller that rewrote only part of the texture re-transforms only those texels; null transforms the whole grid.
+	// No-op when there's nothing to do (strength ≈ 1 and the cookie is None). Code-callable: any field producer can run
+	// its output through this, not just the components.
+	public void Apply(RenderTexture target, Vector2Int size, float strength = 1f, RectInt? region = null) {
+		if (target == null || size.x <= 0 || size.y <= 0) return;
+		if (!Enabled && Mathf.Approximately(strength, 1f)) return;   // nothing to scale and nothing to mask
+
+		// Enabled cookies contribute their mask; magnitude-only passes use a solid-white mask (multiply by 1).
+		var mask = Enabled ? Resolve(size) : Texture2D.whiteTexture;
+		if (mask == null) mask = Texture2D.whiteTexture;
+
+		// Clamp the region to the grid; a whole-grid pass covers [0,0]..[size].
+		int x0 = 0, y0 = 0, w = size.x, h = size.y;
+		if (region.HasValue) {
+			var r = region.Value;
+			x0 = Mathf.Clamp(r.xMin, 0, size.x);
+			y0 = Mathf.Clamp(r.yMin, 0, size.y);
+			w = Mathf.Clamp(r.xMax, 0, size.x) - x0;
+			h = Mathf.Clamp(r.yMax, 0, size.y) - y0;
+		}
+		if (w <= 0 || h <= 0) return;
 
 		var shader = SharedApplyShader;
 		int kernel = shader.FindKernel("CSMain");
 		shader.SetInt("width", size.x);
 		shader.SetInt("height", size.y);
+		shader.SetInt("offsetX", x0);
+		shader.SetInt("offsetY", y0);
+		shader.SetInt("regionWidth", w);
+		shader.SetInt("regionHeight", h);
+		shader.SetFloat("strength", strength);
 		shader.SetTexture(kernel, "Result", target);
 		shader.SetTexture(kernel, "Cookie", mask);
 
-		int threadGroupsX = Mathf.CeilToInt(size.x / 8f);
-		int threadGroupsY = Mathf.CeilToInt(size.y / 8f);
+		int threadGroupsX = Mathf.CeilToInt(w / 8f);
+		int threadGroupsY = Mathf.CeilToInt(h / 8f);
 		shader.Dispatch(kernel, threadGroupsX, threadGroupsY, 1);
 	}
 

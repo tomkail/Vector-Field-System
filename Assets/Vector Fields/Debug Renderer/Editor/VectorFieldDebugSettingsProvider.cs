@@ -28,6 +28,10 @@ static class VectorFieldDebugSettingsProvider {
 
                 EditorGUI.BeginChangeCheck();
 
+                EditorGUILayout.LabelField("Editor Vector Field Rendering", EditorStyles.boldLabel);
+                EditorGUILayout.HelpBox("How vector fields are drawn as arrows in the scene view.", MessageType.Info);
+                EditorGUILayout.Space();
+
                 EditorGUILayout.LabelField("Arrows", EditorStyles.boldLabel);
                 EditorGUILayout.PropertyField(texture, new GUIContent("Texture", "Leave empty to use the built-in arrow."));
                 EditorGUILayout.PropertyField(opacity);

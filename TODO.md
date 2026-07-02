@@ -15,6 +15,14 @@ via `Editor/` folders). To ship it as a proper UPM package these are required:
 - [ ] **Wrap public types in a `VectorFields` namespace.** The project is currently global-namespace; for distribution,
       namespacing avoids collisions with consumer code. Do it together with the asmdefs.
 
+## Architecture / component consolidation
+- [ ] **Investigate rolling the Grid component into the Vector Field component** so a user doesn't need to add two
+      separate components to get a working field. Check what the Grid actually owns (cell size / resolution / bounds)
+      and whether it's ever shared across fields — if not, fold it in so a single component is self-contained.
+- [ ] **Investigate a single Vector Field component with multiple modes** instead of several distinct vector-field
+      component types. Evaluate a mode enum (or similar) on one component vs. the current per-type components — weigh
+      inspector clarity, serialization, and how much behaviour actually differs between the modes.
+
 ## Runtime painting API (first cut → finish the spec)
 See `RUNTIME_PAINTING_SPEC.md` for the intended design; the code in `Assets/Vector Fields/Brush/` is a deliberate
 first cut.
@@ -33,6 +41,44 @@ first cut.
 - [ ] `VectorFieldDecay` dependency in the burst/trail demos is implicit — consider a warning guard.
 - [ ] Validate `Demo_VectorFieldSimFade` impulse-clear timing and `Demo_VectorFieldGroupFade` field pool in-editor.
 - [ ] Build additional demos (directional beam, persistent wind via sim, vortex field), each exercising a fade strategy.
+
+## Demo suite — examples + showcases
+Two goals, deliberately separate:
+1. **Teaching examples** — one concept per scene, minimal code, obviously readable. The point is that a user can open
+   the scene, understand *how a piece works*, and copy it. Bias toward "boring but crystal-clear."
+2. **Showcase demos** — wow the viewer and prove the range. Can combine concepts and hide plumbing; the point is impact.
+
+Coverage to keep in mind (a good suite hits each source × consumer at least once):
+- **Sources:** noise · drawable/painted · fluid sim · polygon-shape · Group (layered/combined).
+- **Consumers:** particle-system force field · flow-vis (IBFV) · texture renderer · debug arrows · CPU sampling
+  (`EvaluateWorldVector`/`EvaluateVector`/`EvaluateRotation`) for gameplay agents, rigidbodies, character movement.
+- **Interaction:** runtime brush ops (Draw/Swirl/Repel/Attract/Stamp/`PaintLine`) · `VectorFieldDecay` fade strategies.
+
+### Teaching examples (simple, one concept each)
+- [ ] **Noise field → particles.** Static `NoiseVectorFieldComponent` + a particle system via `ParticleSystemVectorField`.
+      The "hello world": open, press play, see drift. Almost no code.
+- [ ] **Sampling the field from code.** One object that reads `EvaluateWorldVector` at its position and moves/rotates.
+      Isolates the CPU sampling API so users see how gameplay reads a field.
+- [ ] **Each brush op, side by side.** A drawable field + flow-vis, one stamp per op (Draw/Swirl/Repel/Attract) laid out
+      in a row with labels. A visual glossary of what each op does.
+- [ ] **Paint sandbox.** Drawable field + IBFV flow-vis + mouse painting with a brush/op palette. The core authoring loop,
+      nothing else. (Smoke demo's interaction, stripped of the fluid sim.)
+- [ ] **Fade strategies compared.** The same repeated stamp under each `VectorFieldDecay` strategy so the difference is
+      obvious. Doubles as the fix for the implicit-decay TODO above.
+- [ ] **Group/layered field.** `GroupVectorFieldComponent` combining two trivial sources (e.g. constant + noise) with the
+      combined result visualised — shows fields stack like layers.
+
+### Showcase demos (impressive, show range)
+- [ ] **Flocking / crowd flow.** Agents read the field via `EvaluateVector` to bias heading; drop a moving Vortex/Repel
+      stamp and watch them part and swirl. Best proof the field is code-usable, not just a particle toy.
+- [ ] **River / racetrack current.** `PolygonVectorField` defines a channel; rigidbody props get swept downstream by
+      force sampled from the field. Exercises the polygon source + real physics (both currently unshown).
+- [ ] **Player in the current.** Top-down character pushed by the field — headwind, sweeping current, a Repel "force
+      push" ability. Most relatable gameplay pitch.
+- [ ] **Coloured smoke** (existing Smoke demo) — polish/keep as the fluid-sim + colour-advection flagship.
+- [ ] **Layered environment.** Group source: base noise breeze + painted gust + simulated eddy → one particle/flow output.
+      The "production-realistic" composition demo.
+- [ ] **Ambient beauty pass.** Leaves/snow/petals on a noise field — the low-effort screenshot/gif that sells at a glance.
 
 ## Debug renderer / settings
 - [ ] Decide whether the density controls (variable resolution / spacing / max arrows — currently per-user in the

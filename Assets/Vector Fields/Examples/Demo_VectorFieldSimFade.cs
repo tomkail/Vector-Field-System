@@ -31,7 +31,7 @@ public class Demo_VectorFieldSimFade : MonoBehaviour {
 
     public void Burst(Vector3 worldPosition) {
         if (source == null) return;
-        var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.5f),
+        var brush = new VectorFieldBrush(BrushShape.Radial(0.5f),
                                          VectorFieldBrushOpRegistry.ById(opId), worldRadius, strength);
         source.Stamp(brush, worldPosition);
         _impulseFrame = Time.frameCount;

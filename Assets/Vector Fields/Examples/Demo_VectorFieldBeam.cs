@@ -20,12 +20,12 @@ public class Demo_VectorFieldBeam : MonoBehaviour {
         if (field == null || origin == null || target == null) return;
 
         // Beam: Draw sets the field toward the swept path direction (origin -> target), so it shoves along the beam.
-        var beam = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.5f),
+        var beam = new VectorFieldBrush(BrushShape.Radial(0.5f),
                                         VectorFieldBrushOpRegistry.Draw, beamWidth, strength);
         field.PaintLine(beam, origin.position, target.position);
 
         // Blast: Repel radiates outward from the impact point.
-        var blast = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.5f),
+        var blast = new VectorFieldBrush(BrushShape.Radial(0.5f),
                                          VectorFieldBrushOpRegistry.Repel, blastRadius, strength);
         field.Stamp(blast, target.position);
     }

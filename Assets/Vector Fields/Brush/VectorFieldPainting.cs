@@ -5,7 +5,7 @@ using UnityEngine;
 // The friendly runtime painting API: extension methods on DrawableVectorFieldComponent so gameplay code can paint a
 // field the same way the editor tool does, without touching grid math or the kernel directly.
 //
-//   var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.6f), VectorFieldBrushOpRegistry.Draw, size: 2f);
+//   var brush = new VectorFieldBrush(BrushShape.Radial(0.6f), VectorFieldBrushOpRegistry.Draw, size: 2f);
 //   field.Stamp(brush, hitPoint);                 // a single dab / burst
 //   field.PaintLine(brush, origin, target);       // a straight swept line
 //   var stroke = field.BeginStroke(brush);        // a continuous, smoothed stroke
@@ -26,7 +26,7 @@ public static class VectorFieldPainting {
                 $"'{field.name}' has no GridRenderer yet — paint after the component is enabled/initialised.");
         if (!brush.IsValid)
             throw new ArgumentException(
-                "Brush is invalid: it needs a shape (VectorFieldBrushShape.Radial/FromCookie/FromMap) and an op " +
+                "Brush is invalid: it needs a shape (BrushShape.Radial/FromCookie/FromMap) and an op " +
                 "(VectorFieldBrushOpRegistry).", nameof(brush));
     }
 

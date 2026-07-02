@@ -42,11 +42,11 @@ public class PaintStroke<T> {
     protected const float MinStepCells = 0.5f;
 
     IPaintTarget<T> _field;
-    VectorFieldBrushShape _shape;
+    BrushShape _shape;
     IBrushOp<T> _op;
     float _pressure;
     TipMode _tipMode;
-    VectorFieldDirectionMode _dirMode;
+    BrushDirectionMode _dirMode;
 
     float _gridRadius;
     // Coverage added per unit arc-length swept at full weight (~1/radius), so effect builds up with drag distance and
@@ -99,8 +99,8 @@ public class PaintStroke<T> {
     protected bool IsValid => _shape != null && _op != null;
 
     // Initialise (or re-initialise a pooled instance) for a new stroke. Keeps any pooled _source buffer for reuse.
-    protected void Init(IPaintTarget<T> field, VectorFieldBrushShape shape, IBrushOp<T> op, float size,
-                        float pressure, TipMode tipMode, VectorFieldDirectionMode dirMode) {
+    protected void Init(IPaintTarget<T> field, BrushShape shape, IBrushOp<T> op, float size,
+                        float pressure, TipMode tipMode, BrushDirectionMode dirMode) {
         _field = field;
         _shape = shape;
         _op = op;
@@ -312,32 +312,44 @@ public class PaintStroke<T> {
         bool isMap = _shape.IsMap;
         // Brush local frame a map shape is sampled in. FollowStroke: +Y (forward) = the stroke tangent; FixedAngle:
         // the world frame (map's baked emitter direction used as-is). +X (right) = forward rotated -90.
-        Vector2 forward = _dirMode == VectorFieldDirectionMode.FixedAngle ? Vector2.up : tangent;
+        Vector2 forward = _dirMode == BrushDirectionMode.FixedAngle ? Vector2.up : tangent;
         Vector2 right = new Vector2(forward.y, -forward.x);
+        bool fixedAngle = _dirMode == BrushDirectionMode.FixedAngle;
+
+        // Hoisted scalars for the inner loop — this runs over the whole brush bbox every sub-step (tens of thousands of
+        // cells/frame at high res), so we do the point→segment math in raw floats instead of Vector2 operators (each of
+        // which is a non-inlined method call: Dot, magnitude, +, -, *). Same math, far less per-cell overhead.
+        float ax = a.x, ay = a.y, abx = ab.x, aby = ab.y;
+        float invAbLenSqr = abLenSqr > 1e-8f ? 1f / abLenSqr : 0f;
+        float rx = right.x, ry = right.y, fx = forward.x, fy = forward.y;
+        float radiusSqr = _gridRadius * _gridRadius;
+        float dsAcc = ds * _accPerArc;
 
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
-                Vector2 p = new Vector2(x, y);
-                float t = abLenSqr > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / abLenSqr) : 0f;
-                Vector2 nearest = a + ab * t;
-                Vector2 offset = p - nearest;
+                // Nearest point on segment ab to (x,y), clamped to the segment.
+                float t = ((x - ax) * abx + (y - ay) * aby) * invAbLenSqr;
+                t = t < 0f ? 0f : (t > 1f ? 1f : t);
+                float nx = ax + abx * t, ny = ay + aby * t;
+                float ox = x - nx, oy = y - ny;
 
                 if (isMap) {
-                    Vector2 local = new Vector2(Vector2.Dot(offset, right), Vector2.Dot(offset, forward)) * invR;
-                    Vector2 sample = _shape.Sample2D(local);   // local-frame emitter vector (mag = weight)
+                    float lx = (ox * rx + oy * ry) * invR, ly = (ox * fx + oy * fy) * invR;
+                    Vector2 sample = _shape.Sample2D(new Vector2(lx, ly));   // local-frame emitter vector (mag = weight)
                     float mag = sample.magnitude;
                     if (mag <= 0f) continue;
-                    Vector2 world = sample.x * right + sample.y * forward;   // emitter dir in world
-                    Vector2 brushDir = world / mag;
+                    float invMag = 1f / mag;
+                    var brushDir = new Vector2((sample.x * rx + sample.y * fx) * invMag,
+                                               (sample.x * ry + sample.y * fy) * invMag);   // emitter dir in world
                     // FollowStroke paints along the drag; FixedAngle paints the emitter dir.
-                    Vector2 strokeDir = _dirMode == VectorFieldDirectionMode.FixedAngle ? brushDir : tangent;
-                    Accumulate(new Point(x, y), mag * ds * _accPerArc, mag, brushDir, strokeDir, nearest);
+                    Vector2 strokeDir = fixedAngle ? brushDir : tangent;
+                    Accumulate(new Point(x, y), mag * dsAcc, mag, brushDir, strokeDir, new Vector2(nx, ny));
                 } else {
-                    float dist = offset.magnitude;
-                    if (dist > _gridRadius) continue;
-                    float w = _shape.Weight(dist * invR);
+                    float distSqr = ox * ox + oy * oy;
+                    if (distSqr > radiusSqr) continue;               // out of the disc — skip the sqrt + weight
+                    float w = _shape.Weight(Mathf.Sqrt(distSqr) * invR);
                     if (w <= 0f) continue;
-                    Accumulate(new Point(x, y), w * ds * _accPerArc, w, tangent, tangent, nearest);
+                    Accumulate(new Point(x, y), w * dsAcc, w, tangent, tangent, new Vector2(nx, ny));
                 }
             }
         }

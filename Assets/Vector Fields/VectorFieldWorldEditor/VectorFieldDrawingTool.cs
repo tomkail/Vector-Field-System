@@ -4,7 +4,7 @@ using UnityEditor.ShortcutManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// VectorFieldDirectionMode (FollowStroke / FixedAngle) now lives with the runtime brush in Brush/VectorFieldBrush.cs,
+// BrushDirectionMode (FollowStroke / FixedAngle) now lives with the runtime brush in Brush/VectorFieldBrush.cs,
 // so the tool and the runtime painting API share it.
 
 // Per-user editor tool prefs (brush shape/size/mode). Stored in the editor's PreferencesFolder — personal and not
@@ -16,7 +16,7 @@ public class VectorFieldDrawingToolSettings : UnityEditor.ScriptableSingleton<Ve
     // The emitter (directional/spot) that the brush stamps. Shape comes from the cookie below.
     public VectorFieldBrushSettings brushSettings = new VectorFieldBrushSettings();
 
-    public VectorFieldDirectionMode directionMode = VectorFieldDirectionMode.FollowStroke;
+    public BrushDirectionMode directionMode = BrushDirectionMode.FollowStroke;
 
     // The active brush op, by IVectorFieldBrushOp.Id. Selected persistently in the overlay; a held modifier can
     // temporarily override it (see OnToolGUI). Stored by id (not enum) so the op set can grow without breaking
@@ -70,7 +70,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
             settings.SaveChanges();
         }
     }
-    public VectorFieldDirectionMode directionMode {
+    public BrushDirectionMode directionMode {
         get => settings.directionMode;
         set {
             settings.directionMode = value;
@@ -215,8 +215,9 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         var activeOp = actionKeyHeld ? VectorFieldBrushOpRegistry.Erase : brushOp;
 
         if (hasHit && e.type == EventType.MouseDown && e.button == 0 && !altHeld) {
-            // One undo entry per stroke: snapshot the component (incl. the painted field) before the first edit.
-            Undo.RegisterCompleteObjectUndo(vectorFieldManager, "Paint Vector Field");
+            // One undo entry per stroke, registered on whichever object holds the painted data (the linked asset in
+            // asset mode, else the component) with an independent backing snapshot (see RegisterPaintUndo).
+            vectorFieldManager.RegisterPaintUndo("Paint Vector Field");
 
             var brush = BuildBrush(activeOp);
             if (shiftHeld) {
@@ -240,6 +241,9 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         if (e.type == EventType.MouseUp && e.button == 0 && GUIUtility.hotControl == controlId) {
             activeStroke?.End();
             activeStroke = null;
+            // Sync the backing to the post-stroke state so a subsequent redo restores the paint (Undo grabs the current
+            // serialized state as the redo target when you undo).
+            vectorFieldManager.SnapshotForUndo();
             GUIUtility.hotControl = 0;
             e.Use();
         }
@@ -278,7 +282,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         // Direction arrow — only when the active op paints the emitter direction, the emitter is directional (spot
         // emitters have no single arrow direction), and we're in Fixed-angle mode (in Follow mode the flow comes from
         // the stroke, so a fixed arrow would mislead).
-        if (op.UsesBrushDirection && settings.directionMode == VectorFieldDirectionMode.FixedAngle
+        if (op.UsesBrushDirection && settings.directionMode == BrushDirectionMode.FixedAngle
             && settings.brushSettings.forceType == VectorFieldBrushSettings.ForceEmitterType.Directional) {
             float angle = settings.brushSettings.directionalAngle * Mathf.Deg2Rad;
             Vector2 dir = new Vector2(Mathf.Sin(angle), Mathf.Cos(angle));

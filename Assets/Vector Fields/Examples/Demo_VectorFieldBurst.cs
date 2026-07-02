@@ -18,7 +18,7 @@ public class Demo_VectorFieldBurst : MonoBehaviour {
 
     public void Burst(Vector3 worldPosition) {
         if (field == null) return;
-        var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.5f),
+        var brush = new VectorFieldBrush(BrushShape.Radial(0.5f),
                                          VectorFieldBrushOpRegistry.ById(opId), worldRadius, strength);
         field.Stamp(brush, worldPosition);
     }

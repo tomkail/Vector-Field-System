@@ -90,6 +90,61 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     static bool IsValid(Vector2Map field, Point size) =>
         field != null && field.values != null && field.values.Length == size.x * size.y;
 
+#if UNITY_EDITOR
+    // --- Undo/redo support -----------------------------------------------------------------------------------------
+    // The painted data lives in a [NonSerialized] Vector2Map (this component's paintField, or the linked asset's), so
+    // only the serialized backing (storedValues/storedRows) is visible to Unity's Undo. Naive undo fails because:
+    // (1) Undo snapshots the backing but never invokes OnBeforeSerialize, so at RegisterCompleteObjectUndo time the
+    //     backing is stale;
+    // (2) OnAfterDeserialize can alias the map's array to the backing (TypeMap.Fill references, doesn't copy), so
+    //     in-place painting mutates the very array Undo recorded; and
+    // (3) the data may live in the linked VectorFieldAsset, not this component — registering the component captures
+    //     nothing.
+    // So RegisterPaintUndo() flushes an INDEPENDENT copy into the right object's backing and registers THAT object;
+    // on undo/redo we rebuild the live map from the restored backing and re-render.
+    protected override void OnEnable() {
+        base.OnEnable();
+        UnityEditor.Undo.undoRedoPerformed += OnUndoRedoPerformed;
+    }
+
+    protected override void OnDisable() {
+        UnityEditor.Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+        base.OnDisable();
+    }
+
+    void OnUndoRedoPerformed() {
+        if (this == null) return;
+        // Undo restored the serialized backing but didn't re-run the deserialize callback; rebuild the live map from it.
+        if (sourceAsset != null) ((ISerializationCallbackReceiver)sourceAsset).OnAfterDeserialize();
+        else ((ISerializationCallbackReceiver)this).OnAfterDeserialize();
+        EnsurePaintField();   // guard: never leave a null/mismatched field
+        SetDirty();           // re-render the GPU texture from it
+    }
+
+    // Register one undo step for a paint edit, targeting whichever object actually holds the data (the linked asset in
+    // asset mode, else this component), after flushing the live field into that object's backing as an independent copy.
+    public void RegisterPaintUndo(string label) {
+        SnapshotForUndo();
+        UnityEditor.Undo.RegisterCompleteObjectUndo(sourceAsset != null ? (UnityEngine.Object)sourceAsset : this, label);
+    }
+
+    // Flush the live field into the correct serialized backing as an INDEPENDENT copy (so Undo records a true snapshot,
+    // not an alias the next paint overwrites). Call before RegisterPaintUndo and when a stroke ends (so redo captures
+    // the post-state). Routes to the asset in asset mode.
+    public void SnapshotForUndo() {
+        if (sourceAsset != null) { sourceAsset.SnapshotForUndo(); return; }
+        if (paintField == null || paintField.values == null || paintField.values.Length == 0) return;
+        storedSize = paintField.size;
+        if (VectorFieldStorage.format == VectorFieldStorage.Format.ByteArray) {
+            storedRows = VectorFieldStorage.PackRows(paintField.values, paintField.size);   // PackRows already copies
+            storedValues = null;
+        } else {
+            storedValues = (Vector2[])paintField.values.Clone();                            // independent copy
+            storedRows = null;
+        }
+    }
+#endif
+
     // Uploads to the GPU come from the painted field, not from base.vectorField (which is the readback target).
     protected override Vector2Map UploadSource => PaintField;
 

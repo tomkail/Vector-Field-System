@@ -17,6 +17,8 @@ public class SmokeMousePainter : MonoBehaviour {
 
     SmokeSimulationComponent _smoke;
     ColorStroke _stroke;
+    PaintBrush<Color> _brush;
+    Vector3 _prevPoint;
 
     void Awake() {
         _smoke = GetComponent<SmokeSimulationComponent>();
@@ -28,12 +30,24 @@ public class SmokeMousePainter : MonoBehaviour {
 
         if (Input.GetMouseButtonDown(0) && TryGetPoint(out Vector3 downPoint)) {
             var paintColor = randomHuePerStroke ? RandomHue(color.a) : color;
-            var brush = new PaintBrush<Color>(VectorFieldBrushShape.Radial(softness),
-                                              new SmokeDrawOp(paintColor), worldRadius, strength, TipMode.Leading);
-            _stroke = _smoke.BeginStroke(brush);
+            // Leading (zero lag): the head follows the cursor with no one-sample delay. The earlier "stepping" wasn't a
+            // tip-mode issue — it was the additive injection; the max deposit fixed it — so there's no reason to trade
+            // away responsiveness here.
+            _brush = new PaintBrush<Color>(BrushShape.Radial(softness),
+                                           new SmokeDrawOp(paintColor), worldRadius, strength, TipMode.Leading);
+            _stroke = _smoke.BeginStroke(_brush);
             _stroke.To(downPoint);
+            _smoke.Stamp(_brush, downPoint);
+            _prevPoint = downPoint;
         } else if (Input.GetMouseButton(0) && _stroke != null && TryGetPoint(out Vector3 dragPoint)) {
+            // The stroke sweeps a smooth trail between mouse samples. Only stamp when the cursor is (near) stationary —
+            // that's the case the arc-length stroke can't emit for (no drag = no coverage). While moving, the stroke
+            // already covers the area, so skipping the extra full-radius stamp pass saves real work at high res.
             _stroke.To(dragPoint);
+            float moveThreshold = worldRadius * 0.5f;
+            if ((dragPoint - _prevPoint).sqrMagnitude < moveThreshold * moveThreshold)
+                _smoke.Stamp(_brush, dragPoint);
+            _prevPoint = dragPoint;
         } else if (Input.GetMouseButtonUp(0) && _stroke != null) {
             _stroke.End();
             _stroke = null;

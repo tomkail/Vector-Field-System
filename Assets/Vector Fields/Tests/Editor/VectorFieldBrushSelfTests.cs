@@ -78,7 +78,7 @@ public static class VectorFieldBrushSelfTests {
             "Swirl should point tangent (90 deg CCW) around the centre");
 
         // --- Shape falloff -------------------------------------------------------------------------------------------
-        var soft = VectorFieldBrushShape.Radial(0.5f);
+        var soft = BrushShape.Radial(0.5f);
         Check(Mathf.Abs(soft.Weight(0f) - 1f) <= Eps, "Radial weight at the centre should be 1");
         Check(Mathf.Abs(soft.Weight(1f)) <= Eps, "Radial weight at the edge should be 0");
         Check(soft.Weight(0.75f) > Eps && soft.Weight(0.75f) < 1f - Eps,

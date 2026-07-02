@@ -6,7 +6,7 @@ using UnityEngine;
 // SAME generic PaintStroke<Color>, so smoke strokes get the identical smooth, frame-rate-independent, no-dabbing
 // behaviour the vector field's drawing tool has, and any fix to the stroke core applies to both.
 //
-//   var brush = new PaintBrush<Color>(VectorFieldBrushShape.Radial(0.6f), new SmokeDrawOp(Color.cyan), size: 1.5f);
+//   var brush = new PaintBrush<Color>(BrushShape.Radial(0.6f), new SmokeDrawOp(Color.cyan), size: 1.5f);
 //   var stroke = smoke.BeginStroke(brush);   // smoke : IPaintTarget<Color>
 //   stroke.To(worldPos);                      // ...each frame while dragging
 //   stroke.End();
@@ -33,6 +33,46 @@ public static class ColorPainting {
         stroke.To(fromWorld);
         stroke.To(toWorld);
         stroke.End();
+    }
+
+    static readonly List<VectorFieldBrushCell> _stampCells = new List<VectorFieldBrushCell>();
+
+    // Stamp a single radial dab of the brush op centred at a world position — the Color counterpart of
+    // VectorFieldPainting.Stamp. Unlike a stroke (whose coverage builds by drag distance, so a stationary brush emits
+    // nothing), a stamp deposits every call, so a held brush can keep emitting. Radial only: the op reads coverage
+    // (brushForce magnitude) and smoke ops ignore direction, so no emitter map is involved.
+    public static void Stamp(this IPaintTarget<Color> field, in PaintBrush<Color> brush, Vector3 worldPosition) {
+        Validate(field, brush);
+        var cc = field.gridRenderer.cellCenter;
+        Vector2 gridCenter = cc.WorldToGridPosition(worldPosition);
+        float gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);
+        float invR = 1f / gridRadius;
+
+        _stampCells.Clear();
+        var size = field.PaintField.size;
+        int minX = Mathf.Max(0, Mathf.FloorToInt(gridCenter.x - gridRadius));
+        int maxX = Mathf.Min(size.x - 1, Mathf.CeilToInt(gridCenter.x + gridRadius));
+        int minY = Mathf.Max(0, Mathf.FloorToInt(gridCenter.y - gridRadius));
+        int maxY = Mathf.Min(size.y - 1, Mathf.CeilToInt(gridCenter.y + gridRadius));
+
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                Vector2 offset = new Vector2(x - gridCenter.x, y - gridCenter.y);
+                float w = brush.shape.Weight(offset.magnitude * invR);
+                if (w <= 0f) continue;
+                _stampCells.Add(new VectorFieldBrushCell {
+                    gridPoint = new Point(x, y),
+                    brushForce = Vector2.up * w,   // magnitude = coverage; direction unused by scalar/colour ops
+                    finalForce = Vector2.up * w,
+                    strokeForce = Vector2.up,
+                    brushCenter = gridCenter,
+                });
+            }
+        }
+
+        if (_stampCells.Count > 0 &&
+            VectorFieldBrushKernel.Apply(field.PaintField, _stampCells, brush.pressure, brush.op, out RectInt dirty))
+            field.MarkRegionDirty(dirty);
     }
 }
 

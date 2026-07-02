@@ -15,7 +15,7 @@ public class Demo_VectorFieldVortex : MonoBehaviour {
     VectorFieldBrush _brush;
 
     void OnEnable() {
-        _brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.7f),
+        _brush = new VectorFieldBrush(BrushShape.Radial(0.7f),
                                       VectorFieldBrushOpRegistry.ById(opId), worldRadius, strength);
         VectorFieldDecay.WarnIfNoFadeStrategy(field, this);
     }

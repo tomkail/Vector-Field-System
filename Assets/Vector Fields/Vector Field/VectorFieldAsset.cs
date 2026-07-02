@@ -46,4 +46,21 @@ public class VectorFieldAsset : ScriptableObject, ISerializationCallbackReceiver
         else
             field = null;
     }
+
+#if UNITY_EDITOR
+    // Flush the live field into an INDEPENDENT serialized backing so Undo.RegisterCompleteObjectUndo records a true
+    // snapshot (Unity's Undo doesn't call OnBeforeSerialize, and the field is [NonSerialized]). The owning
+    // DrawableVectorFieldComponent registers this asset for undo and rebuilds it on undo/redo.
+    public void SnapshotForUndo() {
+        if (field == null || field.values == null || field.values.Length == 0) return;
+        storedSize = field.size;
+        if (VectorFieldStorage.format == VectorFieldStorage.Format.ByteArray) {
+            storedRows = VectorFieldStorage.PackRows(field.values, field.size);   // PackRows already copies
+            storedValues = null;
+        } else {
+            storedValues = (Vector2[])field.values.Clone();                       // independent copy
+            storedRows = null;
+        }
+    }
+#endif
 }

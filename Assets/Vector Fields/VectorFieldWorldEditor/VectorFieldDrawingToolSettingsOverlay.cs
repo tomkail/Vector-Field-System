@@ -136,7 +136,7 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
         var section = new VisualElement();
         section.Add(Header("Direction"));
 
-        var flow = new EnumField("Flow", VectorFieldDirectionMode.FollowStroke);
+        var flow = new EnumField("Flow", BrushDirectionMode.FollowStroke);
         flow.tooltip = "Follow stroke: flow points along the drag. Fixed angle: flow uses the emitter direction.";
         flow.BindProperty(so.FindProperty("directionMode"));
         flow.RegisterValueChangedCallback(_ => {
@@ -176,7 +176,7 @@ public class VectorFieldDrawingToolSettingsOverlay : Overlay, ITransientOverlay 
     // In Follow-stroke mode the emitter angle rotates the flow relative to the stroke, so the slider reads differently.
     void UpdateDirectionLabel() {
         if (_emitterDirection is Slider slider) {
-            bool follow = settings.directionMode == VectorFieldDirectionMode.FollowStroke;
+            bool follow = settings.directionMode == BrushDirectionMode.FollowStroke;
             slider.label = follow ? "Stroke Rotation" : "Angle";
             slider.tooltip = follow
                 ? "Rotation of the painted flow relative to the stroke direction, in degrees."

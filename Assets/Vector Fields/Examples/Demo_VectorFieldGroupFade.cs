@@ -41,7 +41,7 @@ public class Demo_VectorFieldGroupFade : MonoBehaviour {
         if (slot < 0) return;   // pool exhausted — grow effectFields or raise lifetime headroom
         var f = effectFields[slot];
         f.Clear();
-        var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(0.5f),
+        var brush = new VectorFieldBrush(BrushShape.Radial(0.5f),
                                          VectorFieldBrushOpRegistry.ById(opId), worldRadius, strength);
         f.Stamp(brush, worldPosition);
         _age[slot] = 0f;

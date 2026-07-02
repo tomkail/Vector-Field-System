@@ -34,8 +34,6 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     public float dissipationPerSecond = 0.6f;
 
     [Header("Emission (painting)")]
-    [Tooltip("How much of the painted source is released into the density per second.")]
-    public float injectRate = 4f;
     [Range(0f, 1f), Tooltip("Painted-source retained per second — how quickly a painted trail stops emitting once you " +
         "move on (lower = shorter puffs).")]
     public float sourceRetainPerSecond = 0.1f;
@@ -79,7 +77,6 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     static readonly int ID_height = Shader.PropertyToID("height");
     static readonly int ID_dt = Shader.PropertyToID("dt");
     static readonly int ID_dissipation = Shader.PropertyToID("dissipation");
-    static readonly int ID_injectRate = Shader.PropertyToID("injectRate");
     static readonly int ID_velocityScale = Shader.PropertyToID("velocityScale");
     static readonly int ID_sourceRetain = Shader.PropertyToID("sourceRetain");
     static readonly int ID_Density = Shader.PropertyToID("Density");
@@ -185,9 +182,9 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
         cs.SetFloat(ID_dt, dt);
         cs.SetFloat(ID_dissipation, Mathf.Pow(Mathf.Clamp01(dissipationPerSecond), dt));
 
-        // 1) Inject the painted source into the density (in place on densityA).
+        // 1) Deposit the painted source into the density (in place on densityA). The Inject kernel takes a saturating
+        // per-channel max, so brightness = painted colour×coverage regardless of frame rate / timeScale (see the shader).
         if (everPainted && injectionRT != null) {
-            cs.SetFloat(ID_injectRate, injectRate);
             cs.SetTexture(kInject, ID_Density, densityA);
             cs.SetTexture(kInject, ID_Injection, injectionRT);
             Dispatch(kInject, w, h);

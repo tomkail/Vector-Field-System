@@ -17,7 +17,7 @@ public class Demo_VectorFieldTrail : MonoBehaviour {
     void OnEnable() {
         if (field == null) return;
         VectorFieldDecay.WarnIfNoFadeStrategy(field, this);
-        var brush = new VectorFieldBrush(VectorFieldBrushShape.Radial(softness),
+        var brush = new VectorFieldBrush(BrushShape.Radial(softness),
                                          VectorFieldBrushOpRegistry.Draw, worldRadius, strength);
         _stroke = field.BeginStroke(brush);
     }

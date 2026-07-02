@@ -22,15 +22,20 @@ float dissipation;    // per-step multiply applied to density (1 = no fade, <1 f
 float velocityScale;  // decoded velocity units -> field fractions per second (normalised; resolution-independent)
 
 // --- injection: add the painted emission source into the density (in place) --------------------------------------
-RWTexture2D<float4> Density;      // in-place add target for Inject
+RWTexture2D<float4> Density;      // deposit target for Inject
 Texture2D<float4>   Injection;    // GPU emission source (painted smoke) — brush-painted region patched in each frame
-float               injectRate;   // how much of the source to release per second
 
 [numthreads(THREADS_X, THREADS_Y, 1)]
 void Inject(uint3 id : SV_DispatchThreadID) {
     if (id.x >= (uint)width || id.y >= (uint)height) return;
     int2 p = int2(id.xy);
-    Density[p] = Density[p] + Injection[p] * (injectRate * dt);
+    // Take the per-channel MAX of the density and the painted dye (rgb = colour×coverage, a = coverage). This deposits
+    // the *peak* painted value — colour×coverage — so brightness matches what you painted and soft edges stay soft. It
+    // depends only on coverage, never on frame count or dt, so it's framerate-independent (no beading), doesn't bloom
+    // after drawing, and is unaffected by injectRate/injectDt/timeScale. (source-over was wrong here: re-compositing the
+    // lingering source each frame saturates even soft edges to full opacity → everything blows out bright.) The source
+    // still fades (FadeSource), so deposition stays transient.
+    Density[p] = max(Density[p], Injection[p]);
 }
 
 // --- source fade: decay the painted emission source in place on the GPU ------------------------------------------

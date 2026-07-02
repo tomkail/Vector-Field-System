@@ -230,6 +230,11 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		// A group pulls its children up to date during its own OnEnable, which can run before a child's OnEnable has
 		// initialized it — so make sure gridRenderer is resolved before rendering, rather than NRE'ing on it.
 		if (gridRenderer == null) EnsureInitialized();
+		// Guard against a degenerate grid size (e.g. an object enabled with a serialized (0,0) size before editor-only
+		// OnValidate has defaulted it): rendering it would try to allocate a zero-dimension RenderTexture and throw.
+		// Leave isDirty set so we render for real as soon as a valid size arrives.
+		var gridSize = GridSize;
+		if (gridSize.x < 1 || gridSize.y < 1) return;
 		isDirty = false;
 		Render();
 	}

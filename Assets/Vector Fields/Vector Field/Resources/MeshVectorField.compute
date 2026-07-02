@@ -1,0 +1,109 @@
+#pragma kernel CSMain
+
+// Per grid cell, point toward (or away from) the nearest boundary segment, restricted to the chosen side(s) and shaped
+// by a distance falloff. This is PolygonVectorField.compute generalised from one closed vertex ring to an arbitrary
+// *soup of line segments*: 3D mesh cross-sections and 2D sprite/collider silhouettes both reduce to 2D segments in the
+// field's local plane, so both drive this same kernel. The even/odd inside test works on unordered segments as long as
+// they form closed loops (set hasInsideTest = 0 for open edge sources). Encoding matches the other generators
+// ((v * 0.5) + 0.5) so it round-trips through the readback decode.
+
+#define THREADS_X 16
+#define THREADS_Y 16
+
+static const float PI = 3.14159265358979323846;
+static const float Deg2Rad = PI / 180.0;
+
+RWTexture2D<float4> Result;
+int width;
+int height;
+
+// Segment endpoints in the field's local plane space, stored as consecutive pairs: segment i = (Segments[2i], Segments[2i+1]).
+StructuredBuffer<float2> Segments;
+int segmentCount;
+
+// gridToPlane: grid cell (x, y, 0, 1) -> field-local plane point (use .xy). Segments are already in this space, so the
+// per-cell point and the geometry share one frame; the resulting vector is field-local and encodes directly.
+float4x4 gridToPlane;
+
+// Which side(s) get a vector (cells on an unwanted side stay zero).
+int wantInside;
+int wantOutside;
+// 0 = None, 1 = FlipInside, 2 = FlipOutside (matches PolygonVectorFieldGenerator.BoundaryFlip).
+int boundaryFlip;
+// 1 when the geometry forms closed loops (mesh slice / sprite / polygon collider); 0 for open edge sources, where the
+// crossing parity is meaningless and every cell is treated as outside.
+int hasInsideTest;
+
+float innerFalloff;
+float outerFalloff;
+float angle;
+float magnitude;
+
+// Encoded zero field (vector 0 -> colour (0.5, 0.5, 0, 1)).
+static const float4 ZeroField = float4(0.5, 0.5, 0.0, 1.0);
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= (uint)width || id.y >= (uint)height) return;
+    uint2 texPos = uint2(id.x, id.y);
+
+    if (segmentCount < 1) { Result[texPos] = ZeroField; return; }
+
+    float2 p = mul(gridToPlane, float4((float)texPos.x, (float)texPos.y, 0.0, 1.0)).xy;
+
+    // Single segment loop: ray-crossing parity (inside test) + nearest point on any segment.
+    bool inside = false;
+    float bestSqr = 1e30;
+    float2 closest = float2(0, 0);
+    for (int i = 0; i < segmentCount; i++) {
+        float2 a = Segments[2 * i];
+        float2 b = Segments[2 * i + 1];
+
+        // Ray-crossing inside test (a as vi, b as vj). Order-independent, so closed loops made of unordered segments
+        // still give correct parity.
+        if (((a.y < p.y) && (b.y >= p.y)) || ((b.y < p.y) && (a.y >= p.y))) {
+            if (a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x) < p.x)
+                inside = !inside;
+        }
+
+        // Closest point on segment a->b, clamped to the segment.
+        float2 ab = b - a;
+        float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-20));
+        float2 c = a + ab * t;
+        float d = dot(p - c, p - c);
+        if (d < bestSqr) { bestSqr = d; closest = c; }
+    }
+
+    if (hasInsideTest == 0) inside = false;
+
+    // Restrict to the chosen side(s).
+    bool wanted = inside ? (wantInside != 0) : (wantOutside != 0);
+    if (!wanted) { Result[texPos] = ZeroField; return; }
+
+    float dist = sqrt(bestSqr);
+    float2 toEdge = closest - p;                 // points toward the nearest edge
+    // Outward (away from the shape) is continuous across the boundary: inside points toward its nearest edge, outside
+    // points away from it.
+    float2 outward = inside ? toEdge : -toEdge;
+    float2 dir = dist > 1e-5 ? outward / dist : float2(0, 0);
+
+    // Reverse one side to converge on / diverge from the outline.
+    if ((inside && boundaryFlip == 1) || (!inside && boundaryFlip == 2))
+        dir = -dir;
+
+    // Rotate around the plane normal (2D rotation in field-local plane space).
+    if (angle != 0.0) {
+        float r = angle * Deg2Rad;
+        float cs = cos(r), sn = sin(r);
+        dir = float2(dir.x * cs - dir.y * sn, dir.x * sn + dir.y * cs);
+    }
+
+    // Full strength at the edge, fading to zero `falloff` units (field-local) away; 0 = constant strength. Inside and
+    // outside regions use their own falloff distance.
+    float falloff = inside ? innerFalloff : outerFalloff;
+    float strength = falloff > 0.0 ? saturate(1.0 - dist / falloff) : 1.0;
+
+    // Segments are already field-local, so the vector needs no further basis change before encoding.
+    float2 v = dir * (strength * magnitude);
+    Result[texPos] = float4(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, 0.0, 1.0);
+}

@@ -610,12 +610,6 @@ RNG-11. `ValuePicker/Blender.cs:101-108` — dead local `T previous`.
 RNG-12. `ValuePicker/Blender.cs` vs `Selector.cs` — `Set`/`AddPriority`/`Remove`/`EntryComparer`/`_priorities` near-identical (comparers differ in direction — significant).
 RNG-13. `ValuePicker/Selector.cs:145-193` — "capture Value / recompute / fire onChange" repeated 3× → extract `NotifyIfChanged`.
 
-### Misleading / incorrect comments
-RNG-14. `Range/Range.cs:33-53` — `CreateEncapsulating` docs say "rect"/"Vectors" and use a local named `vector` (it's floats) — copied from a Rect class.
-RNG-15. `Range/Range.cs:291` — `// If one is null…` inside `operator ==` on a struct (can't be null).
-RNG-16. `Range/Range.cs:179` — `// It's not really clear what this should do tbh. Remove!` on `SignedDistance` (still present).
-RNG-17. `ValuePicker/Selector.cs:11-45` — header doc still writes `Selector<bool>` and doesn't mention the `TPrioritySource` type param.
-
 ### Tidying
 RNG-18. `Range/Range.cs:393-426` — commented-out `RangeTests`.
 RNG-19. Typo `trunctationValue` (→ truncation) at `Range.cs:116,123`.
@@ -744,3 +738,7 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **EAS-14** `SmoothDamp/SpringDamper.cs` — softened the "This is always smooth!" claim (fixed step trades exactness for stability).
 - **TWN-11** `Types/Base/TypeTween.cs` — typo "fro" → "for" in the easing-curve param docs (2 sites).
 - **TWN-12** `Types/Base/TypeTween.cs` — `<param>` tags renamed `myTargetTime` → `myTweenTime` to match the signatures (4 sites).
+- **RNG-14** `Range/Range.cs` — `CreateEncapsulating` docs de-copied from a Rect class (floats, not "rect"/"vectors"); local `vector` renamed `value`.
+- **RNG-15** `Range/Range.cs` — removed the "if one is null" comment inside the struct `operator ==` (a struct can't be null).
+- **RNG-16** `Range/Range.cs` — reworded the "Remove!" musing on `SignedDistance` into a proper review note.
+- **RNG-17** `ValuePicker/Selector.cs` — added a note explaining the `TPrioritySource` type param (and fixed a "the the" typo).

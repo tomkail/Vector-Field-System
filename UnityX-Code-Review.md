@@ -443,13 +443,6 @@ TXT-26. `Text/Text Effects/CurvedWorldTextEffect.cs:51` — TRS + inverse rebuil
 TXT-27. `Text/Text Effects/TextFader/GradientArea.cs:58-165` — `CreateGradient` family + `Radians2Vector2`/`Degrees/RadiansBetween` all dead.
 TXT-28. `Scene Management/…/RuntimeSceneSetLoader.cs:24-31` — `_debugLogging` field dead; `:259-285` — two near-identical `BroadcastMessageScene` overloads.
 
-### Misleading / incorrect comments
-TXT-29. `Collections/ListX.cs:147-153` — `GetAllOfType` summary is just "G"; param names don't match.
-TXT-30. `Text/Text Effects/BaseTextMeshProEffect.cs:32` — "refresh if dirty" but calls `Clear()` with no dirty check.
-TXT-31. `Text/Text Effects/TextEffectsController.cs:154` — comment contradicts the guard on 155.
-TXT-32. `Text/Text Effects/TextFader/GradientArea.cs:49-51` — `EvaluateConicalGradient…` "Not done", silently falls back to linear — and `Conical` is the default.
-TXT-33. `Scene Management/Scene Set/RuntimeSceneSet.cs:31-43,73-77` — docs copied from `GameObject.BroadcastMessage`; `IsCurrentlyUniquelyLoaded` "exactly matches" omits the ordering `SequenceEqual` enforces.
-
 ### Tidying
 TXT-34. ~54 lines commented-out in `Text/TextMeshProUtils.cs:118-171` + scattered `Debug.Log`s; commented blocks in `SerializableCamera.cs:259-372`, `Audio/AudioClipX.cs:95-145`, `Audio/AudioPeer/*`, `Audio/SaveWav.cs:186`.
 TXT-35. Extensive commented-out blocks + leftover template comments across `Text Effects/*` and the Scene Management loader.
@@ -756,3 +749,8 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **ACS-22** `Camera/Shots/CameraShotGeneratorTools.cs` — `GetVerticesFromTransform` Top/Bottom locals de-inverted (value-preserving; return-array order unchanged).
 - **ACS-23** `Camera/Camera Properties/CameraProperties.cs` — misleading `halfHeight`/`halfWidth` locals renamed `fullHeight`/`fullWidth` (they hold the full frustum size due to the `* 2`).
 - **ACS-24** `Spline System/SplineBezierPoint.cs` — "This lerp" comments corrected to "This slerp" (both sites use `Vector3.Slerp`).
+- **TXT-29** `Collections/ListX.cs` — `GetAllOfType` doc rewritten (was just "G"); notes the `removeType` param is actually the type to KEEP; fixed bogus `<typeparam Q>`.
+- **TXT-30** `Text Effects/BaseTextMeshProEffect.cs` — `OnDisable` comment now says it clears unconditionally (no dirty check).
+- **TXT-31** `Text Effects/TextEffectsController.cs` — comment now matches the `!=` guard (was "always true").
+- **TXT-32** `Text Effects/TextFader/GradientArea.cs` — conical-gradient stub note clarified (falls back to linear; Conical is the default mode).
+- **TXT-33** `Scene Set/RuntimeSceneSet.cs` — BroadcastMessage docs de-copied from `GameObject.BroadcastMessage` (correct `methodName`/`parameter` params); `IsCurrentlyUniquelyLoaded` now notes it's order-sensitive (SequenceEqual).

@@ -582,10 +582,6 @@ TWN-8. `Types/FloatTween.cs:24-36` — additionally redeclares `new OnStart` + o
 TWN-9. `Types/Base/TypeTween.cs:155,163` — `AnimationCurve.Linear(0,0,1,1)` allocated on every default Tween; cache a static readonly.
 TWN-10. `TweenProperties.cs:5-11` — `setStartValue`/`setEasingCurve` flags never set by the ctors → the dispatch always takes the `!setStartValue` branch (start-value ctors ignored).
 
-### Misleading / incorrect comments
-TWN-11. `Types/Base/TypeTween.cs:135,192` — "The easing curve fro the tween" (typo "fro").
-TWN-12. `Types/Base/TypeTween.cs:124-191` — `<param>` tags document `myTargetTime` but the param is `myTweenTime`.
-
 ### Tidying
 TWN-13. `Types/Editor/FloatTweenDrawer.cs:46-73` — large commented-out block incl. a `Debug.Log`.
 TWN-14. `Types/Editor/TimerDrawer.cs:17-40` — commented-out rect/PropertyField lines.
@@ -746,3 +742,5 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **EAS-12** `FloatMoveTowardsEaser.cs` / `FloatSmoothStepDamper.cs` — `ToString` labels fixed to the real type names (were "[BaseEaser]").
 - **EAS-13** `MoveTowards/MoveTowardsEaser.cs` — summary now says it wraps `MoveTowards` (was copied "SmoothDamp" text).
 - **EAS-14** `SmoothDamp/SpringDamper.cs` — softened the "This is always smooth!" claim (fixed step trades exactness for stability).
+- **TWN-11** `Types/Base/TypeTween.cs` — typo "fro" → "for" in the easing-curve param docs (2 sites).
+- **TWN-12** `Types/Base/TypeTween.cs` — `<param>` tags renamed `myTargetTime` → `myTweenTime` to match the signatures (4 sites).

@@ -531,12 +531,6 @@ SPR-4. `Spring.cs:213-231,431-480` — large block of near-identical 3-line forw
 SPR-5. `Editor/SpringPropertyDrawer.cs:22-60` — `OnGUI` and `Draw` almost identical; `:330-348` — `DrawYMinMaxScaleLabels`/`DrawXScaleLabel`/`DrawYAxisLabel` unused.
 SPR-6. `Editor/SpringContextMenuPresets.cs:1` — unused `using System.Collections;`.
 
-### Misleading / incorrect comments
-SPR-7. `Spring.cs:33-34` — two adjacent lines describe `_response` inconsistently (oscillation vs stiffness).
-SPR-8. `Spring.cs:311-312,381` — "using a high epsilon" but the value passed is `0.0000001f` (very tight).
-SPR-9. `Spring.cs:385` — "Get the settling duration" doc copy-pasted onto `IsDone` (returns bool).
-SPR-10. `Spring.cs:188,257` — "frequency of damped oscillation" on `omegaD` in the *overdamped* branch (overdamped doesn't oscillate).
-
 ### Tidying
 SPR-11. Pervasive "oscellate"/"oscellation" (→ oscillate); "Contructors" (82); "my be specified" (117,125).
 SPR-12. `Spring.cs:183-184` — commented-out alternative velocity formula; `:261` — un-indented comment.
@@ -750,3 +744,7 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **STR-13** `Island/OutlineDetector.cs` — reworded the "safe while loop" comment to warn the 1000-cap can return a partial outline.
 - **STR-14** `Island/OutlineDetector.cs` — moved the algorithm-description comment to before the loop it describes.
 - **STR-15** `Island/OutlineDetector.cs` — `GetOutlineCoords` doc now describes the signed ring distance (0 = edge, + = outside, − = inside).
+- **SPR-7** `Spring.cs` — merged the two inconsistent `_response` comments into one (period-of-oscillation / stiffness-as-duration).
+- **SPR-8** `Spring.cs` — "high epsilon" corrected to "very tight epsilon (1e-7)".
+- **SPR-9** `Spring.cs` — `IsDone` comment fixed (returns whether settled; was "Get the settling duration").
+- **SPR-10** `Spring.cs` — the overdamped-branch `omegaD` comments no longer call it "frequency of damped oscillation" (overdamped springs don't oscillate).

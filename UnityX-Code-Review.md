@@ -69,21 +69,6 @@ UI-52. `AlphaHitTestThresholdSetter.cs:9` — per-frame `GetComponent` in a gett
 UI-53. `Swipe View UI/SwipeView.cs:154` — `OnEnable` doesn't call `base.OnEnable()`. Harmless in practice (its base `UIBehaviour.OnEnable` is an empty stub) but deviates from Unity's convention.
 UI-54. `SLayout/SLayout.cs:809-817` — `GetPivotPos` duplicates inline pivot math.
 
-### Misleading / incorrect comments
-UI-55. `AbsoluteRectTransformController.cs:55` — "Parent … is not null!" warning is logically inverted.
-UI-56. `CarouselUIView.cs:44` — "shortest difference between two values" describes a 4-arg `SignedDeltaRepeating`.
-UI-57. `Draggable/Draggable.cs:51-53,66-69` — both axis fields documented as "The drag velocity."
-UI-58. `Draggable/MultitouchDraggable.cs:9,164` — contradictory/stale "comment out the marked line" notes.
-UI-59. `Draggable/MultitouchDraggable*.cs` — `<param name="scaleFactor">` docs a param actually named `newScale`.
-UI-60. `ExtendedScrollRect/ExtendedScrollRect.cs:47,58-61` — "uses this component's rect transform if none specified" (no fallback); self-contradicting comment block.
-UI-61. `Line/AdvancedUILine.cs:262-277,193-200` — `GetEdgeCenter` doc copied from `GetEdge`; `edgeDistance` param doesn't exist; "0,120,240" pasted twice.
-UI-62. `Line/UILineRenderer.cs:9` — stale "set to Internal" comment from the UGUI original.
-UI-63. `UI Imposter/UIImposterRenderer.cs:173` — "This is optional" but always destroys.
-UI-64. `SLayout/SLayout.cs:14-19` — "does two things:" then lists three.
-UI-65. `SLayout/SAnimatedProperty.cs:5-8` — duplicated phrase "for a single property … for a single property."
-UI-66. `SLayout/SLayout.cs:233-257` — caching lines commented out (re-fetches every access) but backing fields + invalidation remain; `canvasWidth` claims scaling-awareness not implemented.
-UI-67. `SLayout/SLayout.cs:885-886` — "seems not to work… commented out" but `CanvasToSLayoutSpace` is live.
-
 ### Tidying
 UI-68. `Background Blur UI/BackgroundBlurUI.cs:149` — double semicolon `new Color[size];;`.
 UI-69. Unused usings: `UIMonoBehaviour.cs:2`, `MarkLayoutElementForRebuild.cs`, `SLayoutCanvasTimeScalar.cs`.
@@ -772,5 +757,16 @@ XC-9. **Typos baked into public API names**: `CameraX` "frustrum" (~14 methods),
 ## ✅ Done (branch `unityx-updates`)
 
 Completed findings, moved out of the sections above. IDs are the original finding IDs (stable). Notes call out anything noteworthy discovered during implementation.
-
-### Misleading / incorrect comments
+- **UI-55** `AbsoluteRectTransformController.cs` — fixed the inverted warning ("is not null!" → "is null (expected a RectTransform parent)!").
+- **UI-56** `CarouselUIView.cs` — `SignedDeltaRepeating` comment now describes the 4-arg signed-shortest-delta-within-range behaviour.
+- **UI-57** `Draggable.cs` — the two axis fields now document translate vs rotate axes (both previously said "The drag velocity").
+- **UI-58** `MultitouchDraggable.cs` — unified the contradictory multitouch-test notes under a shared `[multitouch-test]` marker.
+- **UI-59** `MultitouchDraggable.cs` — `ScaleAround` param doc renamed `scaleFactor` → `newScale` to match the signature.
+- **UI-60** `ExtendedScrollRect.cs` — dropped the false "uses this component's rect transform if none specified" claim; de-contradicted the `contentBounds` comment block.
+- **UI-61** `AdvancedUILine.cs` — rewrote `GetEdgeCenter`/`GetEdgeCenters` docs (removed copied "diagonal" text + nonexistent `edgeDistance` param) and fixed the duplicated "0,120,240" comment on `GetVertexDegreesInternal`.
+- **UI-62** `UILineRenderer.cs` — clarified the "copied from UGUI (type is internal)" note.
+- **UI-63** `UIImposterRenderer.cs` — removed the misleading "This is optional" (both branches always destroy).
+- **UI-64** `SLayout.cs` — "does two things" → "three things".
+- **UI-65** `SAnimatedProperty.cs` — removed the duplicated "for a single property" phrase (and "an instances" → "an instance").
+- **UI-66** `SLayout.cs` — `canvasWidth` doc no longer claims scaling-awareness (returns raw rect width). *Note:* the disabled (commented-out) `rootCanvas`/`canvas` caching is a behavioural choice, left as-is.
+- **UI-67** `SLayout.cs` — corrected the `CanvasToSLayoutSpace` comment that claimed it was "commented out" (it's live); kept the known-limitation warning.

@@ -354,15 +354,6 @@ GRID-30. `Grid 2D/Grid/SquareGridAgent.cs` & `RadialGridAgent.cs` — duplicated
 GRID-31. `Grid 2D/Map Types/Grid.cs:252-260`, `Grid3D.cs:203` — `Filter(Filter(list, IsOnGrid))` double-wrap (outer no-op copy).
 GRID-32. `UnityEditorX/HandlesX.cs:66-149` — `DrawWheelHandle` commented-out `Handles.matrix` lines + `Debug.Log` remnants.
 
-### Misleading / incorrect comments
-GRID-33. `Grid 2D/Map Types/TypeMap.cs:225-231` (& `Grid 3D/TypeMap3D.cs:187-193`) — Resize doc mentions "entities" that don't exist; unconditional `DebugX.LogList(values)` on every resize.
-GRID-34. `Grid 2D/Map Types/Grid.cs:8-9` — class doc claims "(0,1) on X, Y and Z" but it's a 2D grid.
-GRID-35. `Grid 2D/Map Types/TypeMap.cs:189` — commented-out `return` in a `void` method.
-GRID-36. `HeightMapMeshGenerator.cs:347,619` — "UVS ARNT PERFECT" / "This is weird? Look into this later."
-GRID-37. `Grid.cs` — several XML `<param>` names copy-pasted wrong (e.g. `:333`, `:128`).
-GRID-38. `UnityEditorX/…/ScenePathDrawer.cs:21` — "Use Object type instead" but the drawer requires a string.
-GRID-39. `UnityEditorX/AssetDatabaseX.cs:156` — orphan stray comment.
-
 ### Tidying
 GRID-40. Leftover `DebugX.LogList(values)` on every `Resize`: `TypeMap.cs:233`, `TypeMap3D.cs:195`.
 GRID-41. `UnityEditorX/Editor/HierarchyX.cs:9-26` — menu "Collapse All" doesn't collapse anything; dead reflection lookup (15).
@@ -760,3 +751,10 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **GEO-34** `Polygon/Polygon.cs` — `AngleValue` doc rewritten (removed the tautology comparing identical arg sets).
 - **GEO-35** `Polygon/Polygon.cs` — removed the false "return 360" comment on the degenerate case (value `360f/9f` left unchanged — behavioural).
 - **GEO-36** `Point/PointRect.cs` — `ClampPoint` param docs fixed (were `<param name="r">The red component.</param>`).
+- **GRID-33** `TypeMap.cs` & `TypeMap3D.cs` — Resize doc no longer references nonexistent "entities" ("does not raise OnChangeGridPoint callbacks"). *(The unconditional `DebugX.LogList` on resize is a separate tidying item.)*
+- **GRID-34** `Grid 2D/Map Types/Grid.cs` — class doc corrected to "X and Y axes" (was "X, Y and Z").
+- **GRID-35** `TypeMap.cs` — removed the commented-out `return` in the `void SetValuesAtGridPosition`.
+- **GRID-36** `HeightMapMeshGenerator.cs` — reworded the two informal notes into proper `//TODO` comments.
+- **GRID-37** `Grid.cs` — no change needed: the `<param>` names at the cited anchors actually match their signatures (descriptions are terse but not wrong).
+- **GRID-38** `ScenePathDrawer.cs` — error message now says "use a string field" (the drawer requires a string, not an Object).
+- **GRID-39** `AssetDatabaseX.cs` — removed the orphan stray `// Texture2D.CreateExternalTexture()` comment.

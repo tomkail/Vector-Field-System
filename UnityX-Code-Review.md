@@ -508,6 +508,7 @@ STR-9. `Island/OwnedIslandDetector.cs:15` — redundant `this.GetAdjacentPoints 
 STR-10. `Island/OwnedIslandDetector.cs` vs `IslandDetector.cs` — `*WithSameOwner` methods are near-verbatim copies + owner check; base could expose a virtual `shouldConnect` predicate.
 STR-11. `Island/IslandDetector.cs:9-11` — static scratch collections should be instance fields.
 STR-12. `Island/OutlineDetector.cs:16-17` — `found = true` set twice (outer is dead).
+STR-20. `Island/IslandDetector.cs` — `islandStartPointsToTest` is a `List<Coord>` seeded with potentially the whole grid (RoadDetector seeds every cell), yet `Remove(point)`/`Contains` (and any `RemoveAt(0)`-style dequeue) are O(n) → O(n²) overall at grid scale. A `Queue<Coord>` work-list + `HashSet<Coord>` membership would be O(1) per op — and `Dequeue()` structurally prevents the STR-1 peek-not-pop hang. *(New: found while reviewing the STR-1 fix.)*
 
 ### Tidying
 STR-16. `Island/OwnedIsland.cs:14-101` — ~88-line commented-out `OutlineSolver` block.

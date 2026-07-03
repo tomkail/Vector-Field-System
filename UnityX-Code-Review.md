@@ -10,34 +10,7 @@ Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat a
 ## Components / UI (`Scripts/Components/UI/`)
 
 ### Bugs
-UI-1. `Line/AdvancedUILine.cs:392` — `RayAdvancedUILineIntersection` returns `crossings > 0 && crossings % 2 == 0` (inverted; a hit is odd) → stale/zeroed intersection point.
-UI-2. `Line/AdvancedUILine.cs:533-550` — `FindClosestPointOnAdvancedUILine` sets `closestPoint = point` (query point) instead of `currentPoint` → returns input unchanged.
-UI-3. `Line/AdvancedUILine.cs:104-128` — `Scale(…)` overloads discard `Vector2.Scale` return → no-op; length-mismatch guard logs then falls through and index-throws.
-UI-4. `Line/AdvancedUILine.cs:659-661` — `GetHashCode` uses reference hash while `Equals`/`==` use `SequenceEqual` → contract violation.
-UI-5. `Line/AdvancedUILineRenderer.cs:253-261` — `(byte)(color.a * alpha * 255f)` overflows (`color.a` already 0–255); outer-fade branch writes `color1.a`/`color4.a` instead of `color2.a`/`color3.a`.
-UI-6. `Polygon/UIPrimitiveBase.cs:231,255-291` — `MapCoordinate` multiplies by rect size while `IsRaycastLocationValid` divides by sprite size → double-scaled alpha-test coordinate.
-UI-7. `AbsoluteRectTransformController.cs:59-70` — passes camera only for `ScreenSpaceCamera`; `WorldSpace` canvases get a null camera → wrong placement. (The `parent == null` check at 54 is fine; only its warning message at 55 is logically inverted.)
-UI-8. `Background Blur UI/BackgroundBlurUI.cs:118` — integer `blurRadius/3` → sigma 0 → NaN weights; radius ≤ 2 disables the graphic (131).
-UI-9. `CanvasGroupOpacityInteractionEnabler.cs:20-28` — `Update` and `OnCanvasGroupChanged` early-out on opposite `ignoreParentGroups` values → direct alpha change never reflected.
-UI-10. `CarouselUIView.cs:19` — `index %= canvasGroups.Count` with no empty guard → DivideByZero on empty carousel.
-UI-11. `UIMonoBehaviour.cs:11-15` — `rootCanvas` derefs `canvas.rootCanvas` with no null check → NRE when not under a Canvas.
-UI-12. `Draggable/Draggable.cs:265` — `OnPointerClick` defined but class doesn't implement `IPointerClickHandler` → `OnClicked` never fires.
-UI-13. `Draggable/Draggable.cs:170-174` — `GetPosition` derefs Canvas with no null check.
-UI-14. `Draggable/Draggable.cs:136-144` — revert sets `dragTargetPosition = m_PointerStartLocalCursor` instead of `m_ContentStartPosition` → snaps to cursor.
-UI-15. `Draggable/MultitouchDraggable.cs:128-145` — duplicate `pointerId` path doesn't track the new input → later "input tracker not found"; `pointerStartLocalCursor` unused.
-UI-16. `Draggable/MultitouchDraggable.cs:68` — `GetComponentInParent<Canvas>().rootCanvas.worldCamera` unguarded → NRE per LateUpdate.
-UI-17. `ExtendedScrollRect/ExtendedScrollRect.cs:243,249,265,282,304,320` — unguarded `transform.parent` deref → NRE for a root ScrollRect.
-UI-18. `ExtendedScrollRect/ExtendedScrollRect.cs:80` — divides by `_freeMovementSize` with no zero guard → NaN when content fits.
-UI-19. `Grid Layout/GridLayoutApplier.cs:49` — `XAxis` fill passes Y cell count as `numCellsX`; 0 children → negative coords/cell count.
-UI-20. `Grid Layout/GridLayoutItem.cs:28` — `Refresh()` derefs public `gridLayout` field with no null check → NRE per frame.
-UI-21. `Grid Layout/GridLayout.cs:79` — both axes `AspectRatio` → `GetItemSize()` returns 0 → divide-by-zero in `CalculateCellCount` (280).
-UI-22. `ExtendedCanvasScaler/ExtendedCanvasScaler.cs:12-13` — `ScreenDPI` setter ignores `value`, writes `Screen.dpi`.
-UI-23. `UI Imposter/UIImposterRenderer.cs:82` (via `UIImposter.cs:24`) — `target.GetComponentInParent<Canvas>().rootCanvas` unguarded → NRE per frame.
-UI-24. `Saturation UI/UISaturationEffect.cs:22-29` — `new Material(matPrefab)` never destroyed → leak per `OnEnable`/domain reload.
-UI-25. `WorldSpaceUIElement/WorldSpaceUIElement.cs:13-19` — the `worldCamera` getter falls back to `Camera.main` when unset (intentional), but it does so by writing the serialized `_worldCamera` field from a getter and `Debug.Log`ing on every access while null → console flood + serialized-value churn. Fix: return the `Camera.main` fallback into a non-serialized runtime cache (don't assign `_worldCamera`) and drop the per-access log.
-UI-26. `WorldSpaceUIElement/WorldSpaceUIElement.cs:248` — `onScreen` compares a `parentRT`-local position against `rootCanvasRT.rect` → mismatched spaces.
-UI-27. `Swipe View UI/SwipeView.cs:424` — `GetNormalizedProgress()` divides by `pages.Count - 1` → NaN/Inf for 1 page, /−1 for 0.
-UI-28. `Swipe View UI/Editor/SwipeViewEditor.cs:64` — `BeginChangeCheck()` with no matching `EndChangeCheck()`.
+*(All UI bugs UI-1 … UI-28 fixed — see the `## ✅ Done` section.)*
 
 ### Unity-native duplication
 UI-29. `UIGradient.cs:228-230` — `Mathf.Pow(x,2f)` for squaring; duplicates a magnitude/`Sqrt(dx*dx+dy*dy)`.
@@ -655,6 +628,36 @@ XC-9. **Typos baked into public API names**: `CameraX` "frustrum" (~14 methods),
 ## ✅ Done (branch `unityx-updates`)
 
 Completed findings, moved out of the sections above. IDs are the original finding IDs (stable). Notes call out anything noteworthy discovered during implementation.
+
+### Bugs
+- **UI-1** `Line/AdvancedUILine.cs` — `RayAdvancedUILineIntersection` now returns `crossings > 0`. *Note:* the review suggested `% 2 == 1`, but this is a ray *intersection* (returns the closest hit point), not a point-in-polygon parity test — an external ray through a convex shape crosses twice (even) yet clearly hit, so "any crossing" is the correct semantic.
+- **UI-2** `Line/AdvancedUILine.cs` — `FindClosestPointOnAdvancedUILine` now stores `currentPoint` (the computed point on the edge) instead of `point` (the query), which had made it return the input unchanged.
+- **UI-3** `Line/AdvancedUILine.cs` — both static `Scale` overloads now assign the `Vector2.Scale` result back into the vertex (was a discarded no-op); the length-mismatch guard now `return`s the unscaled copy after logging instead of falling through to an index-out-of-range throw.
+- **UI-4** `Line/AdvancedUILine.cs` — `GetHashCode` is now a content-based hash consistent with `Equals`/`==` (which use `SequenceEqual`); was returning the array reference hash.
+- **UI-5** `Line/AdvancedUILineRenderer.cs` — dropped the spurious `* 255f` (the `Color32.a` is already 0–255, so it overflowed the `byte` cast); the outer-fade branch now reads/writes `color2.a`/`color3.a` (the outer verts) instead of `color1.a`/`color4.a`.
+- **UI-6** `Polygon/UIPrimitiveBase.cs` — `MapCoordinate` now scales `local` into sprite-rect space (`local * spriteRect / rect`, mirroring Unity's `Image`) so the caller's divide-by-sprite-size normalises to 0..1; was multiplying by rect size → double-scaled alpha-test coordinate.
+- **UI-7** `AbsoluteRectTransformController.cs` — `ScreenPointToLocalPointInRectangle` now passes the camera for both `ScreenSpaceCamera` and `WorldSpace` (only `ScreenSpaceOverlay` uses null); WorldSpace canvases were getting a null camera.
+- **UI-8** `Background Blur UI/BackgroundBlurUI.cs` — `sigma` now uses float division (`blurRadius/3f`); integer division gave sigma 0 for small radii → NaN Gaussian weights (and the radius≤2 self-disable).
+- **UI-9** `CanvasGroupOpacityInteractionEnabler.cs` — removed the opposite-`ignoreParentGroups` early-outs in `Update`/`OnCanvasGroupChanged`; both now call `Refresh()` (which already branches on the flag internally), so a direct alpha change is always reflected.
+- **UI-10** `CarouselUIView.cs` — `GetActiveItem` now returns null on an empty carousel instead of `%`-dividing by zero.
+- **UI-11** `UIMonoBehaviour.cs` — `rootCanvas` now null-checks `canvas` before dereferencing `rootCanvas`.
+- **UI-12** `Draggable/Draggable.cs` — the class now implements `IPointerClickHandler`, so `OnPointerClick`/`OnClicked` actually fire.
+- **UI-13** `Draggable/Draggable.cs` — `GetPosition` now null-checks the canvas (returns `transform.position` if none).
+- **UI-14** `Draggable/Draggable.cs` — revert now restores `m_ContentStartPosition` instead of `m_PointerStartLocalCursor` (was snapping to the cursor).
+- **UI-15** `Draggable/MultitouchDraggable.cs` — removed the two dead `pointerStartLocalCursor` locals; the misleading "input tracker was found" warning now only fires in real builds (`#else`), where a duplicate pointer is genuinely anomalous — the editor test path already adds the new input.
+- **UI-16** `Draggable/MultitouchDraggable.cs` — `LateUpdate` now null-checks the parent canvas before dereferencing `rootCanvas.worldCamera`.
+- **UI-17** `ExtendedScrollRect/ExtendedScrollRect.cs` — a root ScrollRect (no parent) no longer NREs: the always-route sites (`OnInitializePotentialDrag`/`OnScroll`) guard `transform.parent`, and the "route to parent" flags are only set when a parent exists, which makes the downstream `OnEndDrag`/`OnDrag` sites safe.
+- **UI-18** `ExtendedScrollRect/ExtendedScrollRect.cs` — `normalizedContentOffset` returns 0 per-axis when `freeMovementSize` is 0 (content fits) instead of dividing to NaN/Inf.
+- **UI-19** `Grid Layout/GridLayoutApplier.cs` — auto-fill guards the 0-children case (`numValidChildren - 1 == -1` gave a negative cell count). *Note:* the review also claimed the `XAxis` branch passes the Y cell count as `numCellsX` "wrongly" — it's actually correct: it's a transposed computation via `ArrayIndexToGridCoord`, symmetric with the `YAxis` branch. Left as-is.
+- **UI-20** `Grid Layout/GridLayoutItem.cs` — `Refresh()` now returns early if the `gridLayout` field is null.
+- **UI-21** `Grid Layout/GridLayout.cs` — `CalculateCellCount` returns 0 for a non-positive item size (e.g. both axes set to `AspectRatio` → `GetItemSize()` 0) instead of dividing by `(0 + spacing)`.
+- **UI-22** `ExtendedCanvasScaler/ExtendedCanvasScaler.cs` — the `ScreenDPI` setter now writes `value` (was ignoring it and re-writing `Screen.dpi`).
+- **UI-23** `UI Imposter/UIImposterRenderer.cs` — `Render` now null-checks the target's parent canvas (returns early) before dereferencing `rootCanvas`.
+- **UI-24** `Saturation UI/UISaturationEffect.cs` — added `OnDisable` that restores the graphic material and destroys the runtime-created `Material` clone (Destroy/DestroyImmediate per play state), matching the `BackgroundBlurUI` pattern; was leaking the material.
+- **UI-25** `WorldSpaceUIElement/WorldSpaceUIElement.cs` — the `worldCamera` getter now caches the `Camera.main` fallback in a `[NonSerialized]` runtime field and no longer logs on every access, ending the console flood + serialized-value churn.
+- **UI-26** `WorldSpaceUIElement/WorldSpaceUIElement.cs` — `onScreen` now converts the parent-local `targetPosition` into `rootCanvasRT`-local space before the `rect.Contains` test (was comparing mismatched spaces).
+- **UI-27** `Swipe View UI/SwipeView.cs` — `GetNormalizedProgress()` returns 0 for ≤1 pages instead of dividing by `pages.Count - 1` (NaN/Inf for 1 page, negative for 0).
+- **UI-28** `Swipe View UI/Editor/SwipeViewEditor.cs` — removed the stray `EditorGUI.BeginChangeCheck()` that had no matching `EndChangeCheck()` (unbalanced change-check stack; its result was never read).
 
 ### Misleading / incorrect comments
 - **UI-55** `AbsoluteRectTransformController.cs` — fixed the inverted warning ("is not null!" → "is null (expected a RectTransform parent)!").

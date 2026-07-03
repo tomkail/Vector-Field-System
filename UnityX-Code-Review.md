@@ -479,13 +479,6 @@ SYS-18. `FlagsX.cs:14-125` — two parallel families (raw-int vs generic enum) w
 SYS-19. `StringX.cs:67-114` — `Before`/`BeforeLast`/`AfterFirst`/`After` share structure but mix Ordinal vs culture-sensitive comparison.
 SYS-20. `SystemX.cs:25-81` — `OpenInMacFileBrowser`/`OpenInWinFileBrowser` near-identical.
 
-### Misleading / incorrect comments
-SYS-21. `StringX.cs:65,76,87` — `Before`/`BeforeLast`/`AfterFirst` all say "Get string value after…".
-SYS-22. `ByteFormatter.cs:8-9` — "1 Indexed. 3 is MB" wrong (SI is 0-indexed, MB is index 2); `FromToSize` stub dead.
-SYS-23. `BoolX.cs:8-18` — `ToBool` param doc "_bool" (param is `_int`); `ToInt` returns "The bool.".
-SYS-24. `EnumX.cs:82-101` — `GetEnumerable` doc says "Returns an array" but returns `IEnumerable<T>`.
-SYS-25. `EnumX.cs:24-75` — exception message "Argument {0} is not an Enum " never `string.Format`'d (prints literally).
-
 ### Tidying
 SYS-26. `EnumX.cs:37,49,61,75` — `throw new (...)` (target-typed `new` with no target type) — flagged as possibly non-compiling; likely only inert because inside the `#if !UNITY_WINRT` guard. **Worth confirming against the Unity console.**
 SYS-27. `ByteFormatter.cs:8` — commented-out `FromToSize` stub.
@@ -754,3 +747,8 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **TXT-31** `Text Effects/TextEffectsController.cs` — comment now matches the `!=` guard (was "always true").
 - **TXT-32** `Text Effects/TextFader/GradientArea.cs` — conical-gradient stub note clarified (falls back to linear; Conical is the default mode).
 - **TXT-33** `Scene Set/RuntimeSceneSet.cs` — BroadcastMessage docs de-copied from `GameObject.BroadcastMessage` (correct `methodName`/`parameter` params); `IsCurrentlyUniquelyLoaded` now notes it's order-sensitive (SequenceEqual).
+- **SYS-21** `StringX.cs` — `Before`/`BeforeLast`/`AfterFirst` summaries corrected (all previously said "Get string value after…").
+- **SYS-22** `ByteFormatter.cs` — fixed the "1 Indexed. 3 is MB" comment (SI is 0-indexed; MB = 2). *(The commented-out `FromToSize` stub is a separate tidying item.)*
+- **SYS-23** `BoolX.cs` — `ToBool` param doc fixed to `_int` (was `_bool`). *(`ToInt`'s docs were already correct, contrary to the finding.)*
+- **SYS-24** `EnumX.cs` — `GetEnumerable` doc no longer says "array" (returns `IEnumerable<T>`).
+- **SYS-25** `EnumX.cs` — the 5 "Argument {0} is not an Enum" exception messages no longer contain an unformatted `{0}` (now "Argument is not an Enum: <type>").

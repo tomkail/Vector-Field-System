@@ -661,6 +661,8 @@ XC-9. **Typos baked into public API names**: `CameraX` "frustrum" (~14 methods),
 ## ✅ Done (branch `unityx-updates`)
 
 Completed findings, moved out of the sections above. IDs are the original finding IDs (stable). Notes call out anything noteworthy discovered during implementation.
+
+### Misleading / incorrect comments
 - **UI-55** `AbsoluteRectTransformController.cs` — fixed the inverted warning ("is not null!" → "is null (expected a RectTransform parent)!").
 - **UI-56** `CarouselUIView.cs` — `SignedDeltaRepeating` comment now describes the 4-arg signed-shortest-delta-within-range behaviour.
 - **UI-57** `Draggable.cs` — the two axis fields now document translate vs rotate axes (both previously said "The drag velocity").

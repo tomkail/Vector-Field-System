@@ -394,12 +394,6 @@ ACS-18. `Algorithms/Noise/SimplexNoiseGenerator.cs:39-88` — `Generate`/`Genera
 ACS-19. `Camera/Camera Properties/CameraProperties.cs:607-620` — `GetHashCode` multiplies each field hash → zero-hash field zeroes all.
 ACS-20. `Camera/Shots/CameraShotGeneratorTools.cs:144-181` & `CameraProperties.cs:422-432` — sizeable commented-out blocks.
 
-### Misleading / incorrect comments
-ACS-21. `Camera/Shots/CameraShotTools.cs:24-50` — `...InScreenSpace...` methods actually return world-space (`ViewportToWorldPoint`).
-ACS-22. `Camera/Shots/CameraShotGeneratorTools.cs:87-96` — corner "Top"/"Bottom" naming inverted.
-ACS-23. `Camera/Camera Properties/CameraProperties.cs:200-206` — `halfHeight` actually holds the full frustum height.
-ACS-24. `Spline System/SplineBezierPoint.cs:39,68` — "lerp" comment on a `Slerp`.
-
 ### Tidying
 ACS-25. `Camera/Shots/CameraShotGeneratorTools.cs:249` — `Debug.LogWarning` fires every call in the shot hot path.
 ACS-26. `Camera/Camera Properties/CameraModifierZone.cs:33-36` — empty `if(!isPlaying){}else{...}`.
@@ -758,3 +752,7 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **GRID-37** `Grid.cs` — no change needed: the `<param>` names at the cited anchors actually match their signatures (descriptions are terse but not wrong).
 - **GRID-38** `ScenePathDrawer.cs` — error message now says "use a string field" (the drawer requires a string, not an Object).
 - **GRID-39** `AssetDatabaseX.cs` — removed the orphan stray `// Texture2D.CreateExternalTexture()` comment.
+- **ACS-21** `Camera/Shots/CameraShotTools.cs` — added a note that the `...InScreenSpace...` methods return WORLD-space (public method names kept — portable API).
+- **ACS-22** `Camera/Shots/CameraShotGeneratorTools.cs` — `GetVerticesFromTransform` Top/Bottom locals de-inverted (value-preserving; return-array order unchanged).
+- **ACS-23** `Camera/Camera Properties/CameraProperties.cs` — misleading `halfHeight`/`halfWidth` locals renamed `fullHeight`/`fullWidth` (they hold the full frustum size due to the `* 2`).
+- **ACS-24** `Spline System/SplineBezierPoint.cs` — "This lerp" comments corrected to "This slerp" (both sites use `Vector3.Slerp`).

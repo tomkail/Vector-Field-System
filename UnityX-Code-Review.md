@@ -123,13 +123,6 @@ CMP-29. `CoroutineHelper.cs:28-82` — `Execute`/`Delay`/`DelayRealtime`/`DelayF
 CMP-30. `EnforceDecendentGameObjectProperties/Editor/…:11,16` — `EnforceProperties()` runs on `OnEnable` and every `OnInspectorGUI`, re-walking the subtree and writing tag/layer/isStatic every repaint. Drive it from state changes instead: `OnValidate` on the component, the existing `OnTransformChildrenChanged`, and the save-time processor (drop the per-`OnInspectorGUI`/`OnEnable` calls).
 CMP-31. `Region/Editor/RegionEditor.cs:117-141` — `CreatePolygonMesh` duplicates double-sided mesh construction in `Region.cs`.
 
-### Misleading / incorrect comments
-CMP-32. `Input/Gestures/Pinch.cs:18` — "sum of the delta of both fingers" but code computes a dot-product projection.
-CMP-33. `Input/InputPoints/Finger.cs:8-10` — "index 0 is the active touch" but `fingerArrayIndex` is plain enumeration order.
-CMP-34. `PolygonRenderer/LineDraw.cs:11-12` — miter-limit comment attached to the `closed` bool.
-CMP-35. `CoroutineHelper.cs:48` — example `Delay(1.0f, Method())` but signature is `Delay(Action, float)`.
-CMP-36. `Render Texture Creator/RenderTextureCreator.cs:34` — presents the `UnityStats.screenRes` hack as simply "necessary".
-
 ### Tidying
 CMP-37. Large commented-out blocks: `Input/TouchInputSimulator.cs:9-179`; `PolygonRenderer/PolygonOutlineRenderer.cs` (11-23, 89-160, 216-233); `PolygonRenderer/PolygonRenderer.cs` (55-84, 158-194); `PolygonRenderer/LineDraw.cs` (58-66, 200-219); `TextMeshPro/TextBackgroundHighlightEffect.cs:50-145`; `Input/Gestures/Pinch.cs:91-113`; `InputX.cs`; misc in `ScriptableSingleton.cs`, `CoroutineHelper.cs`, `Transform/LockTransform/Editor/…`, `EnforceDecendent…cs:39-46`, `FPSManager.cs:28`, `RenderTextureCreator.cs:32,67`.
 CMP-38. Typo "Decendent" → "Descendent" throughout the `EnforceDecendentGameObjectProperties` folder (folder/file/class names).
@@ -770,3 +763,8 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **UI-65** `SAnimatedProperty.cs` — removed the duplicated "for a single property" phrase (and "an instances" → "an instance").
 - **UI-66** `SLayout.cs` — `canvasWidth` doc no longer claims scaling-awareness (returns raw rect width). *Note:* the disabled (commented-out) `rootCanvas`/`canvas` caching is a behavioural choice, left as-is.
 - **UI-67** `SLayout.cs` — corrected the `CanvasToSLayoutSpace` comment that claimed it was "commented out" (it's live); kept the known-limitation warning.
+- **CMP-32** `Input/Gestures/Pinch.cs` — `deltaPinch` comment now describes the projected-onto-center-direction sum (was "sum of the delta of both fingers").
+- **CMP-33** `Input/InputPoints/Finger.cs` — `fingerArrayIndex` comment corrected to "enumeration order" (was "index 0 is the active touch").
+- **CMP-34** `PolygonRenderer/LineDraw.cs` — `closed` field comment fixed (was a copy of the `miterLimit` comment).
+- **CMP-35** `CoroutineHelper.cs` — usage example corrected to `Delay(Method, 1.0f)` matching the `Delay(Action, float)` signature.
+- **CMP-36** `Render Texture Creator/RenderTextureCreator.cs` — comment now points at the real fix (`Handles.GetMainGameViewSize()`) instead of calling the `UnityStats.screenRes` hack "necessary".

@@ -292,53 +292,9 @@ GEO-43. `Point/PointRect.cs` — inconsistent namespacing: `Line`/`Polygon`/`Poi
 
 ## Extensions / Grid + UnityEditorX (`Scripts/Extensions/Grid/`, `Scripts/Extensions/UnityEditorX/`)
 
-### Bugs
-GRID-1. `Grid 3D/Grid3D.cs:150` — `ClampGridPoint` clamps z from `y` (`z = Clamp(y, minZ, maxZ)`).
-GRID-2. `Grid 3D/Grid3D.cs:70,213,227` — forward `GridPointToArrayIndex` is x-major but inverse `ArrayIndexToGridPoint` is z-major → round-trips scatter values on non-cubic grids.
-GRID-3. `Grid 3D/Point3.cs:98` — `ToString()` prints `"Z: " + y`.
-GRID-4. `Grid 3D/Point3.cs:109-115` — `normalized` and `sqrMagnitude` return `1` (stubs); `magnitude` returns squared magnitude.
-GRID-5. `Grid 3D/Point3.cs:189-198` — `operator ==` uses `ReferenceEquals`/null checks on a struct.
-GRID-6. `Grid 2D/Map Types/Grid.cs:99,321` — `ArrayIndexToGridPoint` uses float math (`FloorToInt(index * reciprocal.x)` at :99, `(float)index/width` at :321) → precision loss / off-by-one for large indices. Fix both to direct integer division `index / width`.
-GRID-7. `Grid 2D/Map Types/TypeMap.cs:185-213` — `SetValuesAtGridPosition` whole-number path lacks a `return` → falls through and overwrites with a `default(T)` bilinear splat.
-GRID-8. `Grid 2D/Map Types/TypeMap.cs:279-287` — `GetTrimmed` builds an unused `heightMap`, discards `GetValueAtGridPosition` results, returns the untrimmed expanded map.
-GRID-9. `Grid 2D/Mesh Generator/HeightMapMeshGenerator.cs:166` — skip-zero test indexes `[(z+1)*w + (z+1)]` (uses `z+1` as the column).
-GRID-10. `Grid 2D/Mesh Generator/HeightMapMeshGenerator.cs:546-547,649-650` — edge vertex indexing mixes `sizeMinusOne.y`/`.x` → wrong cells / out of range on non-square maps.
-GRID-11. `Grid 2D/Grid/GridRenderer/GridRenderer.cs:22` — `cellSize` third component uses `1f/gridSize.x` (suspicious copy-paste).
-GRID-12. `Grid 2D/Map Types/Grid.cs:344`, `Grid3D.cs:255` — `Random.Range(0, 1)` (int overload) always returns 0.
-GRID-13. `UnityEditorX/Editor/DeleteEmptyFolders.cs:149` — `.Select(!EndsWith(".meta")).Count()` counts all elements (== `GetFiles().Length`); `.meta` filter lost. Also `GetDirectories(path, string.Empty, …)` — empty pattern returns nothing on some platforms.
-GRID-14. `UnityEditorX/HandlesX.cs:49-55` — `BeginMatrix` pushes `GUI.matrix` but assigns `Handles.matrix`; `EndMatrix` pops into `Handles.matrix` → corrupts state.
-GRID-15. `UnityEditorX/Editor/UGroup.cs:178-180` — Ungroup derefs `parentObject.transform.parent` (null at scene root) → NRE; also uses the grandfather's sibling index (should be the parent's).
-GRID-16. `UnityEditorX/Editor/SelectionX.cs:91,95` — mixes `objects` vs `gameObjects` in `Except` → spurious callbacks; `:128` — `activeObject` setter has no `else` → NRE on null.
-GRID-17. `UnityEditorX/Editor/SerializedPropertyX.cs:160` — `Contains` uses reference equality on boxed objects → fails for value types.
-GRID-18. `UnityEditorX/…/ScenePathDrawer.cs:57` — uses old `property.stringValue` instead of the newly-picked asset path.
-GRID-19. `UnityEditorX/…/SceneDrawer.cs:46-48` — early-return "No Scenes" path leaves `BeginProperty` without `EndProperty`.
-
-### Unity-native duplication
-GRID-20. `UnityEditorX/EditorApplicationX.cs:29-31` — `CombinePaths` calls `Path.Combine` and adds forward-slash normalization; a justified thin wrapper, not a reimplementation. Low value to change.
-GRID-21. `UnityEditorX/AssetDatabaseX.cs:37-53` — `LoadAllAssetsAtPath(folder)` via `FindAssets("")` (non-idiomatic; prefer `FindAssets("t:Object", folders)`).
-GRID-22. `Grid 2D/Map Types/HeightMap.cs:33-55` — `CalculateTotal/Average/Min/Max` wrap LINQ/`Mathf`; the parameterless `CalculateAverageHeight()` (37) is unused in-project (public — may be external API).
-GRID-23. `UnityEditorX/PrimitiveHelper.cs` — standard trick; caches a mesh from a destroyed GO's `sharedMesh` (survives as built-in).
-
 ### Refactoring / dead code
-GRID-24. `Grid 2D/Mesh Generator/HeightMapMeshGenerator.cs` — ~600 lines of near-identical externals/internals × triangles/quad copy-paste.
-GRID-25. `UnityEditorX/Editor/EditorGUILayoutX.cs:266-414` — commented-out property path + dead `DrawPropertyViaReflection`.
-GRID-26. `UnityEditorX/Editor/ExtendedScriptableObjectDrawer.cs:135-255` — `_GUILayout<T>`/`DrawScriptableObjectField<T>` near-identical; the latter's `if(isExpanded){}` body is empty (draws nothing).
-GRID-27. `Grid 2D/Map Types/Vector2Map.cs:113-184` — two large commented-out operator blocks (one references non-existent fields).
-GRID-28. `Grid 3D/Point3.cs:242-482` — ~240 lines of commented-out `Int3`.
-GRID-29. `UnityEditorX/Scene Management/.../SceneDrawer.cs:71-107` + `ScenePathDrawer.cs:81-85` — commented-out `findMethod` + dead `SetSceneNumbers`/`GetSceneIndexes`.
-GRID-30. `Grid 2D/Grid/SquareGridAgent.cs` & `RadialGridAgent.cs` — duplicated enter/exit diffing.
-GRID-31. `Grid 2D/Map Types/Grid.cs:252-260`, `Grid3D.cs:203` — `Filter(Filter(list, IsOnGrid))` double-wrap (outer no-op copy).
-GRID-32. `UnityEditorX/HandlesX.cs:66-149` — `DrawWheelHandle` commented-out `Handles.matrix` lines + `Debug.Log` remnants.
-
-### Tidying
-GRID-40. Leftover `DebugX.LogList(values)` on every `Resize`: `TypeMap.cs:233`, `TypeMap3D.cs:195`.
-GRID-41. `UnityEditorX/Editor/HierarchyX.cs:9-26` — menu "Collapse All" doesn't collapse anything; dead reflection lookup (15).
-GRID-42. `UnityEditorX/Editor/TransformEditorUtils.cs:106-117` — paste validator hotkey mismatch (`%&c` vs `%&v`).
-GRID-43. Commented-out debug lines: `GridRenderer.cs:301,321-365`.
-GRID-44. `UnityEditorX/Editor/ConsoleX.cs:7` — commented `[MenuItem]`; brittle reflection into `LogEntries`.
-GRID-45. `Grid 3D/TypeMap3D.cs:18-19` — `Clear()` then re-allocates `values` (redundant double allocation).
-GRID-46. `Grid 3D/TypeMap3D.cs:9-10` — `values` is `[NonSerialized]` here but serialized in 2D `TypeMap` (inconsistent → subclasses lose data).
-GRID-47. `UnityEditorX/EditorApplicationX.cs:10` — `float.Parse(unityVersion.Substring(0,3))` for Retina detection (culture-dependent, stale `>= 5.4`).
+GRID-24. `Grid 2D/Mesh Generator/HeightMapMeshGenerator.cs` — ~600 lines of near-identical externals/internals × triangles/quad copy-paste. *(Deferred: large mechanical refactor, best done with in-editor compile + visual verification.)*
+GRID-30. `Grid 2D/Grid/SquareGridAgent.cs` & `RadialGridAgent.cs` — duplicated enter/exit diffing. *(Left as-is: both extend MonoBehaviour with no common base; sharing would need an invasive base-class/serialization change for little gain.)*
 
 ---
 
@@ -747,6 +703,44 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **MISC-11** `Property Curve/PropertyCurve.cs` — `RemoveKeysBetween` doc now says "strictly between (exclusive)" to match `IsBetween`.
 - **MISC-12** `Serialized Scriptable Singleton/SerializedScriptableSingleton.cs` — comment corrected to EditorPrefs (PlayerPrefs at runtime).
 - **MISC-13** `Version Control/VersionControlX.cs` — noted the 42-char upper bound is a loose guard (git SHA-1 is 40).
+
+### Grid + UnityEditorX
+- **GRID-1** `Grid3D.ClampGridPoint` — z now clamped from `z` (was `y`).
+- **GRID-2** `Grid3D` — `ArrayIndexToGridPoint` decode is now the exact inverse of the x-major `GridPointToArrayIndex` (`x=idx/(h·d); y=(idx%(h·d))/d; z=idx%d`); static params + the instance / `TypeMap3D.Resize` callers updated to `(height, depth)`. Round-trip verified on non-cubic grids. *(Static param semantics changed — but the old decode was buggy and has no in-project callers.)*
+- **GRID-3** `Point3.ToString` — prints `z` (was `y`).
+- **GRID-4** `Point3` — `sqrMagnitude`=x²+y²+z², `magnitude`=`Sqrt(sqrMagnitude)` (now `float`), `normalized`=`((Vector3)this).normalized` (now `Vector3`), matching the 2D `Point`. *(Return types changed from the broken int stubs; no in-project usages.)*
+- **GRID-5** `Point3.operator==` — value equality (dropped the struct-can't-be-null `ReferenceEquals` checks).
+- **GRID-6** `Grid.ArrayIndexToGridPoint` (instance + static) — integer division `index%width` / `index/width` (was float `FloorToInt`).
+- **GRID-7** `TypeMap.SetValuesAtGridPosition` — added `return` in the whole-number branch (no longer clobbers 3 neighbours with `default(T)`).
+- **GRID-8** `TypeMap.GetTrimmed(Rect,resolution)` — now writes each sample into the trimmed map and returns it (was building an unused map, discarding samples, returning the untrimmed one). *Note:* the sample-position→rect scaling was left as originally written (intent unclear; method has no live callers).
+- **GRID-9** `HeightMapMeshGenerator` — skip-zero test now checks the 4 distinct quad corners (the 2nd term duplicated the 1st; the 4th used `z+1` as the column).
+- **GRID-10** `HeightMapMeshGenerator` — right/front edge vertex indexing now uses the correct axis (`sizeMinusOne.x` column / `.y` row), in range on non-square maps.
+- **GRID-11** `GridRenderer.cellSize` — z-component uses `1f/gridSize.y` (was a copy-paste `.x`).
+- **GRID-12** `Grid`/`Grid3D` `RandomNormalizedPosition` — `Random.Range(0f,1f)` (was int `Range(0,1)` → always 0).
+- **GRID-13** `DeleteEmptyFolders` — `.Where` (was `.Select`, so the `.meta` filter was lost) and `GetDirectories(path,"*",…)` (was `string.Empty`).
+- **GRID-14** `HandlesX.BeginMatrix` — pushes/pops `Handles.matrix` consistently (was pushing `GUI.matrix`).
+- **GRID-15** `UGroup` Ungroup — null-guards the grandparent (scene root) and uses the parent's sibling index (was the grandparent's → NRE / wrong index).
+- **GRID-16** `UnityEditorX/SelectionX` — `Except` now compares objects-with-objects (was mixing `objects`/`gameObjects`); `activeObject` setter added the missing `else` so a null value no longer NREs.
+- **GRID-17** `SerializedPropertyX.Contains` — `object.Equals` value comparison (was reference `==`, which broke value types).
+- **GRID-18** `ScenePathDrawer` — the non-full-path name is now derived from the newly-picked asset (was the stale `property.stringValue`).
+- **GRID-19** `SceneDrawer` — the "No Scenes" early return now calls `EndProperty` (balances `BeginProperty`).
+- **GRID-21** `AssetDatabaseX.LoadAllAssetsAtPath` — `FindAssets("t:Object", …)` (was `FindAssets("")`).
+- **GRID-25** `EditorGUILayoutX` — deleted the commented property-path block + the dead `DrawPropertyViaReflection`.
+- **GRID-26** `ExtendedScriptableObjectDrawer` — filled the empty `if(isExpanded){}` (it drew nothing) with `DrawScriptableObjectChildFields`.
+- **GRID-27** `Vector2Map` — deleted two commented-out operator blocks.
+- **GRID-28** `Point3` — deleted ~240 lines of commented-out `Int3`.
+- **GRID-29** `SceneDrawer`/`ScenePathDrawer` — deleted commented `findMethod` blocks + dead `SetSceneNumbers`/`GetSceneIndexes`.
+- **GRID-31** `Grid`/`Grid3D` — removed the predicate-less outer `Filter(Filter(…))` no-op wrap.
+- **GRID-32** `HandlesX.DrawWheelHandle` — removed commented `Handles.matrix` lines + `Debug.Log` remnants.
+- **GRID-40** `TypeMap`/`TypeMap3D` — removed the leftover `DebugX.LogList(values)` on `Resize`.
+- **GRID-41** `HierarchyX` — "Collapse All" now recursively collapses via `SetExpandedRecursive` (was a no-op re-set of expanded scenes). *Needs in-editor verification — undocumented internal `SceneHierarchyWindow` API via reflection.*
+- **GRID-42** `TransformEditorUtils` — paste-validator MenuItem path aligned to `%&v` (matches the command).
+- **GRID-43** `GridRenderer` — removed commented-out debug lines.
+- **GRID-44** `ConsoleX` — removed the commented-out `[MenuItem]` (kept the LogEntries reflection — no public equivalent).
+- **GRID-45** `TypeMap3D` ctor — removed the redundant second `values` allocation (`Clear()` already allocates).
+- **GRID-46** `TypeMap3D.values` — removed `[NonSerialized]` to match 2D `TypeMap` (subclasses no longer lose data).
+- **GRID-47** `EditorApplicationX.IsRetina` — culture-invariant `float.TryParse` (was locale-dependent `float.Parse`).
+- **GRID-20 / GRID-22 / GRID-23** — verified fine, no change (justified `Path.Combine` wrapper / public API / standard destroyed-GO mesh-cache trick).
 
 ### Island detector — iterative rewrite
 - **STR-1 / STR-2** — hang fixed. Both detectors now walk a fixed collection and *pop* seeds (`foreach` / `Queue.Dequeue`) instead of peeking `[0]`; an island is created only for a valid seed, so no empty `OwnedIsland`s.

@@ -509,11 +509,6 @@ STR-10. `Island/OwnedIslandDetector.cs` vs `IslandDetector.cs` — `*WithSameOwn
 STR-11. `Island/IslandDetector.cs:9-11` — static scratch collections should be instance fields.
 STR-12. `Island/OutlineDetector.cs:16-17` — `found = true` set twice (outer is dead).
 
-### Misleading / incorrect comments
-STR-13. `Island/OutlineDetector.cs:40-41` — "safe while loop" but it's a `for(n<1000)` guard that silently returns a partial outline.
-STR-14. `Island/OutlineDetector.cs:74-76` — algorithm-description comment sits after the code it describes.
-STR-15. `Island/OutlineDetector.cs:80` — "0 is the edge, 1 is outside" but the method compares against signed distances where inside is negative (doc omits interior rings).
-
 ### Tidying
 STR-16. `Island/OwnedIsland.cs:14-101` — ~88-line commented-out `OutlineSolver` block.
 STR-17. `Island/OutlineDetector.cs:8,36-37,83,94-107` — multiple commented-out lines; `:100` — stray `;` after a `foreach`.
@@ -752,3 +747,6 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **SYS-23** `BoolX.cs` — `ToBool` param doc fixed to `_int` (was `_bool`). *(`ToInt`'s docs were already correct, contrary to the finding.)*
 - **SYS-24** `EnumX.cs` — `GetEnumerable` doc no longer says "array" (returns `IEnumerable<T>`).
 - **SYS-25** `EnumX.cs` — the 5 "Argument {0} is not an Enum" exception messages no longer contain an unformatted `{0}` (now "Argument is not an Enum: <type>").
+- **STR-13** `Island/OutlineDetector.cs` — reworded the "safe while loop" comment to warn the 1000-cap can return a partial outline.
+- **STR-14** `Island/OutlineDetector.cs` — moved the algorithm-description comment to before the loop it describes.
+- **STR-15** `Island/OutlineDetector.cs` — `GetOutlineCoords` doc now describes the signed ring distance (0 = edge, + = outside, − = inside).

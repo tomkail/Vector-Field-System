@@ -303,15 +303,6 @@ GEO-27. `Sphere/Sphere.cs:202-264` — two large commented-out `Intersects(Ray)`
 GEO-28. `Polygon/Polygon.cs:996-999` — `GetHashCode` returns reference hash, inconsistent with value-based `Equals`.
 GEO-29. Structs (`Line`, `Line3D`, `PointRect`) — `operator ==`/`Equals` do `(object)left == null` checks that can never be null for a struct.
 
-### Misleading / incorrect comments
-GEO-30. `Point/Point.cs:399-435` — corner docs say "hex"/"six corners"/"0..5" but `Point` is a square cell (`numCorners = 4`).
-GEO-31. `Polygon/Polygon.cs:49` — centroid comment ("where the perpendiculars from each vertex intersect") is not the centroid definition.
-GEO-32. `Line/Line.cs:252-255` — stale commented formula with an invalid single-arg `Vector2.Distance`.
-GEO-33. `Polygon/Polygon.cs:1039` — `Add` doc says "from the first" (copied from Subtract).
-GEO-34. `Polygon/Polygon.cs:1697-1706` — `AngleValue` doc has tautologies comparing identical expressions.
-GEO-35. `Polygon/Polygon.cs:1718` — `t = 360f/9f` (=40) with comment "return 360".
-GEO-36. `Point/PointRect.cs:184-186` — `ClampPoint` doc `<param name="r">The red component.</param>`.
-
 ### Tidying
 GEO-37. `Line/Line.cs:571` — doc typo "to (x1, y10".
 GEO-38. `Polygon/Polygon.cs:1837` "sinze"; `:1135` "calcuate teh direction".
@@ -762,3 +753,10 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **UEX-58** `TextureX.cs` — `CopyWithSizeScaled`/`ResizeScaled` `<param>` tags fixed (`src`, removed nonexistent `mode`).
 - **UEX-59** `QuaternionX.cs` — added a doc note that `IsValid` only rejects the all-zero quaternion (NaN/non-normalized pass).
 - **UEX-60** `RayX.cs` / `BoundsX.cs` / `PlaneX.cs` — added notes flagging the name/semantics mismatches (distance-to-centre; segment-not-ray; ignored `Raycast` bool).
+- **GEO-30** `Point/Point.cs` — corner docs de-hexed: "cell's four corners", `0..3` index, removed the bogus `<param name="first">` on parameterless `Corners()`.
+- **GEO-31** `Polygon/Polygon.cs` — `centroid` doc now reads "area centroid (centre of mass)" (was the wrong "perpendiculars intersect" definition).
+- **GEO-32** `Line/Line.cs` — removed the stale commented formula using an invalid single-arg `Vector2.Distance`.
+- **GEO-33** `Polygon/Polygon.cs` — `Add` doc fixed ("adds/unions to the first", was "from the first").
+- **GEO-34** `Polygon/Polygon.cs` — `AngleValue` doc rewritten (removed the tautology comparing identical arg sets).
+- **GEO-35** `Polygon/Polygon.cs` — removed the false "return 360" comment on the degenerate case (value `360f/9f` left unchanged — behavioural).
+- **GEO-36** `Point/PointRect.cs` — `ClampPoint` param docs fixed (were `<param name="r">The red component.</param>`).

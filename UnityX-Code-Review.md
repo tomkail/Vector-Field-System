@@ -634,12 +634,6 @@ MISC-7. `NoiseSampler/Editor/NoiseSamplerPropertiesPropertyDrawer.cs:18-124` —
 MISC-8. `Texture Transform Utils/TextureTransformUtil.cs` — two parallel pipelines (blit vs `Graphics.DrawTexture`) with heavy copy-paste; `CopyWithSizeAndImageOrientation2` unhelpfully named.
 MISC-9. `GLDebug/GLDebug.cs:205-307` — `DrawSquare`/`DrawCube` overload triplets are repetitive boilerplate.
 
-### Misleading / incorrect comments
-MISC-10. `Regex/RegexHelper.cs:7` — `emptyOrWhiteSpace = @"^[A-Z\s]*$"` matches uppercase+whitespace, not "empty or whitespace".
-MISC-11. `Property Curve/PropertyCurve.cs:192-197` — `RemoveKeysBetween` doc says "and including" but `IsBetween` is exclusive.
-MISC-12. `Serialized Scriptable Singleton/SerializedScriptableSingleton.cs:5` — says "playerprefs" but the editor saves to `EditorPrefs`.
-MISC-13. `Version Control/VersionControlX.cs:94` — SHA length bound of 42 is arbitrary (git SHAs are 40).
-
 ### Tidying
 MISC-14. Commented-out lines: `NoiseSamplerPropertyDrawer.cs:32-52`, `NoiseSamplerPropertiesPropertyDrawer.cs:151-336`, `GLDebug.cs:50,62`, `MeshBuilder/AddPlaneParams.cs:45-50`, `FlexLayout/FlexLayout.cs:45`, `Version Control/Editor/VersionBuildPreProcessor.cs:34-44`.
 MISC-15. `GLDebug/GLDebug.cs:311-319` — `DrawCircle` draws each point as a 0.02-unit stub rather than connecting points (renders a dotted ring, not a circle).
@@ -742,3 +736,7 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **RNG-15** `Range/Range.cs` — removed the "if one is null" comment inside the struct `operator ==` (a struct can't be null).
 - **RNG-16** `Range/Range.cs` — reworded the "Remove!" musing on `SignedDistance` into a proper review note.
 - **RNG-17** `ValuePicker/Selector.cs` — added a note explaining the `TPrioritySource` type param (and fixed a "the the" typo).
+- **MISC-10** `Regex/RegexHelper.cs` — added a note that `emptyOrWhiteSpace`'s pattern matches uppercase+whitespace (public const value left unchanged — portable API).
+- **MISC-11** `Property Curve/PropertyCurve.cs` — `RemoveKeysBetween` doc now says "strictly between (exclusive)" to match `IsBetween`.
+- **MISC-12** `Serialized Scriptable Singleton/SerializedScriptableSingleton.cs` — comment corrected to EditorPrefs (PlayerPrefs at runtime).
+- **MISC-13** `Version Control/VersionControlX.cs` — noted the 42-char upper bound is a loose guard (git SHA-1 is 40).

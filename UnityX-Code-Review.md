@@ -341,45 +341,14 @@ ACS-31. `Camera/Camera Properties/CameraPropertiesBuilderQueue.cs:34-36` — 2-a
 
 ## Extensions / Text + Scene Management + Collections + Serializable Components + Audio
 
-### Bugs
-TXT-1. `Collections/IEnumerableX.cs:186-193` — `CompareSize` returns true on the first element whenever `targetSize >= 0`, false for empty → always wrong.
-TXT-2. `Collections/IEnumerableX.cs:100-166` — `Min`/`Max<T>(selector)` return `-1` for empty (a legitimate value; can't distinguish empty).
-TXT-3. `Serializable Components/SerializableTransform.cs:434-443` — `GetHashCode` multiplies → collapses to 0 if any component hash is 0.
-TXT-4. `Text/TextMeshProUtils.cs:598-599` — `WorldToScreenRect` param *names* mismatch callers, but it's functionally harmless: the body only uses param1 and param3 (opposite corners), and `CreateEncapsulating` of any opposite-corner pair yields the identical rect. Rename for clarity only.
-TXT-5. `Text/Text Effects/TextFader/TextRevealAnimatorCalculatedParams.cs:30` — `/(numCharacters-1)` → divide by zero for 1-char text.
-TXT-6. `Text/Text Effects/TextFader/WorldSpaceTextGradient.cs:6,31` & `GradientArea.cs:19-24` — no null check on `gradientArea`/`gradient` under `[ExecuteInEditMode]`.
-TXT-7. `Text/Text Effects/TextDuplicator.cs:12-22` — `duplicated` never assigned (commented at 14) → `CopyNonStyleProperties(..., null)` NRE every frame.
-TXT-8. `Text/Text Effects/StackedTextEffectsController.cs:58-60` — non-TMP source leaves `text` null → NRE.
-TXT-9. `Text/Text Effects/BaseTextMeshProEffect.cs:28` — `OnDisable` derefs `m_TextComponent` with no null check.
-TXT-10. `Text/Text Effects/WordWobble.cs:26-51` & `CharacterWobble.cs:29-35` — index meshes by `vertexIndex`; break with rich-text tags / multiple spaces / changed text.
-TXT-11. `Scene Management/Scene Set/RuntimeSceneSet.cs:144-151` — `IsIncludedInBuildSettings()` returns true when scenes are *missing* (inverted).
-TXT-12. `Scene Management/…/RuntimeSceneSetLoadTask.cs:107-124` — `UnloadSoft` add-check inside the per-set loop → a scene still used by a later set gets marked for unload (real consequence: incorrectly unloading a shared scene; `Distinct()` only hides the duplicate entries, not the wrong unload).
-TXT-13. `Scene Management/…/RuntimeSceneSetLoader.cs:207-209` — cancelled branch passes `lastLoadTask` (cancelled) instead of the found task; `:311-312` — edit-mode broadcast sends to root every iteration, never to children.
-TXT-14. `Scene Management/Scene Set/RuntimeSceneSet.cs:224-228` — `LoadInEditor()` `GetSceneAt(length-1)` → `-1` when empty.
-TXT-15. `Scene Management/Scene Set/Editor/RuntimeSceneSetEditor.cs:64-65` — `sceneAssets`/`scenePaths` derefed with no null check.
-
 ### Unity-native / .NET duplication
-TXT-16. `Collections/ListX.cs:8-10` — `ToList` reimplements `Enumerable.ToList`; `:28-39,112-133` — `First`/`Last`/`Contains`/`IndexOf` duplicate LINQ / `List<T>`.
-TXT-17. `Collections/IEnumerableX.cs:9-14,16-23,394-416` — `ToHashSet`/`DistinctBy`/`Chunk` duplicate BCL (comment even says "remove when Unity upgrades to .NET 6"); `:206-216` — `Filter`/`Map` alias `Where`/`Select`.
-TXT-18. `Text/Text Effects/WordWobble.cs:26-32` — manual `IndexOf(' ')` reimplements `string.Split`.
-TXT-19. `Text/Text Effects/TextFader/GradientArea.cs:145-147` — `Clamp1Infinity` == `Mathf.Max(value, 1)`.
-TXT-20. `Scene Management/Scene Set/RuntimeSceneSet.cs:145-172` — hand-rolled build-settings collection + manual array-grow vs LINQ/`List`.
+TXT-16. `Collections/ListX.cs` — `ToList`/`First`/`Last`/`Contains`/`IndexOf` duplicate LINQ/`List<T>`. *(Left as-is: widely-used public helpers; removing breaks call sites across the library.)*
+TXT-17. `Collections/IEnumerableX.cs` — `ToHashSet`/`DistinctBy`/`Chunk`/`Filter`/`Map` duplicate BCL. *(Left as-is: public helpers, and `DistinctBy`/`Chunk` aren't in Unity's netstandard2.1.)*
+TXT-18. `Text/Text Effects/WordWobble.cs` — manual `IndexOf(' ')` word-split reimplements `string.Split`. *(Left as-is: entangled with the char→vertex-index mapping guarded in TXT-10.)*
+TXT-20. `Scene Management/Scene Set/RuntimeSceneSet.cs` — hand-rolled build-settings collection + manual array-grow. *(Left as-is: delicate EditorBuildSettings code; correctness handled by TXT-11.)*
 
 ### Refactoring / dead code
-TXT-21. `Collections/ArrayX.cs:15-21` — `GetShiftedRepeating` exact duplicate of `ListX` (172-178).
-TXT-22. `Collections/ShuffleBag.cs:82-105` — `Shuffle` duplicates `ListX.Shuffle`.
-TXT-23. `Collections/ProbabilityList.cs:43` — needless `.ToArray()`; `:66-70` — non-generic `GetEnumerator()` yields `null`.
-TXT-24. `Text/Text Effects/VertexWobble/CharacterWobble/WordWobble` — identical `Wobble` + scaffold copy-pasted.
-TXT-25. `Text/Text Effects/WordHighlightTextEffect.cs:5-33` — whole body commented (dead class).
-TXT-26. `Text/Text Effects/CurvedWorldTextEffect.cs:51` — TRS + inverse rebuilt per vertex.
-TXT-27. `Text/Text Effects/TextFader/GradientArea.cs:58-165` — `CreateGradient` family + `Radians2Vector2`/`Degrees/RadiansBetween` all dead.
-TXT-28. `Scene Management/…/RuntimeSceneSetLoader.cs:24-31` — `_debugLogging` field dead; `:259-285` — two near-identical `BroadcastMessageScene` overloads.
-
-### Tidying
-TXT-34. ~54 lines commented-out in `Text/TextMeshProUtils.cs:118-171` + scattered `Debug.Log`s; commented blocks in `SerializableCamera.cs:259-372`, `Audio/AudioClipX.cs:95-145`, `Audio/AudioPeer/*`, `Audio/SaveWav.cs:186`.
-TXT-35. Extensive commented-out blocks + leftover template comments across `Text Effects/*` and the Scene Management loader.
-TXT-36. Ungated raw `Debug.Log`s in `RuntimeSceneSetLoader.cs:94,102,145,168,174` (rest of file gates on `debugLogging`).
-TXT-37. Doc typos: `RuntimeSceneSet.cs` "includesesd"/"includesed"; commented `// [SceneAttribute]` + redundant empty ctor.
+TXT-24. `Text/Text Effects/VertexWobble/CharacterWobble/WordWobble` — identical `Wobble` + scaffold copy-pasted. *(Left as-is: sharing would need a new base/helper type — invasive for little gain.)*
 
 ---
 
@@ -741,6 +710,35 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **GRID-46** `TypeMap3D.values` — removed `[NonSerialized]` to match 2D `TypeMap` (subclasses no longer lose data).
 - **GRID-47** `EditorApplicationX.IsRetina` — culture-invariant `float.TryParse` (was locale-dependent `float.Parse`).
 - **GRID-20 / GRID-22 / GRID-23** — verified fine, no change (justified `Path.Combine` wrapper / public API / standard destroyed-GO mesh-cache trick).
+
+### Text + Scene + Collections + Serializable + Audio
+- **TXT-1** `Collections/IEnumerableX.cs` — `CompareSize` now counts elements and returns `count >= targetSize` (was true on the first element / false for empty).
+- **TXT-2** `Collections/IEnumerableX.cs` — `Min`/`Max<T>(selector)` throw `InvalidOperationException` on an empty sequence (matching `Enumerable.Min/Max`) instead of the ambiguous `-1`. *(Behavior change on empty; audited callers don't rely on `-1`.)*
+- **TXT-3** `Serializable Components/SerializableTransform.cs` — content-accumulate `GetHashCode` (`hash*31 + field`) so a zero component hash no longer collapses it to 0.
+- **TXT-4** `Text/TextMeshProUtils.cs` — renamed `WorldToScreenRect` params to match caller order; rect output unchanged (naming/clarity only).
+- **TXT-5** `TextFader/TextRevealAnimatorCalculatedParams.cs` — divide by `Mathf.Max(1, numCharacters-1)` (no div-by-zero for 1-char text).
+- **TXT-6** `WorldSpaceTextGradient.cs`/`GradientArea.cs` — null guards on `gradientArea`/`gradient` under `[ExecuteInEditMode]`.
+- **TXT-7** `TextDuplicator.cs` — re-enabled the `duplicated = Instantiate(...)` assignment (was commented → NRE every frame).
+- **TXT-8** `StackedTextEffectsController.cs` — destroys the throwaway GameObject and continues when the source isn't a TMP type (was NRE + per-frame GO leak).
+- **TXT-9** `BaseTextMeshProEffect.cs` — `OnDisable` null-checks `m_TextComponent` before unsubscribing.
+- **TXT-10** `WordWobble.cs`/`CharacterWobble.cs` — skip `!characterInfo.isVisible` and bounds-check `vertexIndex` before indexing mesh verts/colors (robust to rich text / spaces / changed text).
+- **TXT-11** `RuntimeSceneSet.cs` — `IsIncludedInBuildSettings()` returns true only when all scenes ARE included (`== 0`); the single caller inverted to keep the same UI meaning.
+- **TXT-12** `RuntimeSceneSetLoadTask.cs` — `UnloadSoft` marks a scene for unload only if contained by NO loaded set (computes contained-by-any first); no longer unloads a scene still used by another set.
+- **TXT-13** `RuntimeSceneSetLoader.cs` — cancelled branch fires `OnCompleteTaskQueue` with the last non-cancelled task (was the cancelled `lastLoadTask`); edit-mode broadcast sends to each child (was the root every iteration).
+- **TXT-14** `RuntimeSceneSet.cs` — `LoadInEditor()` early-returns on empty setup (was `GetSceneAt(-1)`).
+- **TXT-15** `RuntimeSceneSetEditor.cs` — null guards on `sceneAssets`/`scenePaths`.
+- **TXT-19** `GradientArea.cs` — `Clamp1Infinity` body simplified to `Mathf.Max(value, 1)`.
+- **TXT-21** `Collections/ArrayX.cs` — `GetShiftedRepeating` delegates to the identical `ListX` impl.
+- **TXT-22** `Collections/ShuffleBag.cs` — both `Shuffle` overloads delegate to `ListX.Shuffle` (verified identical Fisher-Yates + seed handling).
+- **TXT-23** `Collections/ProbabilityList.cs` — dropped the needless `.ToArray()`; non-generic `GetEnumerator()` delegates to the generic one (was yielding `null`).
+- **TXT-25** `WordHighlightTextEffect.cs` — removed the fully commented-out dead body (kept a clean override).
+- **TXT-26** `CurvedWorldTextEffect.cs` — hoisted the invariant TRS + inverse out of the per-vertex loop (private helper signature updated; output identical).
+- **TXT-27** `GradientArea.cs` — deleted the dead `CreateGradient` family + `Radians2Vector2`/`Degrees/RadiansBetween` (no callers).
+- **TXT-28** `RuntimeSceneSetLoader.cs` — removed the dead `_debugLogging` field (live `debugLogging` untouched); the two `BroadcastMessageScene` overloads left (not a trivial dedup).
+- **TXT-34 / TXT-35** — removed commented-out dead blocks across `TextMeshProUtils.cs`, `SerializableCamera.cs`, `Audio/*`, the Text Effects files, and the scene loader.
+- **TXT-36** `RuntimeSceneSetLoader.cs` — gated the previously-raw `Debug.Log`s on `debugLogging`.
+- **TXT-37** `RuntimeSceneSet.cs` — fixed "includesed"→"included" typos; removed commented `// [SceneAttribute]` and the redundant empty ctor.
+- **TXT-16 / TXT-17 / TXT-18 / TXT-20 / TXT-24** — left as-is (BCL-overlapping public helpers used library-wide, delicate build-settings code, and invasive dedups).
 
 ### Island detector — iterative rewrite
 - **STR-1 / STR-2** — hang fixed. Both detectors now walk a fixed collection and *pop* seeds (`foreach` / `Queue.Dequeue`) instead of peeking `[0]`; an island is created only for a valid seed, so no empty `OwnedIsland`s.

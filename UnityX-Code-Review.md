@@ -281,20 +281,8 @@ GRID-30. `Grid 2D/Grid/SquareGridAgent.cs` & `RadialGridAgent.cs` — duplicated
 
 ## Extensions / Algorithms + Camera + Spline
 
-### Bugs
-ACS-1. `Spline System/SplineBezierPoint.cs:42-43,50-51,75-76` — `SetAuto`/`SetAutoDistance`/`CreateAuto` guard only the both-null case then unbox both nullables → NRE at either endpoint. `Spline.CreateFromPoints` throws for any real spline.
-ACS-2. `Algorithms/Noise/NoiseSample.cs:67-71` — `operator /(float a, NoiseSample b)` computes `b.value / a` instead of `a / b.value` (wrong value + derivative).
-ACS-3. `Algorithms/Noise/NoiseSample.cs:73-77` — `operator /(NoiseSample, NoiseSample)` derivative isn't the quotient rule → all division-derived analytic derivatives wrong.
-ACS-4. `Camera/Camera Properties/CameraPropertiesModifier.cs:46` — Axis+Additive branch rotates by `properties.targetPoint` instead of `properties.axis`.
-ACS-5. `Algorithms/UpscaleTools.cs:65-68,118-124` — `IsOnVisibilityMap` always returns true (bounds check commented) → IndexOutOfRange at right/bottom edges; the computed `fill` flag (115) is unused.
-ACS-6. `Algorithms/UpscaleTools.cs:116` — `pointRect` extends to `4*size+2`, exceeding `colorMapSize` (`4*size`).
-ACS-7. `Algorithms/Pathfinding/AStar.cs:297` — compares `GraphEntry` to `GraphElement` (no `Equals` override) → always false; target fast-path never fires.
-ACS-8. `Algorithms/Pathfinding/AStar.cs:266` — async assert null-checks `solutionList` instead of `solutionList.solution` → NRE when no path found.
-ACS-9. `Algorithms/Noise/SimplexNoiseGenerator.cs:11,45` — `contrast == 1` → `oneMinusContrast == 0` → divide by zero.
-ACS-10. `Camera/Camera Properties/CameraModifierZone.cs:32` — `target.position` with no null check.
 
 ### Unity-native duplication
-ACS-11. `Camera/Camera Properties/CameraProperties.cs:446-457` — `GetPitch/Yaw` hand-roll euler extraction vs `LookRotation(dir).eulerAngles`.
 ACS-12. `Algorithms/EasingFunction.cs:793-1127` — ~160-line if-chains; a dictionary/switch would replace both. (vendored)
 ACS-13. `Spline System/SplineBezierControlPoint.cs:30-31` — `GetAutoDistanceIn`/`Out` identical.
 
@@ -739,6 +727,19 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **GEO-15** `Sphere/Sphere.cs` — `CalculateWelzl` no longer early-returns after the first out-of-sphere point (continues the scan, matching the working `BoundingSphere`); dropped the reachable `LogError`; 2-support overload writes a local, not the instance field. *(CreateFromPoints has no in-project callers.)*
 - **GEO-16** `Line/Line3D.cs` — `LineIntersectionPoint` interpolates z along line1 at the solved XY parameter so the point lies on the line (was always z=0). *(Still an XY-projection solve — documented limitation for genuinely non-intersecting 3D lines.)*
 - **GEO-17** — left as-is: `Point/Point.cs` largely duplicates `Vector2Int`, but `Point` is a pervasive public type used across the library; replacing it would be a massive breaking change.
+
+### Algorithms + Camera + Spline
+- **ACS-1** `Spline System/SplineBezierPoint.cs` — `SetAuto`/`SetAutoDistance`/`CreateAuto` fall back to the existing neighbour when one endpoint is null (was unboxing null → NRE at spline ends; `Spline.CreateFromPoints` threw for any real spline).
+- **ACS-2** `Algorithms/Noise/NoiseSample.cs` — `operator /(float, NoiseSample)` returns `a / b.value` with derivative `-a·b'/b²` (was `b.value / a`).
+- **ACS-3** `Algorithms/Noise/NoiseSample.cs` — `operator /(NoiseSample, NoiseSample)` derivative is now the quotient rule `(a'b − ab')/b²`.
+- **ACS-4** `Camera/Camera Properties/CameraPropertiesModifier.cs` — Axis+Additive rotates by `properties.axis` (was `properties.targetPoint`).
+- **ACS-5** `Algorithms/UpscaleTools.cs` — `IsOnVisibilityMap` bounds check restored (was always true → IndexOutOfRange at edges); the `fill` flag now gates the interior-cell block.
+- **ACS-6** `Algorithms/UpscaleTools.cs` — the interior `pointRect` is only built for cells with right/down neighbours (via the `fill` gate), keeping indices within `colorMapSize`.
+- **ACS-7** `Algorithms/Pathfinding/AStar.cs` — target fast-path compares `currTestEntry == _targetEntry` (was `GraphEntry` vs `GraphElement` → always false). *(Vendored — local fix.)*
+- **ACS-8** `Algorithms/Pathfinding/AStar.cs` — async assert guards on `solutionList.solution` (was `solutionList` → NRE when no path found). *(Vendored — local fix.)*
+- **ACS-9** `Algorithms/Noise/SimplexNoiseGenerator.cs` — `oneMinusContrast` clamped via `Mathf.Max(…, 1e-6f)` to avoid divide-by-zero when `contrast == 1`. *(Vendored — minimal guard.)*
+- **ACS-10** `Camera/Camera Properties/CameraModifierZone.cs` — `LateUpdate` null-checks `target` before dereferencing `target.position`.
+- **ACS-11** — left as-is: `CameraProperties.GetPitch`/`GetYaw` return signed angles ([-90,90]/[-180,180]); `Quaternion.eulerAngles` wraps to [0,360), so `LookRotation(dir).eulerAngles` is NOT equivalent (would change results for negative angles).
 
 ### Island detector — iterative rewrite
 - **STR-1 / STR-2** — hang fixed. Both detectors now walk a fixed collection and *pop* seeds (`foreach` / `Queue.Dequeue`) instead of peeking `[0]`; an island is created only for a valid seed, so no empty `OwnedIsland`s.

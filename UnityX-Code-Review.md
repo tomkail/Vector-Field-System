@@ -492,23 +492,16 @@ SYS-31. `StringX.cs:119 vs 126` — `UppercaseFirstCharacter` is a `this`-extens
 ## Extensions / Structures (`Scripts/Extensions/Structures/`)
 
 ### Bugs
-STR-1. `Island/IslandDetector.cs:29-34` — `FindIslands` peeks `islandStartPointsToTest[0]` but never removes it when the first point fails `GetPointIsValid` → `Count` never drops → infinite loop hangs the editor.
-STR-2. `Island/OwnedIslandDetector.cs:27-35` — same non-terminating hazard (invalid point / owner never matches); `CreateIsland` adds an island before connection → leaves an empty `OwnedIsland` (base guards with `if(island.points.Any())`, this doesn't).
-STR-3. `Island/IslandDetector.cs:50-68` — `TryConnectTile`'s trailing add-branch is only reachable for already-connected points → re-adds connected points; static shared collections (9-11) make it non-reentrant.
-STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new static islands` hides the base list → base and derived helpers write to different lists → silently dropped results.
+STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new static islands` hides the base list → base and derived helpers write to different lists → silently dropped results. *(Update: dropped-results hazard resolved — the owned detector no longer calls base helpers; the `new static` shadowing itself remains.)*
 STR-5. `Shape.cs:33` — `pointBounds` truncates via `(int)`; single point → zero-size bounds; negative origins mislocated.
 STR-6. `Shape.cs:54-68` — `CreateContiguous` `do/while(!valid)` has no attempt cap → stall risk; seed at (1,1) assumes `numPoints >= 2`.
 
 ### Unity-native duplication
-STR-7. `Island/*Detector.cs` — recursive flood-fill via `ConnectAdjacentTiles→TryConnectTile` risks stack overflow; an explicit `Queue`/`Stack` BFS/DFS is safer.
 STR-8. `Structure.cs` — `Contains(Func)` duplicates `Enumerable.Any`.
 
 ### Refactoring / dead code
-STR-9. `Island/OwnedIslandDetector.cs:15` — redundant `this.GetAdjacentPoints = GetAdjacentPoints` (base ctor already did it).
-STR-10. `Island/OwnedIslandDetector.cs` vs `IslandDetector.cs` — `*WithSameOwner` methods are near-verbatim copies + owner check; base could expose a virtual `shouldConnect` predicate.
-STR-11. `Island/IslandDetector.cs:9-11` — static scratch collections should be instance fields.
+STR-11. `Island/IslandDetector.cs:9-11` — static scratch collections should be instance fields. *(Update: the `List` work-set is gone and the flood-fill `Stack`/owned seed-`Queue` are now locals; `testedPoints` and `islands` remain `static`.)*
 STR-12. `Island/OutlineDetector.cs:16-17` — `found = true` set twice (outer is dead).
-STR-20. `Island/IslandDetector.cs` — `islandStartPointsToTest` is a `List<Coord>` seeded with potentially the whole grid (RoadDetector seeds every cell), yet `Remove(point)`/`Contains` (and any `RemoveAt(0)`-style dequeue) are O(n) → O(n²) overall at grid scale. A `Queue<Coord>` work-list + `HashSet<Coord>` membership would be O(1) per op — and `Dequeue()` structurally prevents the STR-1 peek-not-pop hang. *(New: found while reviewing the STR-1 fix.)*
 
 ### Tidying
 STR-16. `Island/OwnedIsland.cs:14-101` — ~88-line commented-out `OutlineSolver` block.
@@ -743,3 +736,12 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **MISC-11** `Property Curve/PropertyCurve.cs` — `RemoveKeysBetween` doc now says "strictly between (exclusive)" to match `IsBetween`.
 - **MISC-12** `Serialized Scriptable Singleton/SerializedScriptableSingleton.cs` — comment corrected to EditorPrefs (PlayerPrefs at runtime).
 - **MISC-13** `Version Control/VersionControlX.cs` — noted the 42-char upper bound is a loose guard (git SHA-1 is 40).
+
+### Island detector — iterative rewrite
+- **STR-1 / STR-2** — hang fixed. Both detectors now walk a fixed collection and *pop* seeds (`foreach` / `Queue.Dequeue`) instead of peeking `[0]`; an island is created only for a valid seed, so no empty `OwnedIsland`s.
+- **STR-3** — the dead "re-add already-connected point" branch is gone (replaced by the shared `FloodFill`). Residual `static`-collection reentrancy is tracked by STR-11.
+- **STR-7** — recursion replaced by an explicit `Stack<Coord>` → no stack-overflow risk on large islands.
+- **STR-9** — removed the redundant `this.GetAdjacentPoints = GetAdjacentPoints` in the owned ctor (base already sets it).
+- **STR-10** — the `*WithSameOwner` copy-paste is gone; the owned detector reuses base `FloodFill` via a `canJoin` predicate + an `onValidSkip` callback that re-seeds differently-owned neighbours (preserving the discover-adjacent-owner-regions behaviour).
+- **STR-20** — `List` work-set (O(n²) at grid scale) replaced by `HashSet` membership + a local `Stack`/`Queue` → O(n).
+- ⚠️ Behavioural rewrite; **not compile-verified** (the community "MCP for Unity" server is down). Public API (ctors + `FindIslands()` signatures) is unchanged.

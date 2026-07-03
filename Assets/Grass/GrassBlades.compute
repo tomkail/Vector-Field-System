@@ -97,6 +97,49 @@ uniform float3 _CameraPositionWS;
 
 float3x3 _LocalToWorld;
 
+// Vector field push: a 2D flow field (from a VectorFieldComponent) that bends the grass along its flow, in world
+// space. The field is a textured plane oriented by its component's transform, so moving/rotating that component moves
+// the flow. _VectorFieldTex holds the flow in RG as (v * 0.5 + 0.5); the grid<->world matrices map cell coords to/from
+// world (same convention as the debug arrow renderer); _VectorFieldStrength already folds in the field's magnitude.
+Texture2D _VectorFieldTex;
+SamplerState sampler_linear_clamp;      // Unity inline sampler: bilinear, clamped (independent of the RT import settings)
+float4x4 _VectorFieldGridToWorld;       // grid-cell coords -> world
+float4x4 _VectorFieldWorldToGrid;       // world -> grid-cell coords (inverse of the above)
+float2 _VectorFieldSize;                // field resolution in cells (= RenderTexture size)
+float _VectorFieldStrength;             // push strength * field magnitude
+float _VectorFieldEnabled;              // 0 = no field assigned, 1 = active
+float _VectorFieldBend;                 // bend profile exponent: 1 = straight shear, higher = arc that bends near the tip
+
+// Per-blade normal shaping (for the lit grass shader). 0 = normal points along the blade's flat face (hard, sideways);
+// 1 = normal points straight up like the ground. A mid value gives soft grass that still tilts with the bend, so lit
+// grass shows the ripple as moving light/dark bands. Ignored by the unlit shader.
+float _GrassNormalUpBias;
+
+// World-space displacement the vector field applies to a blade at worldPos. Returns 0 when no field is bound or the
+// position falls outside the field footprint, so grass is only bent where the field actually covers it.
+float3 SampleVectorFieldDisplacement(float3 worldPos)
+{
+    float3 disp = float3(0, 0, 0);
+
+    // world -> continuous grid-cell coords -> texel-centre UV (matches the field's encode; see DebugArrow.shader)
+    float2 gridPos = mul(_VectorFieldWorldToGrid, float4(worldPos, 1)).xy;
+    float2 uv = (gridPos + 0.5) / _VectorFieldSize;
+
+    // Only push where a field is bound and the position falls inside its footprint; otherwise leave disp at zero.
+    if (_VectorFieldEnabled >= 0.5 && all(uv >= 0.0) && all(uv <= 1.0))
+    {
+        float2 flow = (_VectorFieldTex.SampleLevel(sampler_linear_clamp, uv, 0).rg - 0.5) * 2.0;
+
+        // Turn the grid-space flow into a world direction via the field plane's basis (normalised so the push
+        // magnitude is the flow's, not coupled to cell size). flow.x runs along grid +X, flow.y along grid +Y.
+        float3 axisX = normalize(mul((float3x3)_VectorFieldGridToWorld, float3(1, 0, 0)));
+        float3 axisY = normalize(mul((float3x3)_VectorFieldGridToWorld, float3(0, 1, 0)));
+        disp = (flow.x * axisX + flow.y * axisY) * _VectorFieldStrength;
+    }
+
+    return disp;
+}
+
 // ----------------------------------------
 // Helper Functions
 
@@ -192,10 +235,19 @@ void Main(uint id : SV_DispatchThreadID)
     cos(_Time.x * _WindSpeed + sv.positionWS.x * 2) + cos(
     _Time.x * _WindSpeed + sv.positionWS.z));
     wind1 *= _WindStrength;
-    
+
+    // Vector field push (world space), sampled once at the blade base. The grass just bends by whatever the field
+    // currently is — any ripple/animation comes from the field itself (feed it a WaveVectorFieldComponent for the
+    // travelling wind-wave), so the wave is composable and every consumer of the field sees the same motion.
+    float3 vectorFieldDisp = SampleVectorFieldDisplacement(sv.positionWS);
+
+    // Split the push into its ground-plane (lean) part; the field is usually flat so this is the whole push.
+    float3 vfLeanDir = vectorFieldDisp - faceNormal * dot(vectorFieldDisp, faceNormal);
+    float vfLeanLen = length(vfLeanDir);
+
     // Set grass height and width
     _GrassHeight = sv.uv.y;
-    _GrassWidth = sv.uv.x;  // UV.x == width multiplier (set in GrassPainter.cs)
+    _GrassWidth = sv.uv.x;  // UV.x == width multiplier (from GrassData.length, set when painting/generating)
      float randomisedPos = rand(sv.positionWS.xyz);
      // random height offsets
     float randomOffset = Unity_RandomRange_float(sv.positionWS.xz, _GrassRandomHeightMin, _GrassRandomHeightMax);
@@ -248,25 +300,46 @@ void Main(uint id : SV_DispatchThreadID)
             segmentWidth = i == 0 ? _BottomWidth * segmentWidth : segmentWidth;
 
             float segmentForward = pow(abs(t), _BladeCurve) * _BladeForward;
+
+            // Vector field bend: lean along the flow using a curved profile (pow) so the base stays planted and the
+            // bend concentrates toward the tip. Conserve the blade's length by dropping the vertical rise as it leans
+            // (tip traces an arc) instead of shearing straight and stretching. Reduces to the plain vertical rise when
+            // there's no field push.
+            float bendT = pow(abs(t), _VectorFieldBend);
+            float restRise = _GrassHeight * t;
+            float lean = vfLeanLen * bendT;
+            float vfRise = sqrt(max(0.0, restRise * restRise - lean * lean));
+            float3 vfBend = vfLeanDir * bendT + faceNormal * (vfRise - restRise);
+
             // First grass (0) segment does not get displaced by interactor
-            float3 newPos = (i == 0) ? sv.positionWS : sv.positionWS + (combinedDisp * t) + wind1 * t + (faceNormal * _GrassHeight * t);
+            float3 newPos = (i == 0) ? sv.positionWS : sv.positionWS + (combinedDisp * t) + wind1 * t + vfBend + (faceNormal * _GrassHeight * t);
             // Append First Vertex        
             drawVertices[i * 2] = GrassVertex(newPos, segmentWidth, segmentHeight, offset, segmentForward, float2(0, t), facingRotationMatrix);
             // Append Second Vertex
             drawVertices[i * 2 + 1] = GrassVertex(newPos, -segmentWidth, segmentHeight, offset, segmentForward, float2(1, t), facingRotationMatrix);
         }
-        // Append Top Vertex
-        float3 topPosOS = sv.positionWS + combinedDisp + wind1 + (faceNormal * _GrassHeight);
+        // Append Top Vertex (t = 1: full lean, tip dropped to conserve length)
+        float topRise = sqrt(max(0.0, _GrassHeight * _GrassHeight - vfLeanLen * vfLeanLen));
+        float3 topPosOS = sv.positionWS + combinedDisp + wind1 + vfLeanDir + (faceNormal * topRise);
         drawVertices[numSegmentsPerBlade * 2] = GrassVertex(topPosOS, 0, _GrassHeight, offset, _BladeForward, float2(0.5, 1), facingRotationMatrix);
-          
-          // add to indirect arguments buffer with the correct vertexcount       
+
+        // Per-blade normal for the lit shader. Tilt the ground normal away from the blade's TOTAL lean (wind +
+        // interactor + field) — never the random per-blade facing, which would light neighbouring blades randomly and
+        // read as harsh facets. Because neighbours sample nearby field flow, their lean (and so their shading) varies
+        // smoothly, so the ripple shows as soft moving light/dark bands. _GrassNormalUpBias keeps it biased toward
+        // straight up so the grass stays soft; no sign-flip, so shading doesn't pop as the blade sways.
+        float3 leanVec = combinedDisp + wind1 + vectorFieldDisp;
+        float3 tiltNormal = normalize(faceNormal - leanVec);
+        float3 bladeNormal = normalize(lerp(tiltNormal, faceNormal, saturate(_GrassNormalUpBias)));
+
+          // add to indirect arguments buffer with the correct vertexcount
           InterlockedAdd(_IndirectArgsBuffer[0].numVerticesPerInstance, numTrianglesPerBlade * 3);
 
         // add to the drawbuffer to be read by the final shader
         for (int k = 0; k < numTrianglesPerBlade; ++k)
         {
             DrawTriangle tri = (DrawTriangle)0;
-            tri.normalOS = faceNormal;
+            tri.normalOS = bladeNormal;
             tri.diffuseColor = sv.color;
             tri.vertices[0] = drawVertices[k];
             tri.vertices[1] = drawVertices[k + 1];

@@ -15,17 +15,17 @@ public class SO_GrassToolSettings : ScriptableObject
     public VertexColorSetting VertexColorSettings;
     public VertexColorSetting VertexFade;
 
-    // length/width
+    // width/height
 
     public float sizeWidth = 1f;
 
-    public float sizeLength = 1f;
+    public float sizeHeight = 1f;
 
-    // length/width adjustments
+    // width/height adjustments
 
     public float adjustWidth = 0f;
 
-    public float adjustLength = 0f;
+    public float adjustHeight = 0f;
 
     public float adjustWidthMax = 2f;
     public float adjustHeightMax = 2f;
@@ -64,7 +64,6 @@ public class SO_GrassToolSettings : ScriptableObject
 
     public void CreateNewLayers()
     {
-        Debug.Log("Setting up initial tool settings");
         layerBlocking = new float[8];
         for (int i = 0; i < layerBlocking.Length; i++)
         {

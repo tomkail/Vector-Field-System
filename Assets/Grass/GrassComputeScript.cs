@@ -19,8 +19,21 @@ public class GrassComputeScript : MonoBehaviour
     // grass settings to send to the compute shader
     public SO_GrassSettings currentPresets;
 
+    [Header("Vector Field")]
+    [Tooltip("Optional vector field whose flow bends the grass. Everything is world-space, so moving or rotating this " +
+             "component's transform moves the flow over the grass. Leave empty for no field push.")]
+    public VectorFieldComponent vectorField;
+    [Tooltip("How strongly the vector field flow pushes the grass (on top of the field's own magnitude).")]
+    public float vectorFieldStrength = 1f;
+    [Tooltip("Bend shape: 1 = straight lean (shear), higher = an arc that bends near the tip (more natural, less stretch).")]
+    public float vectorFieldBend = 2f;
+    [Range(0f, 1f)]
+    [Tooltip("Lit shader only: 1 = per-blade normals point straight up (soft, uniform grass); lower tilts them with the " +
+             "bend so the ripple shows as moving light/dark bands. ~0.7 keeps grass soft while still showing the wave.")]
+    public float grassNormalUpBias = 0.7f;
+
     // interactors
-    // Start non-null: fast-mode setup (MainSetup(false)) skips the FindObjectsOfType
+    // Start non-null: fast-mode setup (MainSetup(false)) skips the FindObjectsByType
     // assignment, and Update() reads interactors.Length every frame.
     ShaderInteractor[] interactors = new ShaderInteractor[0];
 
@@ -401,7 +414,7 @@ public class GrassComputeScript : MonoBehaviour
         {
             m_InstantiatedComputeShader.SetFloat("_MinFadeDist", currentPresets.minFadeDistance);
             m_InstantiatedComputeShader.SetFloat("_MaxFadeDist", currentPresets.maxDrawDistance);
-            interactors = (ShaderInteractor[])FindObjectsOfType(typeof(ShaderInteractor));
+            interactors = FindObjectsByType<ShaderInteractor>(FindObjectsInactive.Exclude);
         }
         else
         {
@@ -456,6 +469,7 @@ public class GrassComputeScript : MonoBehaviour
         // variables sent to the shader every frame
         m_InstantiatedComputeShader.SetFloat("_Time", Time.time);
         m_InstantiatedComputeShader.SetMatrix("_LocalToWorld", transform.localToWorldMatrix);
+        m_InstantiatedComputeShader.SetFloat("_GrassNormalUpBias", Mathf.Clamp01(grassNormalUpBias));
         if (interactors.Length > 0)
         {
             Vector4[] positions = new Vector4[interactors.Length];
@@ -480,6 +494,32 @@ public class GrassComputeScript : MonoBehaviour
             m_InstantiatedComputeShader.SetVector("_CameraPositionWS", view.camera.transform.position);
         }
 #endif
+        SetVectorFieldParams();
+    }
+
+    // Push the bound vector field to the compute shader so the grass bends along its flow, in world space. When no
+    // field is bound (or it hasn't produced a render texture yet) we just disable the push.
+    private void SetVectorFieldParams()
+    {
+        if (vectorField != null && vectorField.isActiveAndEnabled)
+            vectorField.EnsureUpToDate();
+
+        RenderTexture rt = vectorField != null ? vectorField.renderTexture : null;
+        if (rt == null || vectorField.gridRenderer == null)
+        {
+            m_InstantiatedComputeShader.SetFloat("_VectorFieldEnabled", 0f);
+            return;
+        }
+
+        Matrix4x4 gridToWorld = vectorField.GridToWorldMatrix;
+        m_InstantiatedComputeShader.SetTexture(m_IdGrassKernel, "_VectorFieldTex", rt);
+        m_InstantiatedComputeShader.SetMatrix("_VectorFieldGridToWorld", gridToWorld);
+        m_InstantiatedComputeShader.SetMatrix("_VectorFieldWorldToGrid", gridToWorld.inverse);
+        m_InstantiatedComputeShader.SetVector("_VectorFieldSize",
+            new Vector4(vectorField.GridSize.x, vectorField.GridSize.y, 0f, 0f));
+        m_InstantiatedComputeShader.SetFloat("_VectorFieldStrength", vectorFieldStrength * vectorField.magnitude);
+        m_InstantiatedComputeShader.SetFloat("_VectorFieldBend", Mathf.Max(1f, vectorFieldBend));
+        m_InstantiatedComputeShader.SetFloat("_VectorFieldEnabled", 1f);
     }
 
 
@@ -510,6 +550,6 @@ public struct GrassData
 {
     public Vector3 position;
     public Vector3 normal;
-    public Vector2 length;
+    public Vector2 widthHeight;   // x = width multiplier, y = height multiplier
     public Vector3 color;
 }

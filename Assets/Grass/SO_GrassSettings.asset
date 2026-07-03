@@ -13,21 +13,21 @@ MonoBehaviour:
   m_Name: SO_GrassSettings
   m_EditorClassIdentifier: Assembly-CSharp::SO_GrassSettings
   shaderToUse: {fileID: 7200000, guid: 589b53816a9884657928aa2f9da393c5, type: 3}
-  materialToUse: {fileID: -876546973899608171, guid: 99edd6b9d4b734093854920eb266f38a, type: 3}
-  grassRandomHeightMin: 0
-  grassRandomHeightMax: 0
-  bladeRadius: 0.2
-  bladeForwardAmount: 0.38
-  bladeCurveAmount: 2
-  bottomWidth: 0.1
-  MinWidth: 0.01
+  materialToUse: {fileID: 2100000, guid: 678ec9908227e423fa8502ae87bf5804, type: 2}
+  grassRandomHeightMin: 1
+  grassRandomHeightMax: 5
+  bladeRadius: 0
+  bladeForwardAmount: 0.416
+  bladeCurveAmount: 1.516
+  bottomWidth: 0.238
+  MinWidth: 0.20071429
   MinHeight: 0.01
   MaxWidth: 1
   MaxHeight: 1
-  windSpeed: 10
+  windSpeed: 1.01
   windStrength: 0.05
-  allowedBladesPerVertex: 4
-  allowedSegmentsPerBlade: 4
+  allowedBladesPerVertex: 10
+  allowedSegmentsPerBlade: 1
   affectStrength: 1
   topTint: {r: 1, g: 1, b: 1, a: 1}
   bottomTint: {r: 0, g: 0, b: 1, a: 1}

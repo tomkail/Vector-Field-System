@@ -21,7 +21,7 @@ public class GrassPainterWindow : EditorWindow
 
     readonly string[] toolbarStrings = { "Add", "Remove", "Edit", "Reproject" };
 
-    readonly string[] toolbarStringsEdit = { "Edit Colors", "Edit Length/Width", "Both" };
+    readonly string[] toolbarStringsEdit = { "Edit Colors", "Edit Height/Width", "Both" };
 
 
 
@@ -117,7 +117,7 @@ public class GrassPainterWindow : EditorWindow
 
         if (grassObject == null)
         {
-            grassObject = FindObjectOfType<GrassComputeScript>()?.gameObject;
+            grassObject = FindAnyObjectByType<GrassComputeScript>()?.gameObject;
 
         }
 
@@ -218,9 +218,9 @@ public class GrassPainterWindow : EditorWindow
         EditorGUILayout.LabelField("Flood Options", EditorStyles.boldLabel);
         EditorGUILayout.BeginHorizontal();
 
-        if (GUILayout.Button("Flood Length/Width"))
+        if (GUILayout.Button("Flood Height/Width"))
         {
-            FloodLengthAndWidth();
+            FloodHeightAndWidth();
         }
         if (GUILayout.Button("Flood Colors"))
         {
@@ -231,9 +231,9 @@ public class GrassPainterWindow : EditorWindow
 
         EditorGUILayout.Separator();
 
-        EditorGUILayout.LabelField("Width and Length ", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("Width and Height ", EditorStyles.boldLabel);
         toolSettings.sizeWidth = EditorGUILayout.Slider("Grass Width", toolSettings.sizeWidth, 0.01f, 2f);
-        toolSettings.sizeLength = EditorGUILayout.Slider("Grass Length", toolSettings.sizeLength, 0.01f, 2f);
+        toolSettings.sizeHeight = EditorGUILayout.Slider("Grass Height", toolSettings.sizeHeight, 0.01f, 2f);
         EditorGUILayout.Separator();
         EditorGUILayout.LabelField("Color", EditorStyles.boldLabel);
         toolSettings.AdjustedColor = EditorGUILayout.ColorField("Brush Color", toolSettings.AdjustedColor);
@@ -257,9 +257,9 @@ public class GrassPainterWindow : EditorWindow
         toolSettings.VertexFade = (SO_GrassToolSettings.VertexColorSetting)EditorGUILayout.EnumPopup("Fade on Vertex Colors", toolSettings.VertexFade);
 
         EditorGUILayout.Separator();
-        EditorGUILayout.LabelField("Width and Length ", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("Width and Height ", EditorStyles.boldLabel);
         toolSettings.sizeWidth = EditorGUILayout.Slider("Grass Width", toolSettings.sizeWidth, 0.01f, 2f);
-        toolSettings.sizeLength = EditorGUILayout.Slider("Grass Length", toolSettings.sizeLength, 0.01f, 2f);
+        toolSettings.sizeHeight = EditorGUILayout.Slider("Grass Height", toolSettings.sizeHeight, 0.01f, 2f);
         EditorGUILayout.Separator();
         EditorGUILayout.LabelField("Color", EditorStyles.boldLabel);
         toolSettings.AdjustedColor = EditorGUILayout.ColorField("Brush Color", toolSettings.AdjustedColor);
@@ -367,12 +367,12 @@ public class GrassPainterWindow : EditorWindow
             toolSettings.brushFalloffSize = EditorGUILayout.Slider("Brush Falloff Size", toolSettings.brushFalloffSize, 0.01f, 1f);
             toolSettings.Flow = EditorGUILayout.Slider("Brush Flow", toolSettings.Flow, 0.1f, 10f);
             EditorGUILayout.Separator();
-            EditorGUILayout.LabelField("Adjust Width and Length Gradually", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Adjust Width and Height Gradually", EditorStyles.boldLabel);
             toolSettings.adjustWidth = EditorGUILayout.Slider("Grass Width Adjustment", toolSettings.adjustWidth, -1f, 1f);
-            toolSettings.adjustLength = EditorGUILayout.Slider("Grass Length Adjustment", toolSettings.adjustLength, -1f, 1f);
+            toolSettings.adjustHeight = EditorGUILayout.Slider("Grass Height Adjustment", toolSettings.adjustHeight, -1f, 1f);
 
             toolSettings.adjustWidthMax = EditorGUILayout.Slider("Grass Width Adjustment Max Clamp", toolSettings.adjustWidthMax, 0.01f, 3f);
-            toolSettings.adjustHeightMax = EditorGUILayout.Slider("Grass Length Adjustment Max Clamp", toolSettings.adjustHeightMax, 0.01f, 3f);
+            toolSettings.adjustHeightMax = EditorGUILayout.Slider("Grass Height Adjustment Max Clamp", toolSettings.adjustHeightMax, 0.01f, 3f);
             EditorGUILayout.Separator();
         }
 
@@ -382,9 +382,9 @@ public class GrassPainterWindow : EditorWindow
 
             if (toolbarInt == 0)
             {
-                EditorGUILayout.LabelField("Width and Length ", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Width and Height ", EditorStyles.boldLabel);
                 toolSettings.sizeWidth = EditorGUILayout.Slider("Grass Width", toolSettings.sizeWidth, 0.01f, 2f);
-                toolSettings.sizeLength = EditorGUILayout.Slider("Grass Length", toolSettings.sizeLength, 0.01f, 2f);
+                toolSettings.sizeHeight = EditorGUILayout.Slider("Grass Height", toolSettings.sizeHeight, 0.01f, 2f);
             }
 
 
@@ -417,12 +417,12 @@ public class GrassPainterWindow : EditorWindow
         grassCompute.currentPresets.MinWidth = EditorGUILayout.FloatField(grassCompute.currentPresets.MinWidth);
         grassCompute.currentPresets.MaxWidth = EditorGUILayout.FloatField(grassCompute.currentPresets.MaxWidth);
         EditorGUILayout.EndHorizontal();
-        EditorGUILayout.MinMaxSlider("Blade Width Min/Max", ref grassCompute.currentPresets.MinWidth, ref grassCompute.currentPresets.MaxWidth, 0.01f, 1f);
+        EditorGUILayout.MinMaxSlider("Blade Width Min/Max", ref grassCompute.currentPresets.MinWidth, ref grassCompute.currentPresets.MaxWidth, 0.01f, 5f);
         EditorGUILayout.BeginHorizontal();
         grassCompute.currentPresets.MinHeight = EditorGUILayout.FloatField(grassCompute.currentPresets.MinHeight);
         grassCompute.currentPresets.MaxHeight = EditorGUILayout.FloatField(grassCompute.currentPresets.MaxHeight);
         EditorGUILayout.EndHorizontal();
-        EditorGUILayout.MinMaxSlider("Blade Height Min/Max", ref grassCompute.currentPresets.MinHeight, ref grassCompute.currentPresets.MaxHeight, 0.01f, 1f);
+        EditorGUILayout.MinMaxSlider("Blade Height Min/Max", ref grassCompute.currentPresets.MinHeight, ref grassCompute.currentPresets.MaxHeight, 0.01f, 5f);
 
         EditorGUILayout.Separator();
         EditorGUILayout.LabelField("Random Height", EditorStyles.boldLabel);
@@ -713,7 +713,7 @@ public class GrassPainterWindow : EditorWindow
                     if (newPoint != Vector3.zero)
                     {
                         newData.color = GetRandomColor();
-                        newData.length = new Vector2(toolSettings.sizeWidth, toolSettings.sizeLength) * lengthWidths[j];
+                        newData.widthHeight = new Vector2(toolSettings.sizeWidth, toolSettings.sizeHeight) * lengthWidths[j];
                         newData.normal = worldNormal;
                         grassData.Add(newData);
                     }
@@ -781,7 +781,7 @@ public class GrassPainterWindow : EditorWindow
                 {
                     float fade = Mathf.Clamp((getFadeMap), 0, 1f);
                     newData.color = GetRandomColor();
-                    newData.length = new Vector2(toolSettings.sizeWidth, toolSettings.sizeLength * fade);
+                    newData.widthHeight = new Vector2(toolSettings.sizeWidth, toolSettings.sizeHeight * fade);
                     newData.normal = newNormal;
                     if (newPoint != Vector3.zero)
                     {
@@ -990,13 +990,13 @@ public class GrassPainterWindow : EditorWindow
         RebuildMesh();
     }
 
-    public void FloodLengthAndWidth()
+    public void FloodHeightAndWidth()
     {
-        Undo.RegisterCompleteObjectUndo(this, "Flooded Length/Width");
+        Undo.RegisterCompleteObjectUndo(this, "Flooded Height/Width");
         for (int i = 0; i < grassData.Count; i++)
         {
             GrassData newData = grassData[i];
-            newData.length = new Vector2(toolSettings.sizeWidth, toolSettings.sizeLength);
+            newData.widthHeight = new Vector2(toolSettings.sizeWidth, toolSettings.sizeHeight);
             grassData[i] = newData;
 
         }
@@ -1161,7 +1161,7 @@ public class GrassPainterWindow : EditorWindow
                                     GrassData newData = new GrassData();
                                     newData.color = GetRandomColor();
                                     newData.position = hitPos;
-                                    newData.length = new Vector2(toolSettings.sizeWidth, toolSettings.sizeLength);
+                                    newData.widthHeight = new Vector2(toolSettings.sizeWidth, toolSettings.sizeHeight);
                                     newData.normal = hitNormal;
 
                                     grassData.Add(newData);
@@ -1176,7 +1176,7 @@ public class GrassPainterWindow : EditorWindow
                                         newData.color = GetRandomColor();
                                         newData.position = hitPos;
 
-                                        newData.length = new Vector2(toolSettings.sizeWidth, toolSettings.sizeLength);
+                                        newData.widthHeight = new Vector2(toolSettings.sizeWidth, toolSettings.sizeHeight);
                                         newData.normal = hitNormal;
                                         grassData.Add(newData);
 
@@ -1227,8 +1227,8 @@ public class GrassPainterWindow : EditorWindow
                     // add in the new color
                     Vector3 newCol = GetRandomColor();
 
-                    Vector2 origLength = grassData[j].length;
-                    Vector2 newLength = new Vector2(toolSettings.adjustWidth, toolSettings.adjustLength);
+                    Vector2 origLength = grassData[j].widthHeight;
+                    Vector2 newLength = new Vector2(toolSettings.adjustWidth, toolSettings.adjustHeight);
 
 
                     flowTimer++;
@@ -1245,9 +1245,9 @@ public class GrassPainterWindow : EditorWindow
                         if (toolbarIntEdit == 1 || toolbarIntEdit == 2)
                         {
                             GrassData newData = grassData[j];
-                            newData.length = Vector2.Lerp(origLength + newLength, origLength, falloff);
-                            newData.length.x = Mathf.Clamp(newData.length.x, 0, toolSettings.adjustWidthMax);
-                            newData.length.y = Mathf.Clamp(newData.length.y, 0, toolSettings.adjustHeightMax);
+                            newData.widthHeight = Vector2.Lerp(origLength + newLength, origLength, falloff);
+                            newData.widthHeight.x = Mathf.Clamp(newData.widthHeight.x, 0, toolSettings.adjustWidthMax);
+                            newData.widthHeight.y = Mathf.Clamp(newData.widthHeight.y, 0, toolSettings.adjustHeightMax);
                             grassData[j] = newData;
                         }
                         flowTimer = 0;

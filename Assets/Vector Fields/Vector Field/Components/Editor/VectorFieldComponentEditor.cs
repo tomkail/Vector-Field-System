@@ -170,8 +170,7 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 
 		// Draw the (cookie-masked) GPU field straight through the preview material, which applies the contrast scale
 		// on the GPU. Falls back to an unscaled draw if the shader is missing.
-		if (previewMaterial == null && PreviewShader != null)
-			previewMaterial = new Material(PreviewShader) { hideFlags = HideFlags.HideAndDontSave };
+		VectorFieldRendererUtils.GetOrCreateMaterial(ref previewMaterial, PreviewShader, hideAndDontSave: true);
 
 		if (previewMaterial != null) {
 			previewMaterial.SetTexture("_MainTex", data.renderTexture);

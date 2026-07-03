@@ -97,16 +97,15 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 
 		if (rampTexture == null || colorGradientTexture == null) BakeRamp();
 
-		propertyBlock ??= new MaterialPropertyBlock();
-		meshRenderer.GetPropertyBlock(propertyBlock);
-		propertyBlock.SetTexture(MainTex, fieldTexture);
-		// Bicubic field sampling in the shader needs the field dimensions; set explicitly so we don't rely on Unity
-		// auto-populating _MainTex_TexelSize for a property-block-bound texture.
-		propertyBlock.SetVector(MainTexTexelSize, new Vector4(
-			1f / fieldTexture.width, 1f / fieldTexture.height, fieldTexture.width, fieldTexture.height));
-		propertyBlock.SetTexture(AmplitudeRamp, rampTexture);
-		propertyBlock.SetTexture(ColorGradient, colorGradientTexture);
-		meshRenderer.SetPropertyBlock(propertyBlock);
+		VectorFieldRendererUtils.EditPropertyBlock(meshRenderer, ref propertyBlock, pb => {
+			pb.SetTexture(MainTex, fieldTexture);
+			// Bicubic field sampling in the shader needs the field dimensions; set explicitly so we don't rely on Unity
+			// auto-populating _MainTex_TexelSize for a property-block-bound texture.
+			pb.SetVector(MainTexTexelSize, new Vector4(
+				1f / fieldTexture.width, 1f / fieldTexture.height, fieldTexture.width, fieldTexture.height));
+			pb.SetTexture(AmplitudeRamp, rampTexture);
+			pb.SetTexture(ColorGradient, colorGradientTexture);
+		});
 
 		MatchFieldBounds();
 	}
@@ -132,25 +131,9 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 		if (colorGradientTexture != null) ObjectX.DestroyAutomatic(colorGradientTexture);
 	}
 
-	// Lay the quad over the field's world rect (a unit-quad mesh centred at the origin maps exactly onto it). Replaces
-	// the legacy "scale to grid cell count" assumption, which only held when the field sat at the origin with one world
-	// unit per cell. Divides by the parent's lossy scale so the world size is correct even under a scaled ancestor.
+	// Lay the quad over the field's world rect (a unit-quad mesh centred at the origin maps exactly onto it). Shared
+	// with the other field renderers — see VectorFieldRendererUtils.MatchFieldRect.
 	void MatchFieldBounds() {
-		if (_vectorFieldComponent == null) return;
-
-		var bounds = _vectorFieldComponent.GetBounds();
-		transform.position = bounds.center + _vectorFieldComponent.planeNormal * depthOffset;
-
-		var worldSize = new Vector3(bounds.size.x, bounds.size.y, 1);
-		var parent = transform.parent;
-		if (parent == null) {
-			transform.localScale = worldSize;
-		} else {
-			var parentScale = parent.lossyScale;
-			transform.localScale = new Vector3(
-				parentScale.x != 0 ? worldSize.x / parentScale.x : worldSize.x,
-				parentScale.y != 0 ? worldSize.y / parentScale.y : worldSize.y,
-				parentScale.z != 0 ? worldSize.z / parentScale.z : worldSize.z);
-		}
+		VectorFieldRendererUtils.MatchFieldRect(transform, _vectorFieldComponent, depthOffset);
 	}
 }

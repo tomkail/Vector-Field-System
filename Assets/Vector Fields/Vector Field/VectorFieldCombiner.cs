@@ -43,7 +43,7 @@ public static class VectorFieldCombiner {
 	static Material sharedMaterial;
 	static Material SharedMaterial {
 		get {
-			if (sharedMaterial == null && CombineVectorFieldsShader != null) sharedMaterial = new Material(CombineVectorFieldsShader);
+			VectorFieldRendererUtils.GetOrCreateMaterial(ref sharedMaterial, CombineVectorFieldsShader);
 			return sharedMaterial;
 		}
 	}

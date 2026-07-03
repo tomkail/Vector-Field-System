@@ -418,7 +418,24 @@ It bakes the field into a 3D texture the force field reads, and refreshes when t
 
 - **VectorFieldDebugOverlay** — a Scene‑view overlay (visible when a field is selected) to toggle arrow visualization: **Variable resolution**, **Spacing**, **Max arrows**.
 - **VectorFieldDebugRenderer** — draws the field as instanced arrows straight from the GPU texture (no readback), with zoom‑responsive density. Call `Draw(field, opacity, camera, variableResolution, targetSpacingPixels, maxArrows)`.
-- **VectorFieldTextureRenderer** — shows the raw field as a flow‑visualization quad in world space; supports an **amplitude→alpha** curve and a **color gradient** recolor, with a `depthOffset` for layering.
+- **VectorFieldTextureRenderer** — shows the raw field as a flow‑visualization quad in world space; supports an **amplitude→alpha** curve and a **color gradient** recolor, with a `depthOffset` for layering. Also the simplest way to feed a field into *your own* shader (see below).
+- **Water Flow Map** (`Vector Fields/Water Flow Map` shader) — scrolls a texture along the field per‑pixel, the classic ping‑pong flow‑map look. Point a `VectorFieldTextureRenderer` at a field, put a material using this shader on the same quad, and assign your image to `_WaterTex`. Optional dual‑scale second layer breaks up tiling.
+- **Water Flow Lit** (`Vector Fields/Water Flow Lit` shader) — same ping‑pong flow, but derives a normal from the flowed texture (as a heightfield) and lights it, so moving specular/shading ride the field. Self‑contained lighting (its own `_LightDir`); best with a smooth wavy `_WaterTex`. Wiring as above.
+- **Flow (IBFV)** — `VectorFieldFlowIBFV` component + shader: a seam‑free flowing‑streak visualization (van Wijk 2002) built by advecting a feedback buffer along the flow and injecting animated noise. Runs in play mode; tunables (`flowStep`, `noiseAmount`, `noiseScale`, `noiseRate`) are on the component.
+- **LIC** (`Vector Fields/Vector Field LIC` shader) — Line Integral Convolution: the classic dense "combed along the flow" picture of a field. Stateless (recomputed per frame), so it's crisp and never washes out. Point a `VectorFieldTextureRenderer` at a field, put a material using this shader on the quad, and assign a tiling white‑noise texture to `_NoiseTex`. Keep `_NoiseScale` low (a few px per noise texel).
+
+### Consuming a field in your own shader
+
+A field is published as a live GPU texture — `VectorFieldComponent.renderTexture`, an `ARGBFloat` render texture that compute shaders write directly (no CPU readback). Two things to know to sample it:
+
+- **Binding.** Add a **VectorFieldTextureRenderer** to your quad and point it at the field; it pushes the live texture into your material's `_MainTex` via a `MaterialPropertyBlock` every time the field re‑renders (including after a resize), so you don't touch the shared material. If you'd rather bind it yourself, call `material.SetTexture("_MainTex", field.renderTexture)` — but do it on the component's `OnRendered` event, since the texture reference can change on a resize.
+- **Encoding.** The vector is stored in the **R,G** channels remapped to 0–1 as `rg = vector * 0.5 + 0.5` (B,A unused), normalized so the field's max component maps to ±1 — magnitudes beyond that clamp. Decode in the shader with:
+
+  ```hlsl
+  float2 flow = (tex2D(_MainTex, uv).rg - 0.5) * 2.0;   // signed velocity, roughly [-1, 1]
+  ```
+
+  The built‑in flow shaders negate this (`-(rg - 0.5)`) so apparent motion matches the debug arrows; match that sign if you want your effect to flow the same direction as the others.
 
 > **Legacy:** the particle‑based debug views under `Assets/Vector Fields/Visualisation/` (`MapDebugView`, `VectorFieldDebugView`, `VectorFieldDotsDebugView`, `VectorFieldParticleRenderer`, `LocalisedGridParticles`) depend on a `VectorFieldManager` singleton that now lives only under `Assets/Legacy/`, so they don't work with the current component model. They're omitted here pending retirement or a port.
 

@@ -17,6 +17,10 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
     static readonly int FieldTex = Shader.PropertyToID("_FieldTex");
     static readonly int NoiseTex = Shader.PropertyToID("_NoiseTex");
     static readonly int NoisePhase = Shader.PropertyToID("_NoisePhase");
+    static readonly int FlowStep = Shader.PropertyToID("_FlowStep");
+    static readonly int NoiseAmount = Shader.PropertyToID("_NoiseAmount");
+    static readonly int NoiseScale = Shader.PropertyToID("_NoiseScale");
+    static readonly int NoiseRate = Shader.PropertyToID("_NoiseRate");
 
     [SerializeField] VectorFieldComponent vectorFieldComponent;
 
@@ -26,13 +30,24 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
     [SerializeField] Texture2D noiseTexture;
 
     [SerializeField] Vector2Int resolution = new Vector2Int(512, 512);
-    [SerializeField] float noiseScrollSpeed = 0.25f;
+
+    [Header("Look (pushed to the material each frame)")]
+    [Tooltip("How far the feedback buffer is advected along the flow each frame, in UV units. Bigger = faster/longer streaks.")]
+    [SerializeField] float flowStep = 0.02f;
+    [Tooltip("Fraction of fresh noise injected each frame. Lower = longer-lived streaks; too low blurs to grey.")]
+    [Range(0f, 1f)][SerializeField] float noiseAmount = 0.08f;
+    [Tooltip("Tiling of the injection noise across the quad. Higher = finer streaks.")]
+    [SerializeField] float noiseScale = 6f;
+    [Tooltip("Twinkle speed (cycles/sec). Each noise texel pulses on its own phase so spots persist a few frames — the " +
+        "coherence that lets advection draw them into streaks. Too slow = streaks wrap; too fast = static noise.")]
+    [SerializeField] float noiseRate = 1.5f;
+
     // Shifts the display quad along the field plane normal (draw-order control), like VectorFieldTextureRenderer.
     [SerializeField] float depthOffset;
 
     RenderTexture bufferA, bufferB;
     bool readFromA = true;
-    Vector2 noisePhase;
+    float elapsed;   // drives the noise twinkle (passed to the shader as _NoisePhase.x)
     float lastTime;
 
     MeshRenderer meshRenderer => GetComponent<MeshRenderer>();
@@ -54,10 +69,7 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
     }
 
     void EnsureResources() {
-        if (ibfvMaterial == null) {
-            var shader = Shader.Find("Vector Fields/Vector Field Flow IBFV");
-            if (shader != null) ibfvMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-        }
+        VectorFieldRendererUtils.GetOrCreateMaterial(ref ibfvMaterial, "Vector Fields/Vector Field Flow IBFV", hideAndDontSave: true);
         if (noiseTexture == null) noiseTexture = CreateWhiteNoise(256);
         EnsureBuffer(ref bufferA);
         EnsureBuffer(ref bufferB);
@@ -92,56 +104,48 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
         float now = Now();
         float dt = Mathf.Clamp(now - lastTime, 0f, 0.1f);
         lastTime = now;
-        noisePhase += new Vector2(1.0f, 0.61f) * (noiseScrollSpeed * dt);
+        elapsed += dt;
 
         var src = readFromA ? bufferA : bufferB;
         var dst = readFromA ? bufferB : bufferA;
 
         ibfvMaterial.SetTexture(FieldTex, field);
         ibfvMaterial.SetTexture(NoiseTex, noiseTexture);
-        ibfvMaterial.SetVector(NoisePhase, new Vector4(noisePhase.x, noisePhase.y, 0, 0));
+        ibfvMaterial.SetVector(NoisePhase, new Vector4(elapsed, 0, 0, 0));
+        ibfvMaterial.SetFloat(FlowStep, flowStep);
+        ibfvMaterial.SetFloat(NoiseAmount, noiseAmount);
+        ibfvMaterial.SetFloat(NoiseScale, noiseScale);
+        ibfvMaterial.SetFloat(NoiseRate, noiseRate);
         Graphics.Blit(src, dst, ibfvMaterial);          // _MainTex = src (previous accumulation)
         readFromA = !readFromA;
 
         // Show the new accumulation on the mesh. The renderer's material should be an unlit textured material; we only
         // override its _MainTex per-instance via the property block.
-        propertyBlock ??= new MaterialPropertyBlock();
-        meshRenderer.GetPropertyBlock(propertyBlock);
-        propertyBlock.SetTexture(MainTex, dst);
-        meshRenderer.SetPropertyBlock(propertyBlock);
+        VectorFieldRendererUtils.SetRendererTexture(meshRenderer, ref propertyBlock, MainTex, dst);
     }
 
-    // Lay the quad over the field's world rect (same approach as VectorFieldTextureRenderer).
+    // Lay the quad over the field's world rect — shared with the other field renderers.
     void MatchFieldBounds() {
-        var bounds = vectorFieldComponent.GetBounds();
-        transform.position = bounds.center + vectorFieldComponent.planeNormal * depthOffset;
-
-        var worldSize = new Vector3(bounds.size.x, bounds.size.y, 1);
-        var parent = transform.parent;
-        if (parent == null) {
-            transform.localScale = worldSize;
-        } else {
-            var s = parent.lossyScale;
-            transform.localScale = new Vector3(
-                s.x != 0 ? worldSize.x / s.x : worldSize.x,
-                s.y != 0 ? worldSize.y / s.y : worldSize.y,
-                s.z != 0 ? worldSize.z / s.z : worldSize.z);
-        }
+        VectorFieldRendererUtils.MatchFieldRect(transform, vectorFieldComponent, depthOffset);
     }
 
     static Texture2D CreateWhiteNoise(int size) {
-        var tex = new Texture2D(size, size, TextureFormat.R8, false, true) {
+        // RGBA32, not R8: the shader reads noise as .rgb, and we write a grey (v,v,v) below. An R8 texture would drop
+        // G/B, so the injected noise would be pure red and the accumulation would converge to red instead of grey.
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false, true) {
             wrapMode = TextureWrapMode.Repeat,
             filterMode = FilterMode.Bilinear,
             hideFlags = HideFlags.HideAndDontSave
         };
         var px = new Color32[size * size];
         // Deterministic hash so it doesn't rely on Random state (and is stable across edit-mode repaints).
+        // R = per-texel noise value; G = per-texel temporal phase for the twinkle (independent bits of the same hash).
         for (int i = 0; i < px.Length; i++) {
             uint h = (uint)(i * 2654435761u);
             h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
-            byte v = (byte)(h & 0xFF);
-            px[i] = new Color32(v, v, v, 255);
+            byte value = (byte)(h & 0xFF);
+            byte phase = (byte)((h >> 8) & 0xFF);
+            px[i] = new Color32(value, phase, 0, 255);
         }
         tex.SetPixels32(px);
         tex.Apply();

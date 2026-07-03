@@ -282,7 +282,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
 
     void EnsureRenderResources() {
         if (renderShader == null) renderShader = Shader.Find("VectorField/SmokeRender");
-        if (renderMaterial == null && renderShader != null) renderMaterial = new Material(renderShader);
+        VectorFieldRendererUtils.GetOrCreateMaterial(ref renderMaterial, renderShader);
         if (quad == null) quad = BuildUnitQuad();
     }
 

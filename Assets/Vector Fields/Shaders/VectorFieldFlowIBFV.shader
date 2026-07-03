@@ -14,8 +14,9 @@ Shader "Vector Fields/Vector Field Flow IBFV" {
         _NoiseTex ("Injection Noise", 2D) = "white" {}
         _FlowStep ("Advection Step", Range(0,0.05)) = 0.008                    // how far to advect per frame (uv units)
         _NoiseAmount ("Noise Injection", Range(0,1)) = 0.08                    // fresh noise blended in each frame
-        _NoiseScale ("Noise Scale", Float) = 8
-        _NoisePhase ("Noise Phase (driver-set)", Vector) = (0,0,0,0)           // scrolled over time so streaks animate
+        _NoiseScale ("Noise Scale", Float) = 6
+        _NoiseRate ("Noise Twinkle Rate", Float) = 1.5                         // per-texel pulse cycles/sec
+        _NoisePhase ("Time (driver-set)", Vector) = (0,0,0,0)                  // .x = elapsed seconds, drives the twinkle
     }
 
     SubShader {
@@ -35,7 +36,8 @@ Shader "Vector Fields/Vector Field Flow IBFV" {
             float _FlowStep;
             float _NoiseAmount;
             float _NoiseScale;
-            float4 _NoisePhase;
+            float _NoiseRate;
+            float4 _NoisePhase;   // .x = elapsed seconds
 
             fixed4 frag (v2f_img i) : SV_Target {
                 float2 uv = i.uv;
@@ -49,9 +51,14 @@ Shader "Vector Fields/Vector Field Flow IBFV" {
                 float2 prevUv = uv - vel * _FlowStep;
                 float3 advected = tex2D(_MainTex, prevUv).rgb;
 
-                // Inject a little fresh, time-scrolled noise. The advection smears it into streaks along the flow;
-                // the constant injection keeps them alive and animating instead of converging to a static image.
-                float3 noise = tex2D(_NoiseTex, uv * _NoiseScale + _NoisePhase.xy).rgb;
+                // Animated ("twinkling") noise — the crux of IBFV. R = per-texel value, G = per-texel temporal phase.
+                // Each texel pulses on its own phase, so a spot stays lit long enough to be advected into a streak, then
+                // fades; neighbours peaking at different times keep the whole field alive. Static noise would stand
+                // still and mask the streaks; fully-random-per-frame noise would average to flat grey. Mean-preserving
+                // (centred on 0.5) so the accumulation doesn't drift bright or dark.
+                float2 nz = tex2D(_NoiseTex, uv * _NoiseScale).rg;
+                float pulse = 0.5 + 0.5 * sin(6.2831853 * (_NoisePhase.x * _NoiseRate + nz.g));
+                float3 noise = (0.5 + (nz.r - 0.5) * pulse).xxx;
 
                 return fixed4(lerp(advected, noise, _NoiseAmount), 1.0);
             }

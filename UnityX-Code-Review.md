@@ -151,9 +151,6 @@ ED-9. `CameraUtilities/Editor/CameraInfoWindow.cs` — ~7 near-identical `GUILay
 ED-10. `Screenshot Exporter/ScreenshotSaverComponent.cs` vs `ScreenshotSaverWindow.cs` — overlapping capture-setup/export logic (the component delegates capture to `ScreenshotCapturer`).
 ED-11. `Screenshot Exporter/Editor/ScreenshotSaverWindow.cs` — long `OnGUI` fanning to many `Draw*` helpers; calls `Repaint()` every frame.
 
-### Misleading / incorrect comments
-ED-12. `DetectLeaksWindow/Editor/DetectLeaksWindow.cs` — framed as "memory leaks" but it's an undestroyed-`UnityEngine.Object` census (`FindObjectsByType`), not leak detection.
-
 ### Tidying
 ED-13. Unused using: `CommentComponent/CommentComponent.cs` — `using System.Collections;` is unused.
 ED-14. Commented-out code: `Texture Creator/Editor/CreateCustomTextureWindow.cs` (large `EditorGrid` block near the end).
@@ -193,9 +190,6 @@ PD-22. `HideInEditMode/*` & `HideInPlayMode/*` — mirror-image pairs; collapse 
 PD-23. `OnChange` & `SetProperty` drawers — both reflect a member by name uncached, though via different mechanisms (`MonoBehaviour.Invoke` by string vs `GetProperty` + deferred `IsDirty`). SetProperty re-does `GetProperty` every dirty frame.
 PD-24. `Lock/Editor/LockDrawer.cs` — `BeginDisabledGroup`/`EndDisabledGroup` wrap overlaps Disable/DisableIf; share a helper.
 PD-25. `MinMax` & `SteppedRange` — both step-snap, but the math differs (MinMax `Round(v/step)*step`, SteppedRange `RoundToNearest`) — not literally copy-pasted.
-
-### Misleading / incorrect comments
-PD-26. `FakeNullable/FakeNullableAttribute.cs` — its doc describes emulating `Nullable<T>`, but the "null" state is a separate serialized `bool` while the value field keeps its default/last value.
 
 ### Tidying
 PD-27. Mixed tabs/spaces: `PropertyPopupDrawer.cs`, `PopupDrawer.cs`.
@@ -768,3 +762,5 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **CMP-34** `PolygonRenderer/LineDraw.cs` — `closed` field comment fixed (was a copy of the `miterLimit` comment).
 - **CMP-35** `CoroutineHelper.cs` — usage example corrected to `Delay(Method, 1.0f)` matching the `Delay(Action, float)` signature.
 - **CMP-36** `Render Texture Creator/RenderTextureCreator.cs` — comment now points at the real fix (`Handles.GetMainGameViewSize()`) instead of calling the `UnityStats.screenRes` hack "necessary".
+- **ED-12** `DetectLeaksWindow/Editor/DetectLeaksWindow.cs` — added a class summary clarifying it's an undestroyed-`Object` census, not true memory-leak detection.
+- **PD-26** `FakeNullable/FakeNullableAttribute.cs` — clarified that the value field is never cleared; only the companion bool marks the "null" state.

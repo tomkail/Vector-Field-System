@@ -255,19 +255,6 @@ UEX-47. `ComponentX.cs:335-374` — `GetInterfaces` returns `Enumerable.Empty` b
 UEX-48. `SceneManagerX.cs:12-24` — `GetCurrentSceneNames/Paths` duplicate `GetCurrentScenes` + `.Select`.
 UEX-49. `ScreenX.cs:454-529` — `PlayerLoopUtils` misplaced inside the `ScreenRectProperties` data class.
 
-### Misleading / incorrect comments
-UEX-50. `RectX.cs:399` — `// THIS IS THE SAME AS INTERSECT!` on `Encapsulating`, which is a **union**. Flatly wrong.
-UEX-51. `RigidbodyX.cs:120-142` — `Rotate` docs reference `point`/`axis`/`angle` params that don't exist.
-UEX-52. `ColliderX.cs:5-9` — claims "closest point on the surface" but returns a pivot raycast.
-UEX-53. `AnimationCurveX.cs:234-250` — `GetFirstTime`/`GetLastTime` docs say "value" but return time; class doc "tangents between 0 and π" wrong.
-UEX-54. `TransformX.cs:389-400` — `GetVertices` Top/Bottom corner names inverted vs `±y`.
-UEX-55. `Checked.cs:19-20` — doc says "float" but operates on `double`.
-UEX-56. `DebugX.cs:315` — `DrawCube` draws only 4 edges (one face); stale `<param>` tags (75-89,138-149,366-369).
-UEX-57. `ScreenX.cs:9-11` — "Must be attached to a GameObject" but it's a `static [InitializeOnLoad]` class.
-UEX-58. `TextureX.cs:23-47` — `<param>` tags reference nonexistent `tex`/`mode`.
-UEX-59. `QuaternionX.cs:64` — `IsValid` only rejects the zero quaternion (true for NaN/non-normalized).
-UEX-60. `RayX.cs:63`, `BoundsX.cs:211-217`, `PlaneX.cs:22` — name/semantics mismatches.
-
 ### Tidying
 UEX-61. Commented-out dead blocks: `RayX.cs:30-85`, `OnGUIX.cs:66-190`, `ReflectionX.cs`, `GizmosX.cs:38,42`, `RectTransformX.cs:219-223,380-392` ("OLD STUFF, built for 80 Days"), `ColorX.cs:208-220` (`BlendOverlay` commented → returns `color2`, a stub), `TextureX.cs:59-61`, `ScreenX.cs:105-121,172,411`.
 UEX-62. Debug logs in shipping code: `Vector3Curve.cs:143` per call; `ColorX.cs:95` LogError then /0 → NaN; `TrailRendererX.cs:20,25` on error paths (null trail / double-clear); `HSBColor.cs:188-211` `Test()` scaffolding.
@@ -764,3 +751,14 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **CMP-36** `Render Texture Creator/RenderTextureCreator.cs` — comment now points at the real fix (`Handles.GetMainGameViewSize()`) instead of calling the `UnityStats.screenRes` hack "necessary".
 - **ED-12** `DetectLeaksWindow/Editor/DetectLeaksWindow.cs` — added a class summary clarifying it's an undestroyed-`Object` census, not true memory-leak detection.
 - **PD-26** `FakeNullable/FakeNullableAttribute.cs` — clarified that the value field is never cleared; only the companion bool marks the "null" state.
+- **UEX-50** `RectX.cs` — replaced the wrong "THIS IS THE SAME AS INTERSECT!" comment on `Encapsulating` (it's a union / bounding rect).
+- **UEX-51** `RigidbodyX.cs` — the two `Rotate` overloads now document their real params (`eulerAngles`/`relativeTo`, and `axis`/`angle`/`relativeTo`) instead of copied `point`/`axis`/`angle`.
+- **UEX-52** `ColliderX.cs` — `GetClosestPoint` doc now describes the pivot-raycast behaviour and points to `Collider.ClosestPoint`.
+- **UEX-53** `AnimationCurveX.cs` — removed the false "tangents between 0 and π" class note; `GetFirstTime`/`GetLastTime` docs now say "time" (were "value").
+- **UEX-54** `TransformX.cs` — `GetVertices` local variable names de-inverted (Top now = +y); value-preserving rename, return-array order unchanged.
+- **UEX-55** `Checked.cs` — `DoubleChecked`/`DoubleCheckedOne` docs say "double values" (were "float").
+- **UEX-56** `DebugX.cs` — fixed stale `<param>` tags on `LogString`/`LogError`/`DrawPoint`, and `DrawCube`'s summary now notes only the front face is drawn.
+- **UEX-57** `ScreenX.cs` — class doc corrected (static `[InitializeOnLoad]` class, no GameObject required).
+- **UEX-58** `TextureX.cs` — `CopyWithSizeScaled`/`ResizeScaled` `<param>` tags fixed (`src`, removed nonexistent `mode`).
+- **UEX-59** `QuaternionX.cs` — added a doc note that `IsValid` only rejects the all-zero quaternion (NaN/non-normalized pass).
+- **UEX-60** `RayX.cs` / `BoundsX.cs` / `PlaneX.cs` — added notes flagging the name/semantics mismatches (distance-to-centre; segment-not-ray; ignored `Raycast` bool).

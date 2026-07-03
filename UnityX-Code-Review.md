@@ -112,7 +112,6 @@ CMP-40. `Audio/AudioSource/AudioSourceManager.cs` — inconsistent spacing (`if(
 ED-1. `SerializedEditorSettings/SerializedEditorSettings.cs:15` — EditorPrefs key is `string.Format("{0} Settings ({1})", typeof(T).Name, …)`; `typeof(T).Name` is the short name → same-name types in different namespaces collide.
 ED-2. `CommentComponent/Editor/CommentComponentEditor.cs:54` — `Save()` writes `data.text` directly with no `Undo.RecordObject`/`EditorUtility.SetDirty` → edits aren't undoable and may not persist.
 ED-3. `GameLayersClassGenerator/Editor/GameLayersClassGenerator.cs` — a layer like "2D Collider" becomes `2dCollider` via `ToCamelCase`, still an invalid identifier (leading digit) → generated file wouldn't compile. (Currently moot: the generator's `[InitializeOnLoad]` hook and ctor call are commented out.)
-ED-4. `Icon/IconManager.cs:30,37` — uses `BindingFlags.NonPublic` reflection for `SetIconForObject`/`GetIconForObject`, but both have been **public** since Unity 2021.2 (this project is Unity 6), so the reflection can be dropped for direct calls; `IconContent(string)` is already public too (`:47`). (`mi` is also used with no null guard.)
 
 ### Unity-native duplication
 ED-5. `Screenshot Exporter/ScreenshotCapturer.cs` — the multi-camera render-to-RT + `ReadPixels` path overlaps `ScreenCapture.CaptureScreenshotAsTexture` (though it adds per-camera selection the built-in lacks).
@@ -120,7 +119,6 @@ ED-6. `EditorTime/Editor/EditorTime.cs` — layers over `Time.realtimeSinceStart
 ED-7. `Screenshot Exporter/ScreenshotSaverTextureFormat.cs` — enum+switch maps to `TextureFormat`; the actual PNG/JPG encoding (`EncodeToPNG`/`JPG`, i.e. `ImageConversion`) lives in `ScreenshotExportSettings`, not here.
 
 ### Refactoring / dead code
-ED-8. `Icon/IconEnums.cs` + `IconManager.cs` — parallel enum/texture arrays indexed into reflection-loaded arrays; a dictionary would be cleaner (and per ED-4 the icon get/set reflection is now redundant with public Unity 6 APIs).
 ED-9. `CameraUtilities/Editor/CameraInfoWindow.cs` — ~7 near-identical `GUILayout.Label(...)` calls per row; also allocates `new GUIStyle(...)` every OnGUI.
 ED-10. `Screenshot Exporter/ScreenshotSaverComponent.cs` vs `ScreenshotSaverWindow.cs` — overlapping capture-setup/export logic (the component delegates capture to `ScreenshotCapturer`).
 ED-11. `Screenshot Exporter/Editor/ScreenshotSaverWindow.cs` — long `OnGUI` fanning to many `Draw*` helpers; calls `Repaint()` every frame.
@@ -213,7 +211,6 @@ UEX-31. `UIBehaviourX.cs:6-14` — `GetRectTransform` == cast; `GetParentCanvas`
 UEX-32. `RectTransformX.cs:459-467` — `GetSize/Width/Height` are trivial getters over `rect.*`; low value but harmless — they mirror the non-trivial `SetWidth`/`SetHeight` (there is still no native `RectTransform.rect` setter). Not worth changing.
 UEX-33. `AnimationCurveX.cs:372-393` — `EaseInOut` is redundant with `AnimationCurve.EaseInOut` (both zero-tangent S-curves).
 UEX-34. `Vector4X.cs:19-21` / `QuaternionX.cs:72-74` — duplicate implicit Vector4↔Quaternion conversion.
-UEX-35. `SystemInfoX:6-16` — `IsMacOS`/`IsWinOS` use fragile string `.Contains` on `SystemInfo.operatingSystem`; prefer `SystemInfo.operatingSystemFamily` (enum, no editor/player split) or `Application.platform`.
 UEX-36. `RandomX.cs:37` — `eulerAngle` == `Random.value*360` (≈ `Random.Range(0f,360f)`), a trivial convenience. (`onUnitCircle` is NOT a duplicate — it returns a point on the edge; `Random.insideUnitCircle` is inside the disk, and there is no 2D built-in for the edge — so it stays.)
 UEX-37. `MeshRendererX.cs:6-9` — `SharedMaterialsContains` == `Array.IndexOf`.
 
@@ -238,7 +235,7 @@ UEX-61. Commented-out dead blocks: `RayX.cs:30-85`, `OnGUIX.cs:66-190`, `Reflect
 UEX-62. Debug logs in shipping code: `Vector3Curve.cs:143` per call; `ColorX.cs:95` LogError then /0 → NaN; `TrailRendererX.cs:20,25` on error paths (null trail / double-clear); `HSBColor.cs:188-211` `Test()` scaffolding.
 UEX-63. Pervasive typo `CameraX.cs` "frustrum" → "frustum" baked into ~14 public method names; also "Cmera" (`:131`).
 UEX-64. Typos: `TransformX.cs` "Heirarchy"/"Descendents"; `GizmosX.cs` "matricies"/"reassinging"; `OnGUIX.cs` "matricies"; `ImageX.cs:20,40` error strings name the wrong method; `ScreenXEditorWindow.cs:12` method name mismatch.
-UEX-65. Unused usings: `SpriteX.cs:2`, `SystemInfoX.cs:2`.
+UEX-65. Unused usings: `SpriteX.cs:2`. *(SystemInfoX.cs:2 resolved with UEX-35.)*
 UEX-66. `DebugX.cs:16` — `debug=true` gates `LogError` too (errors suppressed when false).
 UEX-67. `TextureX.cs:106` — `MonoBehaviour.print` instead of `Debug.LogWarning`.
 
@@ -667,6 +664,8 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **UI-26** `WorldSpaceUIElement/WorldSpaceUIElement.cs` — `onScreen` now converts the parent-local `targetPosition` into `rootCanvasRT`-local space before the `rect.Contains` test (was comparing mismatched spaces).
 - **UI-27** `Swipe View UI/SwipeView.cs` — `GetNormalizedProgress()` returns 0 for ≤1 pages instead of dividing by `pages.Count - 1` (NaN/Inf for 1 page, negative for 0).
 - **UI-28** `Swipe View UI/Editor/SwipeViewEditor.cs` — removed the stray `EditorGUI.BeginChangeCheck()` that had no matching `EndChangeCheck()` (unbalanced change-check stack; its result was never read).
+- **ED-4 / ED-8** `Icon/IconManager.cs` — replaced the `BindingFlags.NonPublic` reflection with the public Unity 6 APIs: `EditorGUIUtility.SetIconForObject`/`GetIconForObject` (public since 2021.2) and a direct `EditorGUIUtility.IconContent(string)` call. Dropped the now-unused `System`/`System.Reflection` usings and the unchecked `mi` deref. The enum-indexed `GUIContent[]` arrays are kept as-is — the enums are contiguous 0-based so the arrays are the correct structure (a dictionary would be strictly worse); ED-8's substantive concern (reflection-loaded arrays) is resolved.
+- **UEX-35** `SystemInfoX.cs` — `IsMacOS`/`IsWinOS` now compare `SystemInfo.operatingSystemFamily` against `OperatingSystemFamily.MacOSX`/`Windows` (enum, no fragile string `.Contains`, no editor/player split); also dropped the unused `using System.Collections;` (part of UEX-65).
 
 ### Misleading / incorrect comments
 - **UI-55** `AbsoluteRectTransformController.cs` — fixed the inverted warning ("is not null!" → "is null (expected a RectTransform parent)!").

@@ -558,11 +558,6 @@ EAS-9. `GetDelta` bodies duplicated across the SmoothDamp/MoveTowards types.
 EAS-10. Unused usings: `QuaternionSmoothDamper.cs:4`, `Vector2/3SmoothDamper.cs:4`, `ColorSmoothDamper.cs:4`.
 EAS-11. `Vector3SmoothDamper.cs:10` — ctor param named `target` but passed as `current`.
 
-### Misleading / incorrect comments
-EAS-12. `MoveTowards/FloatMoveTowardsEaser.cs:106` & `SmoothDamp/FloatSmoothStepDamper.cs:133` — `ToString` prints `"[BaseEaser] ..."` though neither derives from `BaseEaser`.
-EAS-13. `MoveTowards/MoveTowardsEaser.cs:6-8` — summary says "wrapper for Unity's SmoothDamp" (copied from `SmoothDamper`).
-EAS-14. `SmoothDamp/SpringDamper.cs:78,93` — "This is always smooth!" overstates.
-
 ### Tidying
 EAS-15. `FloatSmoothStepDamper.cs:77,83` — commented-out `// this.initial =`; `:96` — `var targetVelocity = 0` infers int.
 EAS-16. Attribute-before-doc-comment ordering; mixed tabs/4-space; `[DisableAttribute]` vs `[Disable]` inconsistency.
@@ -748,3 +743,6 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **SPR-8** `Spring.cs` — "high epsilon" corrected to "very tight epsilon (1e-7)".
 - **SPR-9** `Spring.cs` — `IsDone` comment fixed (returns whether settled; was "Get the settling duration").
 - **SPR-10** `Spring.cs` — the overdamped-branch `omegaD` comments no longer call it "frequency of damped oscillation" (overdamped springs don't oscillate).
+- **EAS-12** `FloatMoveTowardsEaser.cs` / `FloatSmoothStepDamper.cs` — `ToString` labels fixed to the real type names (were "[BaseEaser]").
+- **EAS-13** `MoveTowards/MoveTowardsEaser.cs` — summary now says it wraps `MoveTowards` (was copied "SmoothDamp" text).
+- **EAS-14** `SmoothDamp/SpringDamper.cs` — softened the "This is always smooth!" claim (fixed step trades exactness for stability).

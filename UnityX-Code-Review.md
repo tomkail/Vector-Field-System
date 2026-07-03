@@ -243,27 +243,8 @@ UEX-67. `TextureX.cs:106` — `MonoBehaviour.print` instead of `Debug.LogWarning
 
 ## Extensions / Geometry (`Scripts/Extensions/Geometry/`)
 
-### Bugs
-GEO-1. `Point/PointRect.cs:265` — `Equals(PointRect)` compares `x==p.x && y==p.y && y==p.width && y==p.height` (uses `y` for width/height). `==` operator is correct → `==`/`Equals` disagree.
-GEO-2. `Point/PointRect.cs:307-312` — `operator *` calls `Add`, `operator /` calls `Subtract`.
-GEO-3. `Point/PointRect.cs:55-62` — `max` setter adds `value.x` on top of existing extents (asymmetric with getter and with the correct `min` setter).
-GEO-4. `Polygon/StarPolygon.cs:89,100,104` — `new Vector2(Sin, Sin)` (should be `Sin, Cos`) → degenerate collinear polygons (3 occurrences).
-GEO-5. `Polygon/StarPolygon.cs:71-78` — `Skip==1` path ignores `rotation`.
-GEO-6. `Polygon/Polygon.cs:438-448` — `FindPointInDirection` sets `score = bestScore` instead of `bestScore = score` → returns the last vertex.
-GEO-7. `Polygon/Polygon.cs:56-62` — `centroid` loop stops one edge early (the wrap ternary `i == _vertices.Length` is dead), so the closing edge is dropped from the sum (feeds `poleOfInaccessibility`). Note the `+= f*3` is correct (the proper 6A divisor) — only the missing wrap is the bug.
-GEO-8. `Polygon/Polygon.cs:204-227` — `Scale(Polygon)` and `Scale(Vector2)` discard `Vector2.Scale`'s return → no-ops (the `float` overload is correct).
-GEO-9. `Polygon/Polygon.cs:346-348` — `GetVertexDegreesInternal` measures the angle of `rightDir−leftDir` vs up → not the interior angle the comment claims.
-GEO-10. `Polygon/Polygon.cs:673-676` — `RayPolygonIntersection` caps `bestDistance` at `ray.magnitude` → rejects hits past distance 1 for a unit ray.
-GEO-11. `Polygon/Polygon.cs:~505` — `PointInPolyFromIndex` indexes with raw `%` on a possibly-negative index (negative `windingDirection`) → negative index / IndexOutOfRange; use the `Mod` helper. (The `:1155` `CombinePolygons` loop `%` is fine — C# `%` returns 0 for exact negative multiples.)
-GEO-12. `Polygon/Polygon.cs:1539-1552` — `poleOfInaccessibility` caches only when magnitude==0 (never invalidated); `computePoleOfInaccessibility` inits `maxX/maxY` to `MaxValue` (works only via the `i==0` seed).
-GEO-13. `Sphere/Sphere.cs:29,83` — `CreateFromBounds`/`CreateFromPoints` are instance methods that ignore `this` (should be static).
-GEO-14. `Sphere/Sphere.cs:30` — radius = max extent doesn't enclose box corners (needs `extents.magnitude`).
-GEO-15. `Sphere/Sphere.cs:113-114` — `CalculateWelzl` index arithmetic (`points[i+index]`, `points[index-1]`) → IndexOutOfRange for many inputs; looks broken/untested.
-GEO-16. `Line/Line3D.cs:141` — `LineIntersectionPoint` solves only the XY projection, returns z=0 despite the 3D name.
-GEO-44. *(New; extends GEO-5)* `Polygon/StarPolygon.cs:95-108` — `StarPolygonToPolygon` ignores `rotation` too (not just the `Skip==1`/`RegularPolygonToPolygon` path), so `StarPolygon.rotation` has no effect in ANY code path.
 
 ### Unity-native duplication
-GEO-17. `Point/Point.cs` — largely duplicates `Vector2Int`.
 GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 GEO-19. `Line/Line.cs:218-263` & `Line3D.cs:145-197` — closest-point-on-segment duplicated 2D/3D and reimplemented several times.
 GEO-20. `Polygon/Polygon.cs:1499-1524` — `PointToLineSegmentSquaredDistance` duplicates `Line` closest-point logic.
@@ -283,7 +264,7 @@ GEO-29. Structs (`Line`, `Line3D`, `PointRect`) — `operator ==`/`Equals` do `(
 GEO-37. `Line/Line.cs:571` — doc typo "to (x1, y10".
 GEO-38. `Polygon/Polygon.cs:1837` "sinze"; `:1135` "calcuate teh direction".
 GEO-39. `Polygon/Polygon.cs:207` — `Debug.Log` inside `Scale` (a pure math method).
-GEO-40. `Sphere/Sphere.cs:129` — `Debug.LogError("Should never get here")` (reachable given the bugs).
+GEO-40. `Sphere/Sphere.cs:129` — `Debug.LogError("Should never get here")` (reachable given the bugs). *(Resolved incidentally by GEO-15 — that `LogError` was removed.)*
 GEO-41. `Polygon/…PolygonEditorTool.cs:301` — `(i+1)%(vertices.Length-1)` off-by-one in edge-normal debug draw.
 GEO-42. `Polygon/Polygon.cs:1433` — shared mutable `static List<int> tris` used by `GetRandomPointInPolygon` (not thread-safe).
 GEO-43. `Point/PointRect.cs` — inconsistent namespacing: `Line`/`Polygon`/`Point`/`PointRect` are global while `Triangle`/`Sphere`/`RegularPolygon`/`StarPolygon` are in `UnityX.Geometry`.
@@ -739,6 +720,25 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **TXT-36** `RuntimeSceneSetLoader.cs` — gated the previously-raw `Debug.Log`s on `debugLogging`.
 - **TXT-37** `RuntimeSceneSet.cs` — fixed "includesed"→"included" typos; removed commented `// [SceneAttribute]` and the redundant empty ctor.
 - **TXT-16 / TXT-17 / TXT-18 / TXT-20 / TXT-24** — left as-is (BCL-overlapping public helpers used library-wide, delicate build-settings code, and invasive dedups).
+
+### Geometry
+- **GEO-1** `Point/PointRect.cs` — `Equals(PointRect)` now compares `width`/`height` (was using `y` for both), matching `==`.
+- **GEO-2** `Point/PointRect.cs` — `operator *`/`/` call `Multiply`/`Divide` (were `Add`/`Subtract`).
+- **GEO-3** `Point/PointRect.cs` — `max` setter places the corner at the value (`xMax = value.x` → `width = value.x - x`), symmetric with `min` (was adding extents on top).
+- **GEO-4** `Polygon/StarPolygon.cs` — `new Vector2(Sin, Cos)` at all three sites (was `Sin, Sin` → collinear).
+- **GEO-5 / GEO-44** `Polygon/StarPolygon.cs` — `rotation` now applied in both `RegularPolygonToPolygon` and `StarPolygonToPolygon` (previously ignored in every path).
+- **GEO-6** `Polygon/Polygon.cs` — `FindPointInDirection` sets `bestScore = score` (was `score = bestScore` → returned the last vertex).
+- **GEO-7** `Polygon/Polygon.cs` — `centroid` loop wraps to include the closing edge (`b = vertices[(i+1)%n]`); `f*3` divisor left correct.
+- **GEO-8** `Polygon/Polygon.cs` — `Scale(Polygon)`/`Scale(Vector2)` assign the `Vector2.Scale` result back (were no-ops).
+- **GEO-9** `Polygon/Polygon.cs` — `GetVertexDegreesInternal(int)` returns `Vector2.Angle(leftDir, rightDir)` (the true interior angle).
+- **GEO-10** `Polygon/Polygon.cs` — `RayPolygonIntersection` seeds `bestDistance = float.MaxValue` (was `ray.magnitude` → rejected hits past distance 1).
+- **GEO-11** `Polygon/Polygon.cs` — `PointInPolyFromIndex` uses the negative-safe `Mod` (was raw `%` → possible negative index).
+- **GEO-12** `Polygon/Polygon.cs` — `poleOfInaccessibility` gated on a `_hasComputed` flag (not `magnitude==0`); `computePoleOfInaccesibility` seeds `maxX/maxY = float.MinValue`. *(Still compute-once/no-invalidation, matching prior behavior.)*
+- **GEO-13** `Sphere/Sphere.cs` — `CreateFromBounds`/`CreateFromPoints` (+ internal `CalculateWelzl` overloads) made `static` (they ignored `this`). *(Public signature change; no in-project callers — the camera tools use the separate `BoundingSphere` class.)*
+- **GEO-14** `Sphere/Sphere.cs` — `CreateFromBounds` radius = `bounds.extents.magnitude` (encloses the corners; was the max single extent).
+- **GEO-15** `Sphere/Sphere.cs` — `CalculateWelzl` no longer early-returns after the first out-of-sphere point (continues the scan, matching the working `BoundingSphere`); dropped the reachable `LogError`; 2-support overload writes a local, not the instance field. *(CreateFromPoints has no in-project callers.)*
+- **GEO-16** `Line/Line3D.cs` — `LineIntersectionPoint` interpolates z along line1 at the solved XY parameter so the point lies on the line (was always z=0). *(Still an XY-projection solve — documented limitation for genuinely non-intersecting 3D lines.)*
+- **GEO-17** — left as-is: `Point/Point.cs` largely duplicates `Vector2Int`, but `Point` is a pervasive public type used across the library; replacing it would be a massive breaking change.
 
 ### Island detector — iterative rewrite
 - **STR-1 / STR-2** — hang fixed. Both detectors now walk a fixed collection and *pop* seeds (`foreach` / `Queue.Dequeue`) instead of peeking `[0]`; an island is created only for a valid seed, so no empty `OwnedIsland`s.

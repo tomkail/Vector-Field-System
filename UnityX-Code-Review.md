@@ -7,6 +7,42 @@ Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat a
 
 ---
 
+## 🔍 Audit / verification pass (2026-07-03, branch `unityx-updates`)
+
+A full independent re-verification of (a) all work already applied and (b) every remaining finding was run (parallel read-only reviewers, each reading the real code). Summary below; individual findings are annotated inline with `*(Audit: …)*`, false positives are tagged **FALSE POSITIVE**, and newly-found bugs were added as new numbered items.
+
+**Work already done — all verified clean:**
+- **UI-1 … UI-28** (applied fixes): 28/28 correct, **0 regressions**. Includes the corrected UI-5 (float-`Color` alpha) and the reverted UI-9 (intentional design).
+- **Island detector rewrite** (STR-1/2/3/7/9/10/20): correct iterative flood-fill, compiles, no results dropped/double-counted. (Residual `static islands`/`testedPoints` re-entrancy smell = the still-open STR-11, not a regression.)
+- **Comment passes:** confirmed comment/doc-only except a few *disclosed* behavior-preserving string/rename edits (exception text, `ToString` labels, `TransformX.GetVertices` value-preserving rename) — no accidental code changes.
+
+**False positives — do NOT "fix" these (each would risk a regression):**
+- **CMP-5** — the lower slab is already rejected by the `localBounds.Contains` check on the previous line; line 274 is merely redundant, not an asymmetric slab.
+- **CMP-6** — `Vector2.normalized` returns `Vector2.zero` for a zero vector (no NaN); `Dot` then yields 0. No NaN.
+- **CMP-8** — `ReleaseRenderTexture()` → mutate dims → `Create()` is exactly Unity's required order. Correct as-is.
+- **PD-10** — returning `-standardVerticalSpacing` when hidden is the standard idiom to fully collapse a property row; nets ~0 height, no overlap.
+- **SYS-26** — `throw new("…")` is valid C# 9 target-typed `new` (target type `Exception`); `UNITY_WINRT` is undefined so the code compiles. Not a compile risk.
+- **TWN-2** — `Timer.GetNormalizedTime()` returns `Mathf.Clamp01(...)`, so the timer can never return >1; the described overshoot can't occur.
+- **MISC-3** — `Graphics.DrawTexture` is inherently Y-flipped vs the `Normal` case (which explicitly un-flips), so the identity matrix in `FlipVertical` *does* produce the flip. Confusing, not broken. (Verify visually before touching.)
+- **XC-7 (partial)** — `Range` does NOT use the `(object)==null`-on-a-struct anti-pattern (`Equals` uses `obj is Range`); its inclusion in the cluster is inaccurate. The other named structs (Line/Line3D/PointRect/Point3) still qualify.
+
+**Sub-claims corrected (finding still valid, but part of the description is wrong):**
+- **GEO-7** — the dropped-closing-edge (loop stops one edge early) is real, but `computedArea += f*3` is the *correct* 6A divisor; the "doubly-wrong / should be `f`" sub-claim is false.
+- **GEO-11** — the real defect is `PointInPolyFromIndex` using raw `%` on a possibly-negative index (→ negative index / IndexOutOfRange, ~`Polygon.cs:505`); the cited `:1155` loop `%` actually terminates correctly.
+- **GRID-6** — the static version at `:321` also uses float division; the real difference is reciprocal-multiply vs direct integer divide, not "float vs correct integer math".
+- **GRID-20** — `CombinePaths` *calls* `Path.Combine` and only adds forward-slash normalization; it's a justified thin wrapper, not a reimplementation.
+- **UEX-7** — the sign form actually *matches* the sibling `…ToWorldVector` methods; it's an internal sign convention, not "reversed vs siblings".
+- **UEX-23** — the divide-by-zero for `numPoints==1` is real, but the ring *does* close (last sample lands at 2π = first).
+- **UEX-39** — `GetRenderCamera` is not duplicated in `RectTransformX` (only `CanvasX`); the `CanvasGroups*` duplication half is correct.
+- **UEX-43** — the two methods are byte-identical (name lies) — correct; but "`curve.keys` re-read in a loop" is wrong (captured once).
+- **PD-3** — public-property-with-private-setter *does* work via `SetValue`; a true miss logs an error (not a silent no-op). The stale-value concern is real (and arguably worse: `IsDirty` set+cleared same frame).
+- **PD-6 / PD-9** — PD-6's `IndexOf` is unguarded but effectively never mismatches (same enum on both sides). PD-9's bare `catch {}` is real, but Undo *is* recorded via `ApplyModifiedProperties()`.
+- **CMP-2/11/14/18/22, SYS-9/13, SPR-2, STR-12, TXT-2/25, RNG-3/6, EAS-4/10** — minor mischaracterizations / by-design / harmless-in-practice (captured in this summary; not each re-annotated below). Notably **TXT-4** is functionally harmless (swapped param *names*, but the body only uses opposite corners → identical rect — tagged inline) and **TWN-5** is by-design (instant tween — tagged inline). **TXT-12**'s real consequence is *incorrectly unloading a shared scene*, not just a duplicate add.
+
+**Newly-discovered bugs (added as items below):** CMP-41 (`BasePolygonRenderer.GetMesh` name-compare never reuses the mesh), PD-30 (`EnumButtonGroupDrawer` reused-drawer-instance bug — same class as the already-fixed `EnumFlagsButtonGroupDrawer`), UEX-68 (`ReflectionX.SetValueFromObject` first-iteration NRE), SYS-32 (`EnumX.Random<T>()` uses a random index as the enum's underlying value), GEO-44 (`StarPolygonToPolygon` ignores `rotation`, extending GEO-5). Minor/by-design candidates (noted here only — not promoted to numbered findings): EAS `remaining` returns `current − target` (negated "distance to target"; possibly relied upon); `TypeTween` instant-branch sets `currentValue` without updating `deltaValue`; `InputUtils.HoveringOverUI` has a dead `screenPos` param; and per-config unchecked settings-asset derefs in `FPSManager`/`RenderTextureCreator`.
+
+---
+
 ## Components / UI (`Scripts/Components/UI/`)
 
 ### Bugs
@@ -64,10 +100,10 @@ CMP-1. `PolygonRenderer/BasePolygonRenderer.cs:91-101` — `if(isPlaying)` neste
 CMP-2. `PolygonRenderer/BasePolygonRenderer.cs:184-194` — `RecalculateColors` re-checks `colorMode == Shape` inside `else if(colorMode == Shape)` → inner check always true.
 CMP-3. `Input/InputPoints/Mouse/MouseInputButton.cs:80` — `ToString()` prints `held` under the "Down" label.
 CMP-4. `Input/InputX.cs:17-21` — `acceptInput` setter calls `ResetInput()` in both branches → branch is pointless.
-CMP-5. `Region/Region.cs:274` — `ContainsPolygonSpacePoint3D` only rejects `z > height*0.5f`, never `z < -height*0.5f` → asymmetric slab.
-CMP-6. `Input/Gestures/Pinch.cs:71-74` — normalizing a zero vector when a finger sits on the pinch center → NaN.
+CMP-5. **FALSE POSITIVE** — `Region/Region.cs:274` — the previous line's `localBounds.Contains(polygonSpace)` already rejects the lower slab (localBounds spans ±height*0.5); line 274 is redundant, not an asymmetric slab. Leave as-is.
+CMP-6. **FALSE POSITIVE** — `Input/Gestures/Pinch.cs:71-74` — uses the `Vector2.normalized` *property*, which returns `Vector2.zero` for a zero vector (not NaN); `Dot` then yields 0. No NaN. Leave as-is.
 CMP-7. `Input/InputPoints/InputPoint.cs:118` — `UpdateDeltaMovement` both lerps and `+=` the delta → double-counts.
-CMP-8. `Render Texture Creator/RenderTextureCreator.cs:88-110` — property mutations after `ReleaseRenderTexture()` but before `Create()` — verify ordering.
+CMP-8. **FALSE POSITIVE** — `Render Texture Creator/RenderTextureCreator.cs:88-110` — `ReleaseRenderTexture()` → mutate dims/format → `Create()` is exactly Unity's required order (setters only take effect while uncreated). Correct as-is.
 CMP-9. `Render Texture Creator/Editor/RenderTextureCreatorEditor.cs:32-35` — casts `objectReferenceValue` to `RenderTexture` + reads `.width/.height` with no null check.
 CMP-10. `FPSManager/FPSManager.cs:15` — `1f/averageFPS` with no zero guard → Infinity before first sample.
 CMP-11. `FPSManager/FPSManager.cs:95-99` — `RemoveOldDeltaTimes` bounds look off-by-one vs the accumulation loop.
@@ -75,6 +111,7 @@ CMP-12. `HideFlags/Editor/SetChildHideFlagsEditor.cs:21-23` — loops `targets` 
 CMP-13. `GUIDrawer.cs:17-19` — enumerates the drawer dict in `OnGUI` while callbacks mutate it → "Collection was modified".
 CMP-14. `ChangeCheckers/TransformChangeChecker.cs:36` — `enabled = false` set on play path but not edit path → asymmetric self-disable.
 CMP-15. `Input/Gestures/Gesture.cs:17` — `CompleteGesture` sets `inputPoints = null` → post-completion subscribers can NRE. `TextMeshPro/TextBackgroundHighlightEffect.cs:16` — `text` is never auto-wired. `MonoInstancer.cs:29` — `_upToDate` is invalidated on play-mode/compile resets but not on scene open / hierarchy changes in edit mode, so the cached list can go stale on scene load.
+CMP-41. *(New: found during the audit)* `PolygonRenderer/BasePolygonRenderer.cs:129` — `GetMesh` compares `meshFilter.name` (the component/GameObject name) against `"Polygon Renderer Mesh " + GetEntityId()` before reusing `meshFilter.mesh`; it should compare the *mesh's* name (`meshFilter.sharedMesh?.name`). As written the reuse branch is effectively always false, so a fresh mesh is created each time.
 
 ### Unity-native duplication
 CMP-16. `Region/Region.cs:269-271` — `SqrDistance` duplicates `(a-b).sqrMagnitude`.
@@ -143,7 +180,8 @@ PD-6. `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:75` — the static `Draw`
 PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` via `(int)Convert.ChangeType(...)` → truncates for `long`/`ulong`-backed enums.
 PD-8. `Info/Editor/InfoDrawer.cs` — help box uses a fixed `helpBoxHeight = 38` rather than measuring the text → long multi-line text clips.
 PD-9. `PositionHandle/Editor/PositionHandleDrawer.cs` — the scene-handle write has no `Undo` recording and swallows exceptions in a bare `catch {}`.
-PD-10. `HideInEditMode/Editor/HideInEditModeDrawer.cs` — returns `-EditorGUIUtility.standardVerticalSpacing` when hidden → negative height can overlap adjacent rows.
+PD-10. **FALSE POSITIVE** — `HideInEditMode/Editor/HideInEditModeDrawer.cs` — returning `-standardVerticalSpacing` when hidden is the standard idiom to fully collapse a property row (cancels the spacing Unity adds → nets ~0 height); it does not overlap adjacent rows. Leave as-is.
+PD-30. *(New: found during the audit)* `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:10` — `OnGUI` only initializes when `_properties == null` and never re-initializes on `property.propertyPath` change, so a drawer instance reused across elements of an enum array/list binds element 0's cached state to every element (toggles read/write the wrong element). This is the SAME reused-drawer bug its sibling `EnumFlagsButtonGroupDrawer` was already fixed for (see its `_propertyPath != property.propertyPath` guard); apply the same guard here.
 
 ### Unity-native duplication
 PD-11. `EnumFlag/Editor/EnumFlagDrawer.cs` — duplicates `EditorGUI.EnumFlagsField` / native `[Flags]` mask.
@@ -180,7 +218,7 @@ UEX-3. `Texture/TextureX.cs:58-79` — `GPUScale` calls `RenderTexture.ReleaseTe
 UEX-4. `Vector3X.cs:71-73` — `Reflect` returns `2·Project(d,n) − d`, the negation of a true reflection (Unity's is `d − 2·Project`). No callers in the project, so fixing it is internally safe (public API, so external callers could depend on the current sign).
 UEX-5. `ObjectX/SelectionX.cs:131-134` — `objects` setter assigns to its own property when `value==null` → infinite recursion; `:119-122` — `activeObject` setter lacks `else` → NRE on `value.GetEntityId()`.
 UEX-6. `Rigidbody2DX.cs:5` — `Mathf.DeltaAngle(target, current)` gives `current−target` → torque drives away from target (positive feedback). Args reversed.
-UEX-7. `CameraX.cs:38-40` — `WorldToViewportVector` uses reversed subtraction vs siblings → sign flip.
+UEX-7. `CameraX.cs:38-40` — `WorldToViewportVector` uses `f(0)−f(vec)` (sign-flipped vs a correct `ScreenToViewportVector`). *(Audit: it actually MATCHES the sibling `…ToWorldVector` methods, which share the same flipped form — it's an internal sign convention, not "reversed vs siblings". Verify intent before changing; may be relied on.)*
 UEX-8. `ColliderX.cs:11-23` — `GetClosestPoint` raycasts toward the pivot, not the surface; falls back to the pivot. Duplicates + worse than `Collider.ClosestPoint`.
 UEX-9. `ComponentX.cs:146-151` — `ImmediateAncestorsExcludingSelf` passes child-search params `(1,1)` instead of `(-1,-1)` → searches children.
 UEX-10. `ComponentX.cs:41-50` — `BetterBroadcastMessage` edit-mode branch sends to root N times, never to children.
@@ -196,8 +234,9 @@ UEX-19. `ReflectionX.cs:34-36,80-81,126-127,164-165` — `parts[i+2]` unguarded 
 UEX-20. `TextureX.cs:104-107` — `Create` logs mismatch then proceeds → `SetPixels` throws; `:95` — overload silently drops `textureFormat`.
 UEX-21. `SelectionX.cs:64-66,86-100` — save-last-selection logic inverted; `CompareWithLastSelection` mixes `objects` vs `gameObjects`.
 UEX-22. `ScreenX.cs:283,295` — `int.Parse(UnityStats.screenRes.Split('x'))` unguarded → FormatException/IndexOutOfRange in a per-frame getter.
-UEX-23. `OnGUIX.cs:97` — `DrawCircle` never closes the loop; `numPoints==1` → divide by zero.
+UEX-23. `OnGUIX.cs:97` — `DrawCircle` `numPoints==1` → divide by zero (`2π/(numPoints-1)`). *(Audit: the "never closes the loop" sub-claim is FALSE — the last sample lands at angle 2π = the first, so the ring does close. Only the /0 is real.)*
 UEX-24. `GizmosX.cs:277,301` — `DrawWireArc`/`DrawWireArcSegment` missing `return` after the degenerate circle draw.
+UEX-68. *(New: found during the audit)* `ReflectionX.cs:199-202` — in `SetValueFromObject`, if `obj` itself is the target `T` on the first path segment, `fieldInfo` is still null when `fieldInfo.SetValue(obj, val)` runs → NullReferenceException. (Separate from the dead `value = val;` / struct issues already noted in UEX-19.)
 
 ### Unity-native duplication
 UEX-25. `Color/HSVColor.cs` & `HSBColor.cs` — reimplement (buggily) `Color.RGBToHSV`/`HSVToRGB`.
@@ -248,16 +287,17 @@ GEO-3. `Point/PointRect.cs:55-62` — `max` setter adds `value.x` on top of exis
 GEO-4. `Polygon/StarPolygon.cs:89,100,104` — `new Vector2(Sin, Sin)` (should be `Sin, Cos`) → degenerate collinear polygons (3 occurrences).
 GEO-5. `Polygon/StarPolygon.cs:71-78` — `Skip==1` path ignores `rotation`.
 GEO-6. `Polygon/Polygon.cs:438-448` — `FindPointInDirection` sets `score = bestScore` instead of `bestScore = score` → returns the last vertex.
-GEO-7. `Polygon/Polygon.cs:56-62` — `centroid` loop stops one edge early (never wraps) and uses `+= f*3` instead of `f` → doubly-wrong centroid (feeds `poleOfInaccessibility`).
+GEO-7. `Polygon/Polygon.cs:56-62` — `centroid` loop stops one edge early (the wrap ternary `i == _vertices.Length` is dead) → drops the closing edge (feeds `poleOfInaccessibility`). *(Audit: the `+= f*3` part is CORRECT — that's the proper 6A divisor; only the missing-wrap is a bug. Do NOT change `f*3`.)*
 GEO-8. `Polygon/Polygon.cs:204-227` — `Scale(Polygon)` and `Scale(Vector2)` discard `Vector2.Scale`'s return → no-ops (the `float` overload is correct).
 GEO-9. `Polygon/Polygon.cs:346-348` — `GetVertexDegreesInternal` measures the angle of `rightDir−leftDir` vs up → not the interior angle the comment claims.
 GEO-10. `Polygon/Polygon.cs:673-676` — `RayPolygonIntersection` caps `bestDistance` at `ray.magnitude` → rejects hits past distance 1 for a unit ray.
-GEO-11. `Polygon/Polygon.cs:1155` — `CombinePolygons` uses raw `%` on a possibly-negative value where the rest of the file uses the `Mod` helper → can under/overshoot.
+GEO-11. `Polygon/Polygon.cs` — *(Audit: relocated)* the real defect is `PointInPolyFromIndex` (~`:505`) indexing with raw `%` on a possibly-negative index (negative `windingDirection`) → negative index / IndexOutOfRange. The originally-cited `:1155` loop `%` actually terminates correctly (C# `%` returns 0 for exact negative multiples) and is fine.
 GEO-12. `Polygon/Polygon.cs:1539-1552` — `poleOfInaccessibility` caches only when magnitude==0 (never invalidated); `computePoleOfInaccessibility` inits `maxX/maxY` to `MaxValue` (works only via the `i==0` seed).
 GEO-13. `Sphere/Sphere.cs:29,83` — `CreateFromBounds`/`CreateFromPoints` are instance methods that ignore `this` (should be static).
 GEO-14. `Sphere/Sphere.cs:30` — radius = max extent doesn't enclose box corners (needs `extents.magnitude`).
 GEO-15. `Sphere/Sphere.cs:113-114` — `CalculateWelzl` index arithmetic (`points[i+index]`, `points[index-1]`) → IndexOutOfRange for many inputs; looks broken/untested.
 GEO-16. `Line/Line3D.cs:141` — `LineIntersectionPoint` solves only the XY projection, returns z=0 despite the 3D name.
+GEO-44. *(New: found during the audit; extends GEO-5)* `Polygon/StarPolygon.cs:95-108` — `StarPolygonToPolygon` ignores `rotation` too (not just the `Skip==1`/`RegularPolygonToPolygon` path), so `StarPolygon.rotation` has no effect in ANY code path.
 
 ### Unity-native duplication
 GEO-17. `Point/Point.cs` — largely duplicates `Vector2Int`.
@@ -295,7 +335,7 @@ GRID-2. `Grid 3D/Grid3D.cs:70,213,227` — forward `GridPointToArrayIndex` is x-
 GRID-3. `Grid 3D/Point3.cs:98` — `ToString()` prints `"Z: " + y`.
 GRID-4. `Grid 3D/Point3.cs:109-115` — `normalized` and `sqrMagnitude` return `1` (stubs); `magnitude` returns squared magnitude.
 GRID-5. `Grid 3D/Point3.cs:189-198` — `operator ==` uses `ReferenceEquals`/null checks on a struct.
-GRID-6. `Grid 2D/Map Types/Grid.cs:99` — `ArrayIndexToGridPoint` uses float `FloorToInt(index * reciprocal.x)` → off-by-one for large indices (static version at 321 is correct integer math).
+GRID-6. `Grid 2D/Map Types/Grid.cs:99` — `ArrayIndexToGridPoint` uses `FloorToInt(index * reciprocal.x)` (reciprocal multiply → precision loss / off-by-one for large indices). *(Audit: the static version at `:321` is NOT "correct integer math" — it also uses float division `(float)index/width`; the real fix is direct integer `index / width` in both.)*
 GRID-7. `Grid 2D/Map Types/TypeMap.cs:185-213` — `SetValuesAtGridPosition` whole-number path lacks a `return` → falls through and overwrites with a `default(T)` bilinear splat.
 GRID-8. `Grid 2D/Map Types/TypeMap.cs:279-287` — `GetTrimmed` builds an unused `heightMap`, discards `GetValueAtGridPosition` results, returns the untrimmed expanded map.
 GRID-9. `Grid 2D/Mesh Generator/HeightMapMeshGenerator.cs:166` — skip-zero test indexes `[(z+1)*w + (z+1)]` (uses `z+1` as the column).
@@ -311,7 +351,7 @@ GRID-18. `UnityEditorX/…/ScenePathDrawer.cs:57` — uses old `property.stringV
 GRID-19. `UnityEditorX/…/SceneDrawer.cs:46-48` — early-return "No Scenes" path leaves `BeginProperty` without `EndProperty`.
 
 ### Unity-native duplication
-GRID-20. `UnityEditorX/EditorApplicationX.cs:29-31` — `CombinePaths` reimplements `Path.Combine` + normalization.
+GRID-20. `UnityEditorX/EditorApplicationX.cs:29-31` — `CombinePaths` *(Audit: NUANCED — it actually calls `Path.Combine` and only adds forward-slash normalization; a justified thin wrapper, not a reimplementation. Low value to change.)*
 GRID-21. `UnityEditorX/AssetDatabaseX.cs:37-53` — `LoadAllAssetsAtPath(folder)` via `FindAssets("")` (non-idiomatic; prefer `FindAssets("t:Object", folders)`).
 GRID-22. `Grid 2D/Map Types/HeightMap.cs:33-55` — `CalculateTotal/Average/Min/Max` wrap LINQ/`Mathf`; the parameterless `CalculateAverageHeight()` (37) is unused in-project (public — may be external API).
 GRID-23. `UnityEditorX/PrimitiveHelper.cs` — standard trick; caches a mesh from a destroyed GO's `sharedMesh` (survives as built-in).
@@ -386,7 +426,7 @@ ACS-31. `Camera/Camera Properties/CameraPropertiesBuilderQueue.cs:34-36` — 2-a
 TXT-1. `Collections/IEnumerableX.cs:186-193` — `CompareSize` returns true on the first element whenever `targetSize >= 0`, false for empty → always wrong.
 TXT-2. `Collections/IEnumerableX.cs:100-166` — `Min`/`Max<T>(selector)` return `-1` for empty (a legitimate value; can't distinguish empty).
 TXT-3. `Serializable Components/SerializableTransform.cs:434-443` — `GetHashCode` multiplies → collapses to 0 if any component hash is 0.
-TXT-4. `Text/TextMeshProUtils.cs:598-599` — `WorldToScreenRect` param order (`topLeft,bottomLeft,bottomRight,topRight`) mismatches all callers.
+TXT-4. `Text/TextMeshProUtils.cs:598-599` — `WorldToScreenRect` param *names* mismatch callers. *(Audit: functionally HARMLESS — the body only uses param1 and param3 (opposite corners), and `CreateEncapsulating` of any opposite-corner pair yields the identical rect. Rename for clarity only; no behavior change.)*
 TXT-5. `Text/Text Effects/TextFader/TextRevealAnimatorCalculatedParams.cs:30` — `/(numCharacters-1)` → divide by zero for 1-char text.
 TXT-6. `Text/Text Effects/TextFader/WorldSpaceTextGradient.cs:6,31` & `GradientArea.cs:19-24` — no null check on `gradientArea`/`gradient` under `[ExecuteInEditMode]`.
 TXT-7. `Text/Text Effects/TextDuplicator.cs:12-22` — `duplicated` never assigned (commented at 14) → `CopyNonStyleProperties(..., null)` NRE every frame.
@@ -435,6 +475,7 @@ SYS-5. `StringX.cs:5` — `IsWhiteSpace` returns true for empty; misses `\r`/ver
 SYS-6. `StringX.cs:57` — `Truncate` throws on negative length; NREs on null source.
 SYS-7. `StringX.cs:89-113` — `AfterFirst`/`After`: match at end returns the whole original instead of empty.
 SYS-8. `DirectoryX.cs:12-19` — `GetRelativePath` feeds raw paths to `new Uri(...)` → UriFormatException on relative input; `#` mis-parsed as a fragment.
+SYS-32. *(New: found during the audit)* `EnumX.cs:47-52` — `Random<T>()` does `Enum.ToObject(typeof(T), Random.Range(0, Length<T>()))`, treating the random *index* as the enum's *underlying value*. For any enum not numbered contiguously `0..N-1` (flags, explicit values) it returns wrong/undefined members and can never reach higher ones. Should index into `GetValues<T>()`.
 
 ### Unity-native / .NET duplication
 SYS-9. `StringX.cs:5,33-41` — `IsWhiteSpace` == `string.IsNullOrWhiteSpace`; `Contains(string, StringComparison)` == BCL overload.
@@ -453,7 +494,7 @@ SYS-19. `StringX.cs:67-114` — `Before`/`BeforeLast`/`AfterFirst`/`After` share
 SYS-20. `SystemX.cs:25-81` — `OpenInMacFileBrowser`/`OpenInWinFileBrowser` near-identical.
 
 ### Tidying
-SYS-26. `EnumX.cs:37,49,61,75` — `throw new (...)` (target-typed `new` with no target type) — flagged as possibly non-compiling; likely only inert because inside the `#if !UNITY_WINRT` guard. **Worth confirming against the Unity console.**
+SYS-26. **FALSE POSITIVE** — `EnumX.cs:37,49,61,75` — `throw new("…")` is valid C# 9 target-typed `new` (target type `System.Exception`); `UNITY_WINRT` is undefined here so the code is compiled and does compile. Not a compile risk. Leave as-is.
 SYS-27. `ByteFormatter.cs:8` — commented-out `FromToSize` stub.
 SYS-28. `FlagsX.cs:167` — leftover `//yield return value;`.
 SYS-29. Mixed tabs/spaces + stray blank lines: `StringX.cs`, `FlagsX.cs:108-110`.
@@ -535,10 +576,10 @@ EAS-16. Attribute-before-doc-comment ordering; mixed tabs/4-space; `[DisableAttr
 
 ### Bugs
 TWN-1. `Types/Base/TypeTween.cs:242-243` — `Update` samples at the OLD time then advances the timer → value lags one frame (stale at start and just before completion).
-TWN-2. `Types/Base/TypeTween.cs:242` — no clamp/overshoot check; with `Mathf.LerpUnclamped` (FloatTween) the value can overshoot if the timer returns >1 before `TweenComplete`.
+TWN-2. **FALSE POSITIVE** — `Types/Base/TypeTween.cs:242` — `Timer.GetNormalizedTime()` returns `Mathf.Clamp01(...)`, so the timer never returns >1 and the described overshoot can't occur. (A curve that itself exceeds [0,1] under `LerpUnclamped` is a different, intended mechanism.) Leave as-is.
 TWN-3. `Types/QuaternionTween.cs:16-18` — `SetDeltaValue` computes `current * last` (a delta should be `current * Inverse(last)`).
 TWN-4. `Types/Base/TypeTween.cs:279-281` — `GetValueAtTime` divides by `tweenTimer.targetTime` with no null/zero check (reachable via the zero-time path).
-TWN-5. `Types/Base/TypeTween.cs:206-224` — zero-time branch fires `OnStart` then `OnComplete` in the same call.
+TWN-5. `Types/Base/TypeTween.cs:206-224` — zero-time branch fires `OnStart` then `OnComplete` in the same call. *(Audit: this is the expected semantics of an instant (zero-duration) tween — likely by-design, not a defect.)*
 
 ### Unity-native duplication
 TWN-6. `Types/RectTween.cs:12-13` — packs a Rect into Vector4 for `Vector4.Lerp`; also clamped `Lerp` vs FloatTween's `LerpUnclamped` → inconsistent clamping across types.
@@ -589,7 +630,7 @@ RNG-20. `ValuePicker/LogicBlender.cs:26,51-52` — leftover commented assert + a
 ### Bugs
 MISC-1. `NoiseSampler/Editor/NoiseSamplerPropertyDrawer.cs:12` — "Create" button assigns `new SpringHandler(...)` to a `NoiseSampler` field (wrong type).
 MISC-2. `GLDebug/GLDebug.cs:55-66` — `matZOff` getter is a copy of `matZOn` (tests/assigns `_matZOn`, loads the ZOff shader into `_matZOn`); `:108-116` — `linesZOff` drawn with `matZOn` and vice-versa (swapped).
-MISC-3. `Texture Transform Utils/TextureTransformUtil.cs:122-123` — `FlipVertical` case has an empty body → the Graphics path performs no flip.
+MISC-3. **FALSE POSITIVE (likely)** — `Texture Transform Utils/TextureTransformUtil.cs:122-123` — `Graphics.DrawTexture` is inherently Y-flipped vs the `Normal` case (which explicitly un-flips), so the identity matrix in `FlipVertical` *does* produce the flip. Confusing/fragile, not broken. Verify visually before changing.
 MISC-4. `Version Control/VersionControlX.cs:53-54` — `GetGitBranch` returns `Substring(LastIndexOf("/")+1)` → drops everything before the last `/` for slash-containing branch names.
 MISC-5. `Property Curve/PropertyCurve.cs` — `AddKey` inserts at `ClosestIndexToTime(time)` (the floor index) without the needed `+1` when `keys[closestIndex].time < newKey.time` → keys can end up out of order (e.g. inserting time 1 into `[0,2,4]` yields `[1,0,2,4]`).
 
@@ -619,7 +660,7 @@ XC-3. **Editor drawer reflection** — `SetPropertyDrawer` uses public-only `Get
 XC-4. **`enumValueIndex` / mask handling for enums** — `EnumFlagsButtonGroupDrawer` (unmasked flag writes), `EnumButtonGroupDrawer` (unguarded `IndexOf` in the static `Draw`), `EnumFlagDrawer` (`int` truncation for `long` enums).
 XC-5. **Unguarded `GetComponentInParent<Canvas>().rootCanvas`** across UI — a shared null-safe helper would fix the whole cluster.
 XC-6. **Buggy custom HSV/HSB + easing/curve helpers** that duplicate Unity built-ins (`Color.RGBToHSV`, `AnimationCurve.EaseInOut`, `Collider.ClosestPoint`) — prefer the native APIs.
-XC-7. **Struct `operator ==`/`Equals` doing `(object) == null` checks** (can never be null) — `Line`, `Line3D`, `PointRect`, `Point3`, `Range`.
+XC-7. **Struct `operator ==`/`Equals` doing `(object) == null` checks** (can never be null) — `Line`, `Line3D`, `PointRect`, `Point3`. *(Audit: `Range` does NOT exhibit this — its `Equals` uses `obj is Range` and `==` delegates to it; removed from the cluster.)*
 XC-8. **Widespread commented-out dead code** (entire files: `RangeInt.cs`, `Polygon/Editor/LineEditor.cs`; large blocks in `BoundingSphere.cs`, `Line.cs`, `TouchInputSimulator.cs`, `Point3.cs`, the Text Effects folder, etc.).
 XC-9. **Typos baked into public API names**: `CameraX` "frustrum" (~14 methods), "Decendent" folder/class, `PointRect`/`Grid` param docs.
 

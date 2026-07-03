@@ -50,7 +50,7 @@ Material:
     m_Colors:
     - _DeepColor: {r: 0.03, g: 0.18, b: 0.3, a: 1}
     - _LightColor: {r: 1, g: 1, b: 1, a: 1}
-    - _LightDir: {r: 0.4, g: 0.5, b: -0.75, a: 0}
+    - _LightDir: {r: 15.92, g: 6.02, b: 3.18, a: 0}
     - _ShallowColor: {r: 0.3, g: 0.7, b: 0.8, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

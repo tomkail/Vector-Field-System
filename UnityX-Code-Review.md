@@ -20,9 +20,6 @@ Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat a
 
 ## Property Drawers (`Scripts/Property Drawers/`)
 
-### Refactoring / dead code
-PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is infinitely self-recursive → `StackOverflowException`, only dead because unused; should be `base.attribute`). Explained + recommendation in Done (round 21); **kept active pending a decision** (remove the drawer, or fix `base.attribute` + dedupe).
-
 ---
 
 ## Extensions / UnityEngineX (`Scripts/Extensions/UnityEngineX/`)
@@ -30,9 +27,6 @@ PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` �
 ---
 
 ## Extensions / Geometry (`Scripts/Extensions/Geometry/`)
-
-### Unity-native duplication
-GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 
 ---
 
@@ -49,10 +43,6 @@ GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 ---
 
 ## Extensions / System (`Scripts/Extensions/System/`)
-
-### Unity-native / .NET duplication
-SYS-10. `EnumX.cs:14-147` — `Length<T>`/`IsValid`/`ToArray`/`GetEnumerable` duplicate `Enum.GetValues`/`Enum.IsDefined`.
-SYS-11. `FlagsX.cs:33-56` — `SetFlag`/`UnsetFlag`/`HasFlag` reimplement `Enum.HasFlag` + bitwise ops.
 
 ---
 
@@ -96,7 +86,6 @@ MISC-17. `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` is `stati
 
 ## Cross-cutting themes (worth a single sweep)
 
-XC-4. **`enumValueIndex` / mask handling for enums** — `EnumFlagsButtonGroupDrawer` (unmasked flag writes), `EnumButtonGroupDrawer` (unguarded `IndexOf` in the static `Draw`), `EnumFlagDrawer` (`int` truncation for `long` enums).
 XC-8. **Widespread commented-out dead code.** *(Progressively cleared across rounds — LineEditor.cs, TouchInputSimulator, Line.cs, BoundingSphere.cs, RangeInt.cs (revived), and the Text Effects scratch all handled. Remaining: the flagged `TextEffectsController` disabled-feature cluster (outline-2 / base-material restore / pre-render hook / `isDirty=false`) — kept for a human decision, see round-16 notes.)*
 
 ---
@@ -165,6 +154,9 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **TXT-20** — `RuntimeSceneSet`'s hand-rolled build-settings collection + manual array-grow: delicate EditorBuildSettings code; correctness handled by TXT-11.
 - **TXT-24** — identical `Wobble` + scaffold copy-pasted across VertexWobble/CharacterWobble/WordWobble; sharing needs a new base/helper type — invasive for little gain.
 - **PD-20** — `EnumButtonGroupDrawer` and `EnumFlagsButtonGroupDrawer` share a copy-pasted button-layout/hit-testing core, but each property drawer is deliberately kept self-contained so the drawers stay independently portable (portability rule). Sharing declined by decision — portability preferred over dedup.
+- **SYS-10** — `EnumX.Length/IsValid/ToArray/GetEnumerable` wrap `Enum.GetValues`/`Enum.IsDefined`, but kept: they add value the BCL doesn't give at the call site — a generic `T:Enum` API (no `typeof`/cast boilerplate) plus a shared `valuesCache` so repeated `GetValues<T>` calls don't re-allocate the values array. Same convenience rationale as SYS-11. Kept. *(SYS-17 already trimmed `ToArray`/`GetEnumerable` to reuse the cache with no boxing.)*
+- **SYS-11** — `FlagsX.SetFlag/UnsetFlag/HasFlag` etc. reimplement `Enum.HasFlag` + raw bitwise ops, kept deliberately: they're readable named shortcuts so callers don't hand-write/remember the `&`/`|`/`& ~` idioms (per decision).
+- **GEO-18** — `Point/PointRect.cs` overlaps Unity's `RectInt`, but kept as-is (don't-fix): a self-contained integer-rect type the Geometry sub-project relies on; swapping to `RectInt` is churn for no functional gain.
 
 - **XC-6** — the "buggy custom HSV/HSB + easing/curve helpers" theme is resolved via its sub-findings: `Collider.ClosestPoint` → native (UEX-8, done); `AnimationCurve.EaseInOut` redundancy (UEX-33, explained — kept, harmless); the HSV/HSB structs assessed and kept (Unity has RGBToHSV/HSVToRGB conversions but no HSV/HSB *struct*, so ours add value). Nothing further actionable.
 - **RNG-12** — `Blender`/`Selector` share a prioritised-source shape and *could* sit on a common base, but they differ in load-bearing ways (blend-fold vs single-select `Value`, opposite `EntryComparer` direction, `Func<T,T>` vs `T` payload, `object` vs generic priority-source), so a merge is feasible-but-moderate-value with real risk of flipping the fold-order/winner semantics — only worth it if that code churns. `LogicBlender` stays standalone (no priorities, Unity-serialized, aggregate-delegate model). Kept separate.
@@ -704,5 +696,10 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **SYS-17** `EnumX.cs` — `ToArray<T>` reimplemented value enumeration; now `return (T[])GetValues<T>();` (reuses the cached values). `GetEnumerable<T>` boxed via the non-generic path; now `return ToArray<T>();` (no boxing).
 - **SYS-18** (assessed) — keep both the `int` and generic-`T:Enum` families in `FlagsX` (portability/back-compat, see Left as is). Applied the one clear fix: `LinearToFlagValue(int)` now `return 1 << indexValue;` instead of `(int)Math.Pow(2, indexValue)` (avoids float round-trip; correctness at high bits + faster).
 - **PD-20** (declined) — `EnumButtonGroupDrawer`/`EnumFlagsButtonGroupDrawer` shared button-layout code left duplicated: portability preferred over shared code (→ Left as is).
-- **PD-21** (explained) — `EnumButtonsDrawer` is a weaker single-select `GUI.Toolbar` near-duplicate of `EnumButtonGroupDrawer`. Its `private new EnumButtonsAttribute attribute { get { return (EnumButtonsAttribute)attribute; } }` is infinitely self-recursive (`StackOverflowException`) — it reads its own getter instead of `base.attribute`; only dead because nothing invokes it. Recommendation: remove the drawer, or fix the override to `base.attribute` and dedupe against `EnumButtonGroup`. Left active pending a decision.
+- **PD-21** (fixed) — `EnumButtonsDrawer` had a `private new EnumButtonsAttribute attribute { get { return (EnumButtonsAttribute)attribute; } }` that read its own getter (infinite recursion → `StackOverflowException` if ever called), and was never referenced by `OnGUI`. Deleted the dead, latently-crashing property outright — the drawer works purely through `OnGUI`, and `EnumButtonsAttribute` is still referenced by the `[CustomPropertyDrawer(typeof(EnumButtonsAttribute))]` attribute. *(The single-select `GUI.Toolbar` overlap with `EnumButtonGroupDrawer` is left per the portability rule — PD-20 / SYS-11 territory.)*
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Manual edits + 3 parallel agents; every diff reviewed here (braces: FlagsX 36/36, EnumX 17/17, EnumButtonGroupDrawer 41/41, EnumFlagsButtonGroupDrawer 52/52, CameraPropertiesModifier 55/55). Corrected the agent's SYS-2 `Caster` regression as noted above.
+
+### GEO-18/SYS-10/SYS-11 dispositions + PD-21 fix (round 22)
+- **PD-21 fixed** — see the round-21 entry above (updated in place): deleted the dead, self-recursive `attribute` override in `EnumButtonsDrawer`.
+- **GEO-18 / SYS-10 / SYS-11** (assessed) — all kept by decision → Left as is. GEO-18 `PointRect` vs `RectInt` (don't-fix; self-contained Geometry type); SYS-10 `EnumX` generic wrappers over `Enum.GetValues`/`IsDefined` (generic API + values cache); SYS-11 `FlagsX` bitwise shortcuts (readable named ops so callers needn't remember `&`/`|`/`& ~`).
+- **XC-4 resolved** — the cross-cutting "enum `enumValueIndex`/mask handling" umbrella is now fully covered: `EnumFlagsButtonGroupDrawer` unmasked writes (PD-1, round 21), `EnumButtonGroupDrawer` unguarded `IndexOf` in the static `Draw` (PD-6, round 21), and `EnumFlagDrawer` `int`-truncation on `long` enums (PD-7 — auto-resolved by the EnumFlag removal, round 21). Nothing left under XC-4.

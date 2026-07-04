@@ -179,38 +179,30 @@ TXT-24. `Text/Text Effects/VertexWobble/CharacterWobble/WordWobble` — identica
 ## Extensions / System (`Scripts/Extensions/System/`)
 
 ### Bugs
-SYS-1. `PathX.cs:31-54` — `ReplaceIllegalCharacters` splits only on `\` → on macOS/Linux (this project) the whole forward-slash path is treated as one filename and every `/` is replaced with `_`. Dedup (50-51) collapses only one doubled pair.
 SYS-2. `FlagsX.cs:98` — `CreateEverything<T>()` does `(T)(object)~0` → InvalidCastException for non-int-backed enums; `:123-125` `Invert<T>` depends on it; `:75-82` `Create<T>` casts via `(int)(object)flags[i]` → same crash.
 SYS-3. `FlagsX.cs:154-158` — `GetFlags` zero-named-member branch is unreachable → `GetFlags(0)` never yields the zero member.
-SYS-4. `ByteFormatter.cs:21-31` — `ToSizeAuto` returns `long`, truncating fractions (1.5 KB → "1 KB"), inconsistent with the double-based `ToSize`.
-SYS-5. `StringX.cs:5` — `IsWhiteSpace` returns true for empty; misses `\r`/vertical-tab/form-feed/Unicode whitespace.
-SYS-6. `StringX.cs:57` — `Truncate` throws on negative length; NREs on null source.
-SYS-7. `StringX.cs:89-113` — `AfterFirst`/`After`: match at end returns the whole original instead of empty.
-SYS-8. `DirectoryX.cs:12-19` — `GetRelativePath` feeds raw paths to `new Uri(...)` → UriFormatException on relative input; `#` mis-parsed as a fragment.
 SYS-32. *(New)* `EnumX.cs:47-52` — `Random<T>()` does `Enum.ToObject(typeof(T), Random.Range(0, Length<T>()))`, treating the random *index* as the enum's *underlying value*. For any enum not numbered contiguously `0..N-1` (flags, explicit values) it returns wrong/undefined members and can never reach higher ones. Should index into `GetValues<T>()`.
 
+*SYS-1/4/5/6/7/8 — resolved, see the `## ✅ Done` section. (Flags/Enum bugs SYS-2/3/32 left open by request.)*
+
 ### Unity-native / .NET duplication
-SYS-9. `StringX.cs:5,33-41` — `IsWhiteSpace` overlaps `string.IsNullOrWhiteSpace` (but is buggy — see SYS-5); `Contains(string, StringComparison)` duplicates the BCL overload (only on the netstandard2.1 API-compat level, not .NET Framework).
 SYS-10. `EnumX.cs:14-147` — `Length<T>`/`IsValid`/`ToArray`/`GetEnumerable` duplicate `Enum.GetValues`/`Enum.IsDefined`.
 SYS-11. `FlagsX.cs:33-56` — `SetFlag`/`UnsetFlag`/`HasFlag` reimplement `Enum.HasFlag` + bitwise ops.
-SYS-12. `PathX.cs:9-11` — `GetFullPathWithoutExtension` == `Path.ChangeExtension(path, null)`.
-SYS-13. `DirectoryX.cs:12-19` — duplicates `Path.GetRelativePath` (available only on the netstandard2.1 API-compat level, not .NET Framework 4.x).
-SYS-14. `BoolX.cs:10-20` — `ToBool`/`ToInt` wrap `Convert.*`.
-SYS-15. `SystemX.cs:10` — partially duplicates `EditorUtility.RevealInFinder` (comment notes this).
+
+*SYS-9/12/13/14/15 — resolved (custom impls kept for cross-API-level portability where the BCL equivalent is netstandard2.1-only; documented in code), see the `## ✅ Done` section. (Enum/Flags dups SYS-10/11 left open by request.)*
 
 ### Refactoring / dead code
 SYS-16. `EnumX.cs:23-76` — `#if !UNITY_WINRT … if(!typeof(T).IsEnum) throw` copy-pasted 5× and dead (the `where T:Enum` constraint already guarantees it).
 SYS-17. `EnumX.cs:87-101` — `ToArray<T>` adds nothing over `(T[])GetValues`; `GetEnumerable` boxes.
 SYS-18. `FlagsX.cs:14-125` — two parallel families (raw-int vs generic enum) with overlapping duties + inconsistent naming; `:101-107` — `(int)Math.Pow(2,x)` vs `1<<x`.
-SYS-19. `StringX.cs:67-114` — `Before`/`BeforeLast`/`AfterFirst`/`After` share structure but mix Ordinal vs culture-sensitive comparison.
-SYS-20. `SystemX.cs:25-81` — `OpenInMacFileBrowser`/`OpenInWinFileBrowser` near-identical.
+
+*SYS-19/20 — resolved, see the `## ✅ Done` section. (Enum/Flags refactors SYS-16/17/18 left open by request.)*
 
 ### Tidying
-SYS-27. `ByteFormatter.cs:8` — commented-out `FromToSize` stub.
 SYS-28. `FlagsX.cs:167` — leftover `//yield return value;`.
-SYS-29. Mixed tabs/spaces + stray blank lines: `StringX.cs`, `FlagsX.cs:108-110`.
-SYS-30. `SystemX.cs:53,77` — `e.HelpLink = ""` "silence warning" hack.
-SYS-31. `StringX.cs:119 vs 126` — `UppercaseFirstCharacter` is a `this`-extension but `LowercaseFirstCharacter` is a plain static.
+SYS-29. Mixed tabs/spaces + stray blank lines: `FlagsX.cs:108-110`. *(StringX portion resolved — see Done.)*
+
+*SYS-27/30/31 — resolved, see the `## ✅ Done` section. (Flags item SYS-28 + the FlagsX half of SYS-29 left open by request.)*
 
 *Verified — not a bug: SYS-26 (`throw new("…")` is valid C# 9 target-typed `new`; compiles fine — `UNITY_WINRT` is undefined).*
 
@@ -721,3 +713,24 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **GEO-28** — value-based `GetHashCode` (already satisfied by an earlier commit; confirmed consistent with `Equals`/`SequenceEqual`).
 - **GEO tidying** — GEO-37 (`(x1, y10`→`(x1, y1)`), GEO-38 (`sinze`/`calcuate teh`), GEO-39 (removed a `Debug.Log`+its guard-`if` inside `Scale`), GEO-41 (edge-normal off-by-one `%(len-1)`→`%len`), GEO-42 (`GetRandomPointInPolygon`'s shared `static List<int> tris` → per-call local, thread/re-entrancy safe).
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 5 parallel agents + manual review/salvage; every diff reviewed here (brace balance checked on the geometry files; revived `GetSimplifiedVerts`/`Intersects(Ray)` symbols verified present). GEO-43 left open by request. `LineEditor.cs`+`.meta` deleted.
+
+### System extension sweep (round 6) — all SYS except Flags/Enum items
+Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framework — so BCL-duplicate items kept the custom impl (fixed) rather than deleting for netstandard2.1-only APIs.
+- **SYS-1** `PathX.ReplaceIllegalCharacters` — now splits on BOTH separators (`/` and `\`) and sanitises each filename segment independently (via a `SanitiseFileNameSegment` helper), preserving separators; fixes the macOS/Linux bug where every `/` became `_`. Dedup now collapses runs of the replacement char, not just one pair. Null-guarded.
+- **SYS-4** `ByteFormatter.ToSizeAuto` — returns `double` (was `long`), so 1.5 KB no longer truncates to "1 KB"; matches `ToSize`.
+- **SYS-5** `StringX.IsWhiteSpace` — returns false for null/empty and uses `char.IsWhiteSpace` (covers `\r`, vtab, form-feed, Unicode).
+- **SYS-6** `StringX.Truncate` — null source → null; negative length clamped to 0.
+- **SYS-7** `StringX.AfterFirst`/`After` — a match at the end now yields `""` (removed the guard that returned the whole original).
+- **SYS-8** `DirectoryX.GetRelativePath` — reimplemented without `Uri` (absolute-path segment comparison + `..` stepping), fixing the `UriFormatException` on relative input and the `#`-as-fragment mis-parse.
+- **SYS-9** `StringX.Contains(string, StringComparison)` — kept as a portability shim (.NET Framework lacks the BCL overload); commented. (`IsWhiteSpace` overlap resolved by the SYS-5 fix.)
+- **SYS-12** `PathX.GetFullPathWithoutExtension` — body now `Path.ChangeExtension(path, null)`; public API kept.
+- **SYS-13** `DirectoryX.GetRelativePath` — kept custom (not `Path.GetRelativePath`, netstandard2.1-only); commented.
+- **SYS-14** `BoolX.ToBool`/`ToInt` — verified correct; kept as convenience wrappers over `System.Convert` (commented).
+- **SYS-15** `SystemX.OpenInFileBrowser` — comment clarified (runtime shell reveal vs editor-only `EditorUtility.RevealInFinder`).
+- **SYS-19** `StringX` `Before`/`BeforeLast`/`AfterFirst`/`After` — comparisons standardised to `StringComparison.Ordinal`.
+- **SYS-20** `SystemX` mac/win file-browser methods — refactored onto a shared `RunFileBrowserProcess` helper; both public wrappers + all platform differences (separators, `open` vs `explorer.exe`, arg quoting) preserved.
+- **SYS-27** implemented `ByteFormatter.FromToSize(double from, SI, SI)` (order→order conversion via `1024^(from-target)`); removed the old stub.
+- **SYS-30** `SystemX` — dropped the `e.HelpLink = ""` unused-var hack; the shared helper's `catch (Win32Exception)` no longer binds the variable.
+- **SYS-31** `StringX.LowercaseFirstCharacter` — now a `this` extension, matching `UppercaseFirstCharacter`.
+- **SYS-29** — normalised StringX indentation/blank-lines around the edits (FlagsX portion left open).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 3 parallel agents + manual review; every diff reviewed here (brace balance checked on all six files). Flags/Enum items (SYS-2/3/10/11/16/17/18/28/32 + FlagsX half of SYS-29) left open by request.

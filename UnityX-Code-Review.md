@@ -98,13 +98,10 @@ UEX-46. `RectTransformX.cs:4` / `CanvasX.cs:45` — shared static `Vector3[] cor
 *UEX-43/44/45/47/48/49 — resolved, see the `## ✅ Done` section.*
 
 ### Tidying
-UEX-61. Commented-out dead blocks: `RayX.cs:30-85`, `OnGUIX.cs:66-190`, `ReflectionX.cs`, `GizmosX.cs:38,42`, `RectTransformX.cs:219-223,380-392` ("OLD STUFF, built for 80 Days"), `TextureX.cs:59-61`, `ScreenX.cs:105-121,172,411`. *(ColorX `BlendOverlay` stub already fixed — see Done.)*
 UEX-62. Debug logs in shipping code: `TrailRendererX.cs:20,25` on error paths (null trail / double-clear). *(ColorX `Average` /0, `HSBColor.Test()`, and the `Vector3Curve` per-call `TODO` log already fixed — see Done / UEX-44.)*
-UEX-63. Pervasive typo `CameraX.cs` "frustrum" → "frustum" baked into ~14 public method names; also "Cmera" (`:131`).
 UEX-64. Typos: `TransformX.cs` "Heirarchy"/"Descendents"; `GizmosX.cs` "matricies"/"reassinging"; `OnGUIX.cs` "matricies"; `ImageX.cs:20,40` error strings name the wrong method; `ScreenXEditorWindow.cs:12` method name mismatch.
-UEX-65. Unused usings: `SpriteX.cs:2`. *(SystemInfoX.cs:2 resolved with UEX-35.)*
-UEX-66. `DebugX.cs:16` — `debug=true` gates `LogError` too (errors suppressed when false).
-UEX-67. `TextureX.cs:106` — `MonoBehaviour.print` instead of `Debug.LogWarning`.
+
+*UEX-61/63/65/66/67 — resolved, see the `## ✅ Done` section.*
 
 ---
 
@@ -114,27 +111,18 @@ UEX-67. `TextureX.cs:106` — `MonoBehaviour.print` instead of `Debug.LogWarning
 ### Unity-native duplication
 GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 GEO-19. `Line/Line.cs:218-263` & `Line3D.cs:145-197` — closest-point-on-segment duplicated 2D/3D and reimplemented several times.
-GEO-20. `Polygon/Polygon.cs:1499-1524` — `PointToLineSegmentSquaredDistance` duplicates `Line` closest-point logic.
 
 ### Refactoring / dead code
-GEO-21. `Line/Line.cs:274-527` — ~250 lines of commented-out dead code (voxel/Bresenham attempts, Lua pseudocode).
-GEO-22. `Polygon/Editor/LineEditor.cs` — entire file (5-375) commented out.
-GEO-23. `Polygon/Polygon.cs:1053-1068` — `intersectsWithPolygon`/`whollyContainsOtherPolygon` are lowercase duplicates of the `Is…`/`Wholly…` methods (569-584).
 GEO-24. `Polygon/Polygon.cs:854-880` — `ContainsPoint(Vector2[])` and `(List<Vector2>)` identical; share via `IList`.
 GEO-25. `Polygon/Polygon.cs:281-300` — `GetRegularEdgePosition`/`GetPositionAtArcLength`/`GetPositionAtNormalizedArcLength` overlap heavily.
-GEO-26. `Polygon/Polygon.cs:1734-1800,1922-1972` — large commented-out `HullCull`/`GetMinMaxBox` and two `GetSimplifiedVerts` impls.
-GEO-27. `Sphere/Sphere.cs:202-264` — two large commented-out `Intersects(Ray)` impls.
-GEO-28. `Polygon/Polygon.cs:996-999` — `GetHashCode` returns reference hash, inconsistent with value-based `Equals`.
 GEO-29. Structs (`Line`, `Line3D`, `PointRect`) — `operator ==`/`Equals` do `(object)left == null` checks that can never be null for a struct.
 
+*GEO-20 documented as an intentional perf duplicate (see Done). GEO-21/22/23/26/27/28 — resolved, see the `## ✅ Done` section.*
+
 ### Tidying
-GEO-37. `Line/Line.cs:571` — doc typo "to (x1, y10".
-GEO-38. `Polygon/Polygon.cs:1837` "sinze"; `:1135` "calcuate teh direction".
-GEO-39. `Polygon/Polygon.cs:207` — `Debug.Log` inside `Scale` (a pure math method).
-GEO-40. `Sphere/Sphere.cs:129` — `Debug.LogError("Should never get here")` (reachable given the bugs). *(Resolved incidentally by GEO-15 — that `LogError` was removed.)*
-GEO-41. `Polygon/…PolygonEditorTool.cs:301` — `(i+1)%(vertices.Length-1)` off-by-one in edge-normal debug draw.
-GEO-42. `Polygon/Polygon.cs:1433` — shared mutable `static List<int> tris` used by `GetRandomPointInPolygon` (not thread-safe).
 GEO-43. `Point/PointRect.cs` — inconsistent namespacing: `Line`/`Polygon`/`Point`/`PointRect` are global while `Triangle`/`Sphere`/`RegularPolygon`/`StarPolygon` are in `UnityX.Geometry`.
+
+*GEO-37/38/39/41/42 resolved (GEO-40 resolved incidentally by GEO-15) — see the `## ✅ Done` section.*
 
 ---
 
@@ -717,3 +705,19 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **UEX-48** `SceneManagerX.cs` — `GetCurrentSceneNames/Paths` reimplemented as `GetCurrentScenes().Select(...).ToArray()`.
 - **UEX-49** `ScreenX.cs` — the misplaced nested `PlayerLoopUtils` was a verbatim twin of the existing top-level `Components/Screen/PlayerLoopUtils.cs`, so removed the nested copy and repointed the one reference to the top-level type (promoting it would have been a CS0101 dup); also dropped the now-unused `using System.Text;`.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 3 parallel agents + manual review; every diff reviewed here (verified no duplicate gizmo methods and that all revived-toggle symbols resolve).
+
+### UEX-61/63/65/66/67 + GEO dead-code/dup sweep (round 5)
+- **UEX-61** — swept the commented-out dead blocks: `RayX` (two dead method bodies), `OnGUIX` (old rotate/DrawTexture `DrawLine` impl), `GizmosX` (dead `mesh` field/destroy lines), `TextureX` (`GPUScale` orphan block), `ScreenX` (dead `gameViewDpiMultiplierDirty` DPI block + a commented PlayerLoop line + a dead early-out). `ReflectionX` had no distinct block (only single-line fragments interleaved with live logic) — left as-is. **RectTransformX "OLD STUFF (built for 80 Days)"**: the whole block was live, correct RectTransform helpers (anchor/pivot/size/edge-position extension methods, no dups of the curated section) — promoted them (removed the untrusted-caveat divider → a normal section header) and deleted the one genuinely-dead commented `SetRectInWorldSpace` stub.
+- **UEX-63** — renamed the misspelled `frustrum`→`frustum` across `CameraX` (4 public method families × 2 overloads) + doc prose + the `Cmera`→`Camera` param typo; updated all repo callers (`CameraShotGeneratorTools`, `SerializableCamera` wrappers + calls, `CameraShotTools` comment, `WorldSpaceUIElement` local). Clean rename, no `[Obsolete]` forwarders; `grep frustrum Assets/` now empty.
+- **UEX-65** — removed unused `using System.Collections;` from `SpriteX.cs`.
+- **UEX-66** — `DebugX` error-level methods (`LogError`×2, `LogErrorMany`) no longer gated by the `debug` flag — errors always emit (so `Assert` surfaces too); `Log`/`LogWarning`/`LogMany` stay gated.
+- **UEX-67** — `TextureX` color-texture size mismatch now `Debug.LogWarning` instead of `MonoBehaviour.print`.
+- **GEO-20** — kept `PointToLineSegmentSquaredDistance` standalone (it's an allocation-free squared distance used per-edge in a hot loop, not dead code); added a comment explaining why it doesn't defer to `Line.GetClosestPointOnLine`.
+- **GEO-21** — deleted the ~250 lines of commented grid-traversal graveyard in `Line.cs` (voxel `PointsOnLine(float)`, Lua `getHelpers` pseudocode, two `Traverse` transliterations, `DrawLineNoDiagonalSteps`); the only coherent one was functionally covered by live `PointsOnLine(int)`/`Plot`. Live `GetCrossedCells`/`PointsOnLine(int)`/`Plot` preserved.
+- **GEO-22** — deleted `Polygon/Editor/LineEditor.cs` + `.meta` (entirely commented, superseded by the live `PolygonEditorTool`/`PolygonEditorInstance` which handles open polylines via `closed=false`; only commented references remained).
+- **GEO-23** — deleted the lowercase `intersectsWithPolygon`/`whollyContainsOtherPolygon` (byte-identical dups) and repointed the 4 `CombinePolygons` callers to the canonical `WhollyContainsOtherPolygon`.
+- **GEO-26** — deleted the orphaned commented `HullCull`/`GetMinMaxBox`/`GetMinMaxCorners` (referenced a non-existent `Point` type; also removed the dangling `//points = HullCull(points)` call in the live `MakeConvexHullPoints`); revived one working `GetSimplifiedVerts` (exact collinear-vertex removal, distinct from the live RDP simplifier) after verifying its `Line`/`SqrDistance` symbols exist; dropped the second overload's unfinished `minDot` variant.
+- **GEO-27** — deleted the two commented non-compiling XNA-port `Intersects(Ray)` bodies and added one clean Unity-idiom `Sphere.Intersects(Ray)`.
+- **GEO-28** — value-based `GetHashCode` (already satisfied by an earlier commit; confirmed consistent with `Equals`/`SequenceEqual`).
+- **GEO tidying** — GEO-37 (`(x1, y10`→`(x1, y1)`), GEO-38 (`sinze`/`calcuate teh`), GEO-39 (removed a `Debug.Log`+its guard-`if` inside `Scale`), GEO-41 (edge-normal off-by-one `%(len-1)`→`%len`), GEO-42 (`GetRandomPointInPolygon`'s shared `static List<int> tris` → per-call local, thread/re-entrancy safe).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 5 parallel agents + manual review/salvage; every diff reviewed here (brace balance checked on the geometry files; revived `GetSimplifiedVerts`/`Intersects(Ray)` symbols verified present). GEO-43 left open by request. `LineEditor.cs`+`.meta` deleted.

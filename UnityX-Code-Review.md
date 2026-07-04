@@ -4,50 +4,27 @@ Read-only review of every `.cs` file under `Assets/UnityX/Scripts/` (514 files, 
 
 Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat as anchors, confirm before acting.
 
-
 ---
 
-
 ## Components / UI (`Scripts/Components/UI/`)
-
-*All UI findings are resolved — see the `## ✅ Done` section.*
-
-*(UI-31/32/35/36/37 assessed as not-a-bug / intentional — see `## 🅿️ Left as is`.)*
 
 ---
 
 ## Components (non-UI) (`Scripts/Components/`)
 
-### Bugs
-*(CMP-5/6/8/11 verified — not bugs — see `## 🅿️ Left as is`.)*
-
-*CMP-16/17 — resolved, see the `## ✅ Done` section. CMP-26/30/31 documented as intentional — see `## 🅿️ Left as is`.*
-
-### Tidying
-CMP-37. *Resolved — see the `## ✅ Done` section.*
-*(CMP-38 "Decendent" rename deferred — see `## 🅿️ Left as is`.)*
 
 ---
 
 ## Editor Tools (`Scripts/Editor Tools/`)
 
-
-*(ED-5/6/7 verified — not bugs — see `## 🅿️ Left as is`.)*
-
-### Tidying
-*ED-14 — resolved, see the `## ✅ Done` section.*
-
 ---
 
 ## Property Drawers (`Scripts/Property Drawers/`)
-
 
 ### Bugs
 PD-1. `EnumButtonGroup/Editor/EnumFlagsButtonGroupDrawer.cs:38-45` — individual-flag writes (`|= mask` / `&= ~mask`) don't mask to defined bits → `Everything`/`-1` round-trips inconsistently.
 PD-6. `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:75` — the static `Draw` uses `Array.IndexOf(trueNames, names[i])` unguarded to index `typedValues[sortedIndex]` → throws on a stale/removed enum name.
 PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` via `(int)Convert.ChangeType(...)` → truncates for `long`/`ulong`-backed enums.
-
-*(PD-10/12/14/15/16/18/22/25 verified — not-a-bug / won't-do — see `## 🅿️ Left as is`.)*
 
 ### Unity-native duplication
 PD-11. `EnumFlag/Editor/EnumFlagDrawer.cs:19` — the drawer just wraps `EditorGUI.EnumFlagsField` (Unity's native C# `[Flags]` field — distinct from `MaskField`, the plain-int/layer masker). Since Unity 2017.3 the default inspector auto-renders `[Flags]` enums this way, so the `[EnumFlag]` attribute is largely obsolete.
@@ -56,12 +33,6 @@ PD-13. `Popup` & `PropertyPopup` drawers. *Explained/assessed — keep.* `[Popup
 ### Refactoring / dead code
 PD-20. `EnumButtonGroupDrawer.cs` & `EnumFlagsButtonGroupDrawer.cs` — substantial copy-paste (label rect, per-button widths, toolbar).
 PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is self-referential/broken).
-*(PD-13 assessed-keep, PD-23 resolved/not-actionable, PD-24 won't-do — see `## 🅿️ Left as is`.)*
-
-### Tidying
-PD-27. Mixed tabs/spaces: `PropertyPopupDrawer.cs`, `PopupDrawer.cs`.
-PD-28. Inconsistent `[AttributeUsage]` presence across attribute files (e.g. `EnumFlagAttribute` has it; most others don't).
-PD-29. Commented-out code: `SetPropertyDrawer.cs` (one line); larger commented blocks in `PropertyPopupDrawer.cs` and `EnumFlagsButtonGroupDrawer.cs`.
 
 ---
 
@@ -71,73 +42,35 @@ PD-29. Commented-out code: `SetPropertyDrawer.cs` (one line); larger commented b
 UEX-29. `LayerMaskX.cs:31-33,65-68` — `Includes` == `(mask & (1<<layer))!=0`; `Inverse` == `~mask`.
 UEX-33. `AnimationCurveX.cs:372-393` — `EaseInOut` is redundant with `AnimationCurve.EaseInOut` (both zero-tangent S-curves).
 
-*UEX-21/31/37 — resolved, see the `## ✅ Done` section. UEX-7/26/30/32/34/36 verified/intentional/not-a-bug — see `## 🅿️ Left as is`.*
-
-### Refactoring / dead code
-*UEX-40/42 — resolved (refactored, public functionality preserved), see the `## ✅ Done` section. UEX-41 — resolved (RayX blocks removed in round 5 / UEX-61). UEX-43/44/45/47/48/49 — resolved, see the `## ✅ Done` section. UEX-39 (keep the duplicate copies) + UEX-46 — won't-do (portability) — see `## 🅿️ Left as is`.*
-
-### Tidying
-*(UEX-62 reviewed — the `TrailRendererX` null-trail/double-clear logs are legitimate misuse diagnostics (each followed by `yield break`), not per-frame noise — kept. See `## 🅿️ Left as is`. ColorX `Average` /0, `HSBColor.Test()`, and the `Vector3Curve` per-call `TODO` log already fixed — see Done / UEX-44.)*
-*UEX-61/63/64/65/66/67 — resolved, see the `## ✅ Done` section.*
-
 ---
 
 ## Extensions / Geometry (`Scripts/Extensions/Geometry/`)
 
-
 ### Unity-native duplication
 GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 
-*(GEO-19 reviewed — each file already funnels to a single canonical `GetNormalizedDistanceOnLineInternal`; the remaining 2D/3D split is inherent to `Vector2`/`Vector3` and forcing a shared impl is riskier than the near-zero duplication. Left as is.)*
-
 ### Refactoring / dead code
-GEO-24. `Polygon/Polygon.cs:854-880` — `ContainsPoint(Vector2[])` and `(List<Vector2>)` identical; share via `IList`.
-GEO-25. `Polygon/Polygon.cs:281-300` — `GetRegularEdgePosition`/`GetPositionAtArcLength`/`GetPositionAtNormalizedArcLength` overlap heavily.
-
-*GEO-20 documented as an intentional perf duplicate (see Done). GEO-21/22/23/26/27/28/29 — resolved, see the `## ✅ Done` section.*
+GEO-25. `Polygon/Polygon.cs:262-300` — `GetRegularEdgePosition(normalized)` and `GetPositionAtNormalizedArcLength(normalized)` are functionally identical (both = position at normalized arc length; `GetRegularEdgePosition` just inlines the edge-walk the other delegates to `GetPositionAtArcLength`). `GetPositionAtArcLength(absolute)` is the distinct base. The `GetRegularEdgePosition` name + its commented `edgeIndex`/`edgeArcLength` scraps hint it was *meant* to be by-edge-index (evenly per edge) but was implemented as arc-length — so it's a misnamed/unfinished duplicate. Dedup (delegate) or implement the intended by-edge behaviour.
 
 ### Tidying
 GEO-43. `Point/PointRect.cs` — inconsistent namespacing: `Line`/`Polygon`/`Point`/`PointRect` are global while `Triangle`/`Sphere`/`RegularPolygon`/`StarPolygon` are in `UnityX.Geometry`.
-
-*GEO-37/38/39/41/42 resolved (GEO-40 resolved incidentally by GEO-15) — see the `## ✅ Done` section.*
 
 ---
 
 ## Extensions / Grid + UnityEditorX (`Scripts/Extensions/Grid/`, `Scripts/Extensions/UnityEditorX/`)
 
-### Refactoring / dead code
-*(GRID-24 HeightMapMeshGenerator refactor deferred — see `## 🅿️ Left as is`.)*
-GRID-30. `Grid 2D/Grid/SquareGridAgent.cs` & `RadialGridAgent.cs` — duplicated enter/exit diffing. *(Left as-is: both extend MonoBehaviour with no common base; sharing would need an invasive base-class/serialization change for little gain.)*
-
 ---
 
 ## Extensions / Algorithms + Camera + Spline
-
 
 ### Refactoring / dead code
 ACS-15. `Algorithms/UpscaleTools.cs:2-48` — commented-out `Test` MonoBehaviour. *(Assessed: stale demo scaffolding referencing removed members — safe to delete, or relocate to `Examples/` if the two-pass demo is wanted. Awaiting go-ahead.)*
 ACS-16. `Spline System/Spline.cs:448-463` — dead uncalled private `SubdivideInCurve`; `:490-497` dead `var r`; `:270-289,179-187,237-243` commented-out dups. *(Assessed: all dead/superseded by live code — safe to delete. Awaiting go-ahead.)*
 ACS-20. `Camera/Shots/CameraShotGeneratorTools.cs:144-181` & `CameraProperties.cs:422-432` — commented-out blocks. *(Assessed: the "custom screen rect" feature is NOT implemented — `SerializableCamera.useCustomScreen`/`customScreenParams` are declared but read by nothing; the commented consumer depends on host-app `Main.Instance` absent here. `CameraProperties.HasNaN` block is superseded by the live `IsValid()`. Safe to delete the dead code; to make custom-rect real would need wiring `customScreenParams` into the camera projection. Awaiting direction.)*
 
-*ACS-12/13/14/17/18/19 — resolved, see the `## ✅ Done` section (ACS-19 was already a correct rolling hash).*
-
-### Tidying
-*ACS-25/26/28/29/30/31 — resolved, see the `## ✅ Done` section. ACS-27 (Quaternion "Multiply" no-op) left as a documented no-op — see `## 🅿️ Left as is`.*
-
-*(Vendored note for EasingFunction/SimplexNoise/Noise/AStar moved to `## 🅿️ Left as is`.)*
-
 ---
 
 ## Extensions / Text + Scene Management + Collections + Serializable Components + Audio
-
-### Unity-native / .NET duplication
-TXT-16. `Collections/ListX.cs` — `ToList`/`First`/`Last`/`Contains`/`IndexOf` duplicate LINQ/`List<T>`. *(Left as-is: widely-used public helpers; removing breaks call sites across the library.)*
-TXT-17. `Collections/IEnumerableX.cs` — `ToHashSet`/`DistinctBy`/`Chunk`/`Filter`/`Map` duplicate BCL. *(Left as-is: public helpers, and `DistinctBy`/`Chunk` aren't in Unity's netstandard2.1.)*
-TXT-18. `Text/Text Effects/WordWobble.cs` — manual `IndexOf(' ')` word-split reimplements `string.Split`. *(Left as-is: entangled with the char→vertex-index mapping guarded in TXT-10.)*
-TXT-20. `Scene Management/Scene Set/RuntimeSceneSet.cs` — hand-rolled build-settings collection + manual array-grow. *(Left as-is: delicate EditorBuildSettings code; correctness handled by TXT-11.)*
-
-### Refactoring / dead code
-TXT-24. `Text/Text Effects/VertexWobble/CharacterWobble/WordWobble` — identical `Wobble` + scaffold copy-pasted. *(Left as-is: sharing would need a new base/helper type — invasive for little gain.)*
 
 ---
 
@@ -148,28 +81,18 @@ SYS-2. `FlagsX.cs:98` — `CreateEverything<T>()` does `(T)(object)~0` → Inval
 SYS-3. `FlagsX.cs:154-158` — `GetFlags` zero-named-member branch is unreachable → `GetFlags(0)` never yields the zero member.
 SYS-32. *(New)* `EnumX.cs:47-52` — `Random<T>()` does `Enum.ToObject(typeof(T), Random.Range(0, Length<T>()))`, treating the random *index* as the enum's *underlying value*. For any enum not numbered contiguously `0..N-1` (flags, explicit values) it returns wrong/undefined members and can never reach higher ones. Should index into `GetValues<T>()`.
 
-*SYS-1/4/5/6/7/8 — resolved, see the `## ✅ Done` section. (Flags/Enum bugs SYS-2/3/32 left open by request.)*
-
 ### Unity-native / .NET duplication
 SYS-10. `EnumX.cs:14-147` — `Length<T>`/`IsValid`/`ToArray`/`GetEnumerable` duplicate `Enum.GetValues`/`Enum.IsDefined`.
 SYS-11. `FlagsX.cs:33-56` — `SetFlag`/`UnsetFlag`/`HasFlag` reimplement `Enum.HasFlag` + bitwise ops.
-
-*SYS-9/12/13/14/15 — resolved (custom impls kept for cross-API-level portability where the BCL equivalent is netstandard2.1-only; documented in code), see the `## ✅ Done` section. (Enum/Flags dups SYS-10/11 left open by request.)*
 
 ### Refactoring / dead code
 SYS-16. `EnumX.cs:23-76` — `#if !UNITY_WINRT … if(!typeof(T).IsEnum) throw` copy-pasted 5× and dead (the `where T:Enum` constraint already guarantees it).
 SYS-17. `EnumX.cs:87-101` — `ToArray<T>` adds nothing over `(T[])GetValues`; `GetEnumerable` boxes.
 SYS-18. `FlagsX.cs:14-125` — two parallel families (raw-int vs generic enum) with overlapping duties + inconsistent naming; `:101-107` — `(int)Math.Pow(2,x)` vs `1<<x`.
 
-*SYS-19/20 — resolved, see the `## ✅ Done` section. (Enum/Flags refactors SYS-16/17/18 left open by request.)*
-
 ### Tidying
 SYS-28. `FlagsX.cs:167` — leftover `//yield return value;`.
 SYS-29. Mixed tabs/spaces + stray blank lines: `FlagsX.cs:108-110`. *(StringX portion resolved — see Done.)*
-
-*SYS-27/30/31 — resolved, see the `## ✅ Done` section. (Flags item SYS-28 + the FlagsX half of SYS-29 left open by request.)*
-
-*(SYS-26 verified — not a bug — see `## 🅿️ Left as is`.)*
 
 ---
 
@@ -180,8 +103,6 @@ STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new stati
 STR-5. `Shape.cs:33` — `pointBounds` truncates via `(int)`; single point → zero-size bounds; negative origins mislocated.
 STR-6. `Shape.cs:54-68` — `CreateContiguous` `do/while(!valid)` has no attempt cap → stall risk; seed at (1,1) assumes `numPoints >= 2`.
 
-*STR-8/11/12/16/17/18/19 — resolved, see the `## ✅ Done` section.*
-
 ---
 
 ## Extensions / Spring (`Scripts/Extensions/Spring/`)
@@ -190,12 +111,9 @@ STR-6. `Shape.cs:54-68` — `CreateContiguous` `do/while(!valid)` has no attempt
 SPR-1. `Spring.cs:253` — undamped `SettlingDuration` divides by `-omegaZeta` (zero when `dampingRatio == 0`) → division by zero yielding `+Infinity`; the spring never settles.
 SPR-2. `Spring.cs:327-331` — `CalculateTimeOfMaximumDisplacement` can return a spurious near-zero "peak" only in a narrow edge (post-step `Velocity` rounding to exactly 0 so `Sign==0`); the normal released-from-rest case is handled correctly. Low priority.
 
-
 ### Tidying
 SPR-11. Pervasive "oscellate"/"oscellation" (→ oscillate); "Contructors" (82); "my be specified" (117,125).
 SPR-12. `Spring.cs:183-184` — commented-out alternative velocity formula; `:261` — un-indented comment.
-
-*SPR-5/6/13/14 — resolved, see the `## ✅ Done` section. SPR-4 assessed as intentional — see `## 🅿️ Left as is`.*
 
 ---
 
@@ -208,21 +126,14 @@ EAS-3. `SmoothDamp/SpringDamper.cs:92-105` — `CriticallyDampedSpring` uses exp
 ### Refactoring / dead code
 EAS-7. `SmoothDamp/SpringDamper.cs:74` — the no-`deltaTime` `DampedSpring` overload passes `Time.deltaTime`, which line 79 then overwrites with `1f/60f` (pointless).
 EAS-8. `SpringDamper.cs:31-33` — `AddImpulse` vs `AddForce` semantics overlap; `AddImpulse` bypasses the NaN/Inf assert.
-*(EAS-9 assessed as inherent/not-fixable — see `## 🅿️ Left as is`.)*
-
-*EAS-1/4/5/6/10/11/15/16 — resolved, see the `## ✅ Done` section.*
 
 ---
 
 ## Extensions / Tween (`Scripts/Extensions/Tween/`)
 
-*(TWN-2 verified — not a bug — see `## 🅿️ Left as is`.)*
-
 ### Refactoring / dead code
 TWN-7. `Types/{Color,Float,Quaternion,Rect,Vector2,Vector3}Tween.cs` — the "iOS generic inheritance event crash workaround" (`new event …`, overrides) is copy-pasted verbatim ×6.
 TWN-8. `Types/FloatTween.cs:24-36` — additionally redeclares `new OnStart` + overrides `TweenStart` (the other 5 don't) → inconsistent.
-
-*TWN-1/3/4/5/6/9/10/13/14/15 — resolved, see the `## ✅ Done` section.*
 
 ---
 
@@ -244,8 +155,6 @@ RNG-8. `Range/Range.cs:28-31` — `Auto` could use `Mathf.Min`/`Max`; `:45-69` �
 RNG-9. `Range/RangeInt.cs` — the entire file is commented out.
 RNG-12. `ValuePicker/Blender.cs` vs `Selector.cs` — `Set`/`AddPriority`/`Remove`/`EntryComparer`/`_priorities` near-identical (comparers differ in direction — significant).
 
-*RNG-10/11/13 — resolved, see the `## ✅ Done` section.*
-
 ### Tidying
 RNG-18. `Range/Range.cs:393-426` — commented-out `RangeTests`.
 RNG-19. Typo `trunctationValue` (→ truncation) at `Range.cs:116,123`.
@@ -265,8 +174,6 @@ MISC-14. Commented-out lines: `NoiseSamplerPropertyDrawer.cs:32-52`, `NoiseSampl
 MISC-16. Inconsistent indentation in the nested `GraphGUI` class (`NoiseSamplerPropertiesPropertyDrawer.cs:163-336`).
 MISC-17. `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` is `static` but effectively const.
 
-*(MISC-3/6 + FlexLayout/StateMachine verified/intentional — see `## 🅿️ Left as is`.)*
-
 ---
 
 ## Cross-cutting themes (worth a single sweep)
@@ -274,8 +181,6 @@ MISC-17. `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` is `stati
 XC-4. **`enumValueIndex` / mask handling for enums** — `EnumFlagsButtonGroupDrawer` (unmasked flag writes), `EnumButtonGroupDrawer` (unguarded `IndexOf` in the static `Draw`), `EnumFlagDrawer` (`int` truncation for `long` enums).
 XC-6. **Buggy custom HSV/HSB + easing/curve helpers** that duplicate Unity built-ins (`Color.RGBToHSV`, `AnimationCurve.EaseInOut`, `Collider.ClosestPoint`) — prefer the native APIs. *(Partly addressed: `Collider.ClosestPoint` = UEX-8 done, `EaseInOut` = UEX-33; the HSV/HSB structs were assessed and kept — no equivalent Unity struct.)*
 XC-8. **Widespread commented-out dead code** (entire files: `RangeInt.cs`, `Polygon/Editor/LineEditor.cs`; large blocks in `BoundingSphere.cs`, `Line.cs`, `TouchInputSimulator.cs`, `Point3.cs`, the Text Effects folder, etc.). *(Progressively cleared across rounds — LineEditor.cs, TouchInputSimulator, Line.cs blocks done; RangeInt.cs/BoundingSphere/Text Effects remain.)*
-
-*XC-3/5/7/9 — resolved, see the `## ✅ Done` section (XC-9's "Decendent" rename is deferred — see `## 🅿️ Left as is`).*
 
 ---
 
@@ -329,6 +234,15 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **UEX-39** — `CanvasGroupsAllowInteraction`/`CanvasGroupsAlpha` are byte-identical in `CanvasGroupX` and `CanvasX` (no external callers). Deliberately kept as separate copies so each extension file stays self-contained/portable — dedup declined by decision.
 - **UEX-46** — the shared `static Vector3[] corners` scratch buffer in `RectTransformX`/`CanvasX` has a theoretical re-entrancy aliasing risk, but the fix (per-call local arrays or thread-local state) is declined in favour of keeping each file simple/self-contained/portable. These are main-thread editor/UI helpers not called re-entrantly in practice, so the risk is accepted.
 - **GEO-19** — closest-point-on-segment is already consolidated to a single canonical `GetNormalizedDistanceOnLineInternal` within each of `Line`/`Line3D` (the other methods are thin wrappers). The remaining duplication is just the 2D vs 3D split, inherent to `Vector2`/`Vector3`; forcing a shared implementation would change the hot-path numerics/allocations for more risk than the near-zero gain. Left as is.
+
+### Duplication kept (removing breaks callers / invasive / perf / not in netstandard)
+- **GEO-24** — `Polygon.ContainsPoint(Vector2[])` and `(List<Vector2>)` are near-identical, but kept as separate concrete overloads for PERFORMANCE: unifying to `IList<Vector2>` would route every per-vertex index access in this hot point-in-polygon loop through a virtual interface indexer (no inlining / no bounds-check elision). The concrete `Vector2[]`/`List<Vector2>` overloads avoid that. Valid perf motivation — kept.
+- **GRID-30** — `SquareGridAgent`/`RadialGridAgent` duplicated enter/exit diffing; both extend MonoBehaviour with no common base, so sharing needs an invasive base-class/serialization change for little gain.
+- **TXT-16** — `ListX` `ToList`/`First`/`Last`/`Contains`/`IndexOf` duplicate LINQ/`List<T>`, but are widely-used public helpers; removing breaks call sites across the library.
+- **TXT-17** — `IEnumerableX` `ToHashSet`/`DistinctBy`/`Chunk`/`Filter`/`Map` duplicate BCL, but are public helpers and `DistinctBy`/`Chunk` aren't in Unity's netstandard2.1.
+- **TXT-18** — `WordWobble`'s manual `IndexOf(' ')` word-split reimplements `string.Split`, but is entangled with the char→vertex-index mapping guarded in TXT-10.
+- **TXT-20** — `RuntimeSceneSet`'s hand-rolled build-settings collection + manual array-grow: delicate EditorBuildSettings code; correctness handled by TXT-11.
+- **TXT-24** — identical `Wobble` + scaffold copy-pasted across VertexWobble/CharacterWobble/WordWobble; sharing needs a new base/helper type — invasive for little gain.
 
 ### Deferred (needs editor / larger effort / vendored)
 - **CMP-38** — "Decendent" → "Descendent" rename touches a public MonoBehaviour class + files/folder + serialized scene/prefab references; safest via Unity's Project-window rename (preserves GUID). Not done blind without the editor.
@@ -790,3 +704,12 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **UEX-42** `ReflectionX` — extracted a private `WalkPath(obj, path, earlyOut, out aborted)` shared by all three `GetValueFromObject` overloads; each keeps its exact type-filtering (generic `is T`→default, `Type t` exact→null, `object` unfiltered) and its public signature — **no public functionality removed** (per request), including the unused `(object,string,Type)` overload and `SetValueFromObject`. Removed the inline commented-out dead scraps.
 - **UEX-64** — renamed the misspelled PUBLIC `TransformX` methods `GetAllDescendents`→`GetAllDescendants`, `IsDescendentOf`→`IsDescendantOf`, `GetHeirarchyIndex`→`GetHierarchyIndex` and updated all callers (`VirtualKeyboardManager` in UnityX; **`GroupVectorFieldComponent` under `Assets/Vector Fields/`** — a required cross-project caller update, staged with this commit). Fixed `ImageX` error strings to name their actual methods (`GetTightLocalCorners`/`GetTightWorldCorners`). Fixed the `matricies`→`matrices` typo everywhere it appears — `GizmosX` (private field), `OnGUIX` (public field, no external callers), `HandlesX` (private field, beyond the finding's list), and a `Spline.cs` comment — plus `reassinging`→`reassigning`. Renamed the misnamed `ScreenXEditorWindow` MenuItem handler `OpenSpriteEditorWindow`→`OpenScreenXEditorWindow`.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 2 parallel agents + manual (matricies field renames); every diff reviewed (brace balance checked; old names + `matricies` grep-confirmed gone repo-wide). *Caveat: `OnGUIX.matricies` is public — renaming it is a breaking change for any external caller, but there are none in-repo.*
+
+### PD-29 + doc restructure (round 14)
+- **PD-29** — deleted the confirmed-dead commented blocks: `SetPropertyDrawer`'s `//setProperty.IsDirty` line (superseded by `attribute.IsDirty`), `PropertyPopupDrawer`'s two commented reflection blocks (the `GetParentObjectOfProperty`/`fi.GetValue` approach, superseded by the live `SerializedPropertyX.FindPropertyRelative` path), and `EnumFlagsButtonGroupDrawer`'s commented `BeginProperty`/`EndProperty` lines + the non-functional `bitCount`/`continue` stub. The stub pointed at a **real gap** (the static `Draw` overloads still render `0`/composite enum values as buttons) — captured as a live `// TODO` merged with the existing one rather than a revived stub.
+- **UEX-33** — explained (again): `AnimationCurveX.EaseInOut` produces the same zero-tangent 2-key curve as `AnimationCurve.EaseInOut`; differs only in param order + the no-arg/`(width,height)` convenience overloads. Left active pending a decision.
+- **GEO-24** — assessed as a valid PERFORMANCE duplicate (concrete `Vector2[]`/`List<Vector2>` overloads avoid `IList<T>` interface-dispatch in the hot point-in-polygon loop) → `## 🅿️ Left as is`.
+- **GEO-25** — explained: `GetRegularEdgePosition` and `GetPositionAtNormalizedArcLength` are functionally identical (both position-at-normalized-arc-length); `GetPositionAtArcLength` is the distinct base. Refined the active finding; the "Regular" name/commented scraps suggest an unfinished by-edge-index intent.
+- **PD-27/28** — confirmed done in round 12; struck from the active list.
+- **Doc restructure** — removed all 34 "resolved / see Left-as-is" pointer breadcrumbs from the top half, relocated the 6 full inline "Left as-is" findings (GRID-30, TXT-16/17/18/20/24 + GEO-24) into the `## 🅿️ Left as is` section (new "Duplication kept" subsection), and collapsed the resulting empty subsection headers. The top half now shows only outstanding, actionable findings.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). PD-29 by 1 agent (comment-only deletions, brace balance even); doc restructure by reviewed script + manual, full diff checked.

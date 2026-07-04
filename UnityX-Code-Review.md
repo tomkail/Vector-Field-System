@@ -140,24 +140,15 @@ TWN-8. `Types/FloatTween.cs:24-36` — additionally redeclares `new OnStart` + o
 ## Extensions / Range + ValuePicker
 
 ### Bugs
-RNG-1. `Range/Range.cs:117` — `ShrunkToExclude` guard `if (value > min || value < max)` is almost always true → the intended out-of-range rejection is dead.
-RNG-2. `Range/Range.cs:130` — `ExpandedFromPivot` computes the max endpoint from `min` (should be `max + expansion*(1-pivot)`).
-RNG-3. `Range/Range.cs:173-174` — `RemoveRange` doesn't clamp `rangeToRemove` to `[min,max]`; fragile, but the `>`/`<` guards keep both emitted ranges non-inverted for intersecting input (no concrete wrong output found).
-RNG-4. `Range/Range.cs:280-287` — `GetHashCode` multiplies → any zero endpoint (very common) → hash 0; also loses ordering.
 RNG-5. `ValuePicker/Blender.cs:9,85` & `LogicBlender.cs:82` & `Selector.cs:167` — `previousValue.Equals(current)` NREs for reference `T` when previous is null.
 RNG-6. `ValuePicker/LogicBlender.cs` — `Set` uses `.Equals` (`:27`) while `Remove` (`:45`) and `TryGetValueForSource` (`:70`) use `==` → inconsistent equality.
 RNG-7. `ValuePicker/Selector.cs:70,140` — `desiredValue == null` on unconstrained generic `T` → `nullRemovesValue` silently does nothing for value types.
 
-### Unity-native duplication
-RNG-8. `Range/Range.cs:28-31` — `Auto` could use `Mathf.Min`/`Max`; `:45-69` — `CreateEncapsulating` ≈ LINQ `Min`/`Max`.
-
 ### Refactoring / dead code
-RNG-9. `Range/RangeInt.cs` — the entire file is commented out.
+RNG-9. `Range/RangeInt.cs` — the entire file is commented out (a stale int-typed sibling of `Range`, carrying the same old bugs). Delete, or revive as a real `RangeInt` — needs a decision.
 RNG-12. `ValuePicker/Blender.cs` vs `Selector.cs` — `Set`/`AddPriority`/`Remove`/`EntryComparer`/`_priorities` near-identical (comparers differ in direction — significant).
 
 ### Tidying
-RNG-18. `Range/Range.cs:393-426` — commented-out `RangeTests`.
-RNG-19. Typo `trunctationValue` (→ truncation) at `Range.cs:116,123`.
 RNG-20. `ValuePicker/LogicBlender.cs:26,51-52` — leftover commented assert + alternative impl ("This creates garbage.").
 
 ---
@@ -713,3 +704,13 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **PD-27/28** — confirmed done in round 12; struck from the active list.
 - **Doc restructure** — removed all 34 "resolved / see Left-as-is" pointer breadcrumbs from the top half, relocated the 6 full inline "Left as-is" findings (GRID-30, TXT-16/17/18/20/24 + GEO-24) into the `## 🅿️ Left as is` section (new "Duplication kept" subsection), and collapsed the resulting empty subsection headers. The top half now shows only outstanding, actionable findings.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). PD-29 by 1 agent (comment-only deletions, brace balance even); doc restructure by reviewed script + manual, full diff checked.
+
+### Range class (RNG-1/2/3/8/18/19) (round 15)
+- **RNG-1** `Range.ShrunkToExclude` — the guard `value > min || value < max` was always true (dead rejection); changed to `&&` so it only shrinks when the value is strictly *inside* the range.
+- **RNG-2** `Range.ExpandedFromPivot` — the max endpoint was computed from `min`; fixed to `max + expansion*(1-pivot)` (total expansion now correctly splits across the pivot).
+- **RNG-3** `Range.RemoveRange` — added a defensive clamp of `rangeToRemove` to `[min,max]` so the emitted sub-ranges can never invert (behaviour unchanged for already-contained input; addresses the "fragile" flag).
+- **RNG-4** — no change: `GetHashCode` was already a value-based rolling hash consistent with `Equals` (the multiply-to-zero concern was already resolved). Stale finding.
+- **RNG-8** — `Auto` simplified to `Mathf.Min`/`Max`. `CreateEncapsulating` left as its single-pass loop (deliberately better than 2-pass LINQ `Min()`/`Max()`, so not "deduped").
+- **RNG-18** — deleted the commented-out `RangeTests` MonoBehaviour block.
+- **RNG-19** — fixed the `trunctationValue` → `truncationValue` typo (`ShrunkToExclude` param + uses; no external/named-arg callers).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Manual edits; brace balance even (80/80), typo grep-confirmed gone from live code (only the fully-commented `RangeInt.cs`/RNG-9 still contains it). RNG-9 (RangeInt.cs entirely commented) left as a separate delete-vs-revive decision.

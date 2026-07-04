@@ -240,51 +240,27 @@ SPR-12. `Spring.cs:183-184` — commented-out alternative velocity formula; `:26
 ## Extensions / Easer (`Scripts/Extensions/Easer/`)
 
 ### Bugs
-EAS-1. `MoveTowards/Vector2MoveTowardsEaser.cs:11` & `Vector3MoveTowardsEaser.cs:11` — `Vector2/3.MoveTowards(current, target, maxDelta)` ignore `deltaTime` → frame-rate dependent (should be `maxDelta * deltaTime`).
 EAS-2. `SmoothDamp/SpringDamper.cs:79,94` — `DampedSpring`/`CriticallyDampedSpring` overwrite `deltaTime = 1f/60f`, discarding the caller's value → the `deltaTime` param and `Time.deltaTime` overloads are inert/misleading.
 EAS-3. `SmoothDamp/SpringDamper.cs:92-105` — `CriticallyDampedSpring` uses explicit Euler with a fixed step → overshoots for stiff springs (not truly critically damped).
-EAS-4. `BaseEaser.cs:13,24` — `_target.Equals(value)`/`_current.Equals(value)` NRE for reference `T` when the field is null (unreachable for the value-type instantiations here).
-
-### Unity-native / .NET duplication
-EAS-5. `SmoothDamp/FloatSmoothDamper.cs` & `MoveTowards/FloatMoveTowardsEaser.cs` — reimplement the whole `BaseEaser`/`SmoothDamper<T>`/`MoveTowardsEaser<T>` scaffolding instead of deriving from the generics (~130/135 lines each).
 
 ### Refactoring / dead code
-EAS-6. The two `Float*` easers should derive from the generics like every sibling (~15-30 lines).
 EAS-7. `SmoothDamp/SpringDamper.cs:74` — the no-`deltaTime` `DampedSpring` overload passes `Time.deltaTime`, which line 79 then overwrites with `1f/60f` (pointless).
 EAS-8. `SpringDamper.cs:31-33` — `AddImpulse` vs `AddForce` semantics overlap; `AddImpulse` bypasses the NaN/Inf assert.
-EAS-9. `GetDelta` bodies duplicated across the SmoothDamp/MoveTowards types.
-EAS-10. Unused `using UnityEngine.UI;`: `QuaternionSmoothDamper.cs:4`, `Vector2SmoothDamper.cs:4`, `Vector3SmoothDamper.cs:4`. (Not `ColorSmoothDamper` — it has no such using.)
-EAS-11. `Vector3SmoothDamper.cs:10` — ctor param named `target` but passed as `current`.
+EAS-9. `GetDelta` bodies duplicated across the SmoothDamp/MoveTowards types. *(Assessed: inherent — `GetDelta` is `newValue - lastValue`, which has no generic form because `T` has no generic `-` operator in Unity's runtime; each concrete type must override it. EAS-5/6 minimised it to the unavoidable 1-line override, consistent across all types. Not further fixable.)*
 
-### Tidying
-EAS-15. `FloatSmoothStepDamper.cs:77,83` — commented-out `// this.initial =`; `:96` — `var targetVelocity = 0` infers int.
-EAS-16. Attribute-before-doc-comment ordering; mixed tabs/4-space; `[DisableAttribute]` vs `[Disable]` inconsistency.
+*EAS-1/4/5/6/10/11/15/16 — resolved, see the `## ✅ Done` section.*
 
 ---
 
 ## Extensions / Tween (`Scripts/Extensions/Tween/`)
 
-### Bugs
-TWN-1. `Types/Base/TypeTween.cs:242-243` — `Update` samples at the OLD time then advances the timer → value lags one frame (stale at start and just before completion).
-TWN-3. `Types/QuaternionTween.cs:16-18` — `SetDeltaValue` computes `current * last` (a delta should be `current * Inverse(last)`).
-TWN-4. `Types/Base/TypeTween.cs:279-281` — `GetValueAtTime` divides by `tweenTimer.targetTime` with no null/zero check (reachable via the zero-time path).
-TWN-5. `Types/Base/TypeTween.cs:206-224` — zero-time branch fires `OnStart` then `OnComplete` in the same call. This is the expected semantics of an instant (zero-duration) tween — likely by-design, not a defect.
-
 *Verified — not a bug: TWN-2 (`Timer.GetNormalizedTime()` clamps to [0,1], so the timer can't return >1; no overshoot).*
-
-### Unity-native duplication
-TWN-6. `Types/RectTween.cs:12-13` — packs a Rect into Vector4 for `Vector4.Lerp`; also clamped `Lerp` vs FloatTween's `LerpUnclamped` → inconsistent clamping across types.
 
 ### Refactoring / dead code
 TWN-7. `Types/{Color,Float,Quaternion,Rect,Vector2,Vector3}Tween.cs` — the "iOS generic inheritance event crash workaround" (`new event …`, overrides) is copy-pasted verbatim ×6.
 TWN-8. `Types/FloatTween.cs:24-36` — additionally redeclares `new OnStart` + overrides `TweenStart` (the other 5 don't) → inconsistent.
-TWN-9. `Types/Base/TypeTween.cs:155,163` — `AnimationCurve.Linear(0,0,1,1)` allocated on every default Tween; cache a static readonly.
-TWN-10. `TweenProperties.cs:5-11` — `setStartValue`/`setEasingCurve` flags never set by the ctors → the dispatch always takes the `!setStartValue` branch (start-value ctors ignored).
 
-### Tidying
-TWN-13. `Types/Editor/FloatTweenDrawer.cs:46-73` — large commented-out block incl. a `Debug.Log`.
-TWN-14. `Types/Editor/TimerDrawer.cs:17-40` — commented-out rect/PropertyField lines.
-TWN-15. `Types/*Tween.cs` — `if(OnComplete != null)OnComplete();` (missing space) in every subclass; mixed indentation in `TypeTween.cs:198-223`.
+*TWN-1/3/4/5/6/9/10/13/14/15 — resolved, see the `## ✅ Done` section.*
 
 ---
 
@@ -304,10 +280,9 @@ RNG-8. `Range/Range.cs:28-31` — `Auto` could use `Mathf.Min`/`Max`; `:45-69` �
 
 ### Refactoring / dead code
 RNG-9. `Range/RangeInt.cs` — the entire file is commented out.
-RNG-10. `Range/Range.cs:148-158` — instance `Intersection` duplicates the static one.
-RNG-11. `ValuePicker/Blender.cs:101-108` — dead local `T previous`.
 RNG-12. `ValuePicker/Blender.cs` vs `Selector.cs` — `Set`/`AddPriority`/`Remove`/`EntryComparer`/`_priorities` near-identical (comparers differ in direction — significant).
-RNG-13. `ValuePicker/Selector.cs:145-193` — "capture Value / recompute / fire onChange" repeated 3× → extract `NotifyIfChanged`.
+
+*RNG-10/11/13 — resolved, see the `## ✅ Done` section.*
 
 ### Tidying
 RNG-18. `Range/Range.cs:393-426` — commented-out `RangeTests`.
@@ -738,3 +713,26 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **SPR-13** `Editor/SpringPropertyDrawer.cs` — deleted the dead commented fragments (old Damp-Ratio PropertyField, disabled tick-lines); reindented the nested `GraphGUI` to tabs. **Kept** the commented `_settlingDurationMarkerIcon` accessor — it's a plausible unfinished "mark the settling point on the graph" feature (mirrors the live `_currentTimeMarkerIcon`), flagged for a future decision rather than deleted.
 - **SPR-14** `Editor/SpringHandlerPropertyDrawer.cs` — unwrapped six `new GUIContent(new GUIContent("…"))` double-wraps.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). STR by manual edits, SPR by 1 agent; every diff reviewed (brace balance checked on all touched files). SPR-4 assessed as intentional (kept — see active list).
+
+### Easer + Tween + Range (round 9)
+- **EAS-1** `Vector2/Vector3MoveTowardsEaser` — `MoveTowards` now scales by `deltaTime` (`maxDelta * deltaTime`), matching the sibling `QuaternionMoveTowardsEaser`; was frame-rate dependent.
+- **EAS-4** `BaseEaser` — `target`/`current` setters use `EqualityComparer<T>.Default.Equals` instead of `_field.Equals(value)` (null-safe for reference `T`).
+- **EAS-5/6** `FloatSmoothDamper`/`FloatMoveTowardsEaser` — rewritten to derive from `SmoothDamper<float>`/`MoveTowardsEaser<float>` like every sibling (~136/108 lines → ~18 each), mirroring `Vector2*` exactly. `FloatMoveTowardsEaser`'s correct `maxDelta * deltaTime` step preserved. No external usages; no external `.delta =` writes (the `delta` setter tightening to `protected` breaks nothing). Field names unchanged so serialized data migrates.
+- **EAS-9** — assessed as inherent (see active list); EAS-5/6 reduced it to the unavoidable 1-line `GetDelta` override per type.
+- **EAS-10** — removed unused `using UnityEngine.UI;` from Quaternion/Vector2/Vector3 `SmoothDamper`.
+- **EAS-11** `Vector3SmoothDamper` — ctor param `target` → `current` (matched its role and the `Vector2` sibling).
+- **EAS-15** `FloatSmoothStepDamper` — removed commented `// this.initial =`; `var targetVelocity = 0` → `0f`.
+- **EAS-16** `SmoothDamper` — doc-comment/attribute ordering fixed; `[DisableAttribute]` → `[Disable]`.
+- **TWN-1** `TypeTween.Update` — advances the timer BEFORE sampling (was one frame stale); guards against re-sampling/overwriting on the completing frame. Completion + OnStart semantics preserved.
+- **TWN-3** `QuaternionTween.SetDeltaValue` — `current * last` → `current * Quaternion.Inverse(last)` (world-space delta; `deltaValue` is unused in-repo, order chosen to match the sibling additive convention).
+- **TWN-4** `TypeTween.GetValueAtTime` — guards null timer / `targetTime <= 0` (returns the end value) instead of dividing by zero.
+- **TWN-5** — documented the instant (zero-duration) tween firing OnStart+OnComplete as intentional (no logic change).
+- **TWN-6** `RectTween` — `Vector4.Lerp` → `Vector4.LerpUnclamped` for consistency with `FloatTween`. (Vector2/Vector3Tween remain clamped — flagged, out of this scope.)
+- **TWN-9** `TypeTween` — `AnimationCurve.Linear(0,0,1,1)` cached in a `static readonly` (was allocated per default tween). Verified read-only usage; caveat noted if external code mutates a default curve's keys.
+- **TWN-10** `TweenProperties` — ctors now set `setStartValue`/`setEasingCurve` so start-value/easing-curve ctors are honoured (were silently ignored). The single-value `(startValue, tweenTime)` ctor is inherently under-specified (no target → tweens to `default(T)`); documented in a comment and flagged for review rather than guessing a different intent.
+- **TWN-13/14** — deleted commented-out blocks in `FloatTweenDrawer`/`TimerDrawer`.
+- **TWN-15** — added the missing space in `if(OnComplete != null) OnComplete();` across all 6 subclasses (kept the null-check form, not `?.Invoke()`, due to the `new event` shadowing); normalised `TypeTween` indentation.
+- **RNG-10** `Range.Intersection` (instance) — delegates to the static overload.
+- **RNG-11** `Blender` — removed the dead local `T previous`.
+- **RNG-13** `Selector` — extracted `NotifyIfChanged(Action)` for the 3× capture/recompute/fire-onChange pattern; preserves the existing `!previous.Equals(current)` semantics exactly.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 4 parallel agents + manual (EAS-5/6 refactor, TWN-10 caveat); every diff reviewed here (brace balance checked on all 23 touched files). Left open by scope: EAS-2/3/7/8, TWN-7/8, RNG-1..9/12/18..20.

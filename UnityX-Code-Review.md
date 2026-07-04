@@ -21,11 +21,7 @@ Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat a
 ### Bugs
 *(CMP-5/6/8/11 verified — not bugs — see `## 🅿️ Left as is`.)*
 
-### Unity-native duplication
-CMP-16. `Region/Region.cs:269-271` — `SqrDistance` duplicates `(a-b).sqrMagnitude`.
-CMP-17. `Region/Region.cs:431` — `Vector3.Normalize(...)` where `.normalized` is idiomatic.
-
-*(CMP-26/30/31 documented as intentional — see `## 🅿️ Left as is`.)*
+*CMP-16/17 — resolved, see the `## ✅ Done` section. CMP-26/30/31 documented as intentional — see `## 🅿️ Left as is`.*
 
 ### Tidying
 CMP-37. *Resolved — see the `## ✅ Done` section.*
@@ -39,7 +35,7 @@ CMP-37. *Resolved — see the `## ✅ Done` section.*
 *(ED-5/6/7 verified — not bugs — see `## 🅿️ Left as is`.)*
 
 ### Tidying
-ED-14. Commented-out code: `Texture Creator/Editor/CreateCustomTextureWindow.cs` (large `EditorGrid` block near the end).
+*ED-14 — resolved, see the `## ✅ Done` section.*
 
 ---
 
@@ -78,16 +74,14 @@ UEX-33. `AnimationCurveX.cs:372-393` — `EaseInOut` is redundant with `Animatio
 *UEX-21/31/37 — resolved, see the `## ✅ Done` section. UEX-7/26/30/32/34/36 verified/intentional/not-a-bug — see `## 🅿️ Left as is`.*
 
 ### Refactoring / dead code
-UEX-39. `CanvasGroupX.cs`/`CanvasX.cs` — `CanvasGroupsAllowInteraction`/`CanvasGroupsAlpha` duplicated verbatim. (`GetRenderCamera` is only in `CanvasX`, not `RectTransformX` — that half of the original claim was wrong.)
-UEX-40. `BoundsX.cs:21-76` — three copy-pasted `CreateEncapsulating` scans; `:111-169` — a 5-line face block repeated six times.
-UEX-41. `RayX.cs:30-61,68-85` — two large commented-out method bodies (dead).
-UEX-42. `ReflectionX.cs` — three near-identical `GetValueFromObject` overloads; `SetValueFromObject` largely dead.
-UEX-46. `RectTransformX.cs:4` / `CanvasX.cs:45` — shared static `Vector3[] corners` scratch buffer → reentrancy aliasing.
+UEX-39. `CanvasGroupX.cs`/`CanvasX.cs` — `CanvasGroupsAllowInteraction`/`CanvasGroupsAlpha` duplicated verbatim. *(Reviewed: genuine byte-identical copy, no external callers. Dedup would keep the copy in `CanvasGroupX` (natural home), but per the portability preference the copies may be kept deliberately — awaiting decision.)*
+UEX-40. `BoundsX.cs:21-76` — three copy-pasted `CreateEncapsulating` scans; `:111-169` — a 5-line face block repeated six times. *(Reviewed: no commented code; safe mechanical refactor — extract an `Encapsulate(ref min,ref max,v)` helper + a face loop. Low-risk, optional — awaiting go-ahead.)*
+UEX-42. `ReflectionX.cs` — three near-identical `GetValueFromObject` overloads; `SetValueFromObject` largely dead. *(Reviewed: the unused `(object,string,Type)` overload is safely deletable; the generic + `object`-returning overloads are NOT mergeable (ButtonDrawer relies on the no-filter one). `SetValueFromObject`/`SetBaseProperty` are unused but correct public API — keep. Inline commented scraps safe to delete. Awaiting go-ahead.)*
 
-*UEX-43/44/45/47/48/49 — resolved, see the `## ✅ Done` section.*
+*UEX-41 — resolved (the RayX blocks were removed in round 5 as part of UEX-61). UEX-43/44/45/47/48/49 — resolved, see the `## ✅ Done` section. UEX-46 — won't-do (portability) — see `## 🅿️ Left as is`.*
 
 ### Tidying
-UEX-62. Debug logs in shipping code: `TrailRendererX.cs:20,25` on error paths (null trail / double-clear). *(ColorX `Average` /0, `HSBColor.Test()`, and the `Vector3Curve` per-call `TODO` log already fixed — see Done / UEX-44.)*
+*(UEX-62 reviewed — the `TrailRendererX` null-trail/double-clear logs are legitimate misuse diagnostics (each followed by `yield break`), not per-frame noise — kept. See `## 🅿️ Left as is`. ColorX `Average` /0, `HSBColor.Test()`, and the `Vector3Curve` per-call `TODO` log already fixed — see Done / UEX-44.)*
 UEX-64. Typos: `TransformX.cs` "Heirarchy"/"Descendents"; `GizmosX.cs` "matricies"/"reassinging"; `OnGUIX.cs` "matricies"; `ImageX.cs:20,40` error strings name the wrong method; `ScreenXEditorWindow.cs:12` method name mismatch.
 
 *UEX-61/63/65/66/67 — resolved, see the `## ✅ Done` section.*
@@ -99,7 +93,8 @@ UEX-64. Typos: `TransformX.cs` "Heirarchy"/"Descendents"; `GizmosX.cs` "matricie
 
 ### Unity-native duplication
 GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
-GEO-19. `Line/Line.cs:218-263` & `Line3D.cs:145-197` — closest-point-on-segment duplicated 2D/3D and reimplemented several times.
+
+*(GEO-19 reviewed — each file already funnels to a single canonical `GetNormalizedDistanceOnLineInternal`; the remaining 2D/3D split is inherent to `Vector2`/`Vector3` and forcing a shared impl is riskier than the near-zero duplication. Left as is.)*
 
 ### Refactoring / dead code
 GEO-24. `Polygon/Polygon.cs:854-880` — `ContainsPoint(Vector2[])` and `(List<Vector2>)` identical; share via `IList`.
@@ -309,6 +304,7 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **MISC-3** — `TextureTransformUtil.FlipVertical`'s Graphics-path identity matrix: confirmed by the author it worked as built (`Graphics.DrawTexture` is inherently Y-flipped and the `Normal` case explicitly un-flips). Left as-is.
 - **MISC-6** — `PropertyCurve` reimplements `AnimationCurve` on purpose (it's generic over `T`; no built-in to defer to). `FlexLayout` margin accounting is self-consistent (no double-count); `StateMachine.GetStatesInheriting<R>` is loosely typed but not a concrete bug.
 - **UEX-34** — false positive: `Vector4X.ToQuaternion` and `QuaternionX.ToVector4` are *inverse* conversions (opposite directions), each defined once in its natural home — not duplicates. Nothing to remove.
+- **UEX-62** — `TrailRendererX`'s null-trail and double-clear `Debug.LogError`/`LogWarning` are legitimate misuse diagnostics (each followed immediately by `yield break`), not per-frame noise — kept. (Could downgrade the null-trail one to a warning if quieter behaviour is ever wanted.)
 
 ### Intentional / documented (won't change)
 - **UI-31** — private `ScrollRect` methods reimplemented out of necessity (originals are private); the local copy is public API.
@@ -336,6 +332,8 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **UEX-36** — `RandomX.eulerAngle` (`Random.value*360`) is a trivial convenience; `onUnitCircle` is NOT a duplicate (edge of the circle, vs `Random.insideUnitCircle`'s disk — no 2D built-in for the edge). Kept.
 - **PD-13** — `[Popup]` (fixed option list) and `[PropertyPopup]` (options from a sibling serialized array) both wrap `EditorGUI.Popup` on string/int/float fields. Not redundant with `EnumPopup` (that's enum-only). The intra-pair overlap isn't factored out because each drawer stays self-contained (portability rule).
 - **PD-24** — `LockDrawer`'s `BeginDisabledGroup`/`EndDisabledGroup` wrap overlaps `Disable`/`DisableIf`, but sharing a helper across those three drawers would violate the self-contained-drawer rule; the overlap is a trivial 3-line idiom. Kept separate.
+- **UEX-46** — the shared `static Vector3[] corners` scratch buffer in `RectTransformX`/`CanvasX` has a theoretical re-entrancy aliasing risk, but the fix (per-call local arrays or thread-local state) is declined in favour of keeping each file simple/self-contained/portable. These are main-thread editor/UI helpers not called re-entrantly in practice, so the risk is accepted.
+- **GEO-19** — closest-point-on-segment is already consolidated to a single canonical `GetNormalizedDistanceOnLineInternal` within each of `Line`/`Line3D` (the other methods are thin wrappers). The remaining duplication is just the 2D vs 3D split, inherent to `Vector2`/`Vector3`; forcing a shared implementation would change the hot-path numerics/allocations for more risk than the near-zero gain. Left as is.
 
 ### Deferred (needs editor / larger effort / vendored)
 - **CMP-38** — "Decendent" → "Descendent" rename touches a public MonoBehaviour class + files/folder + serialized scene/prefab references; safest via Unity's Project-window rename (preserves GUID). Not done blind without the editor.
@@ -781,3 +779,13 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **UEX-31** `UIBehaviourX` — kept `GetRectTransform`/`GetParentCanvas` as public convenience wrappers (added comments). **UEX-37** `MeshRendererX.SharedMaterialsContains` — body now `Array.IndexOf(...) != -1` (public API kept).
 - **UEX-34** — assessed as NOT a duplicate (inverse conversions) — no change; see `## 🅿️ Left as is`.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 2 parallel agents + manual (ACS-14 truncation, UEX-21); every diff reviewed (brace balance checked on all 10 touched files).
+
+### PD-27/28 + review dispositions (round 12)
+- **PD-27** — normalised the mixed tabs/spaces (→ tabs) in `PopupDrawer.cs` and `PropertyPopupDrawer.cs` (whitespace-only; commented blocks untouched).
+- **PD-28** — added `[AttributeUsage(AttributeTargets.Field)]` to the 39 property-drawer attribute classes that lacked it (matching `EnumFlagAttribute`/`EnumButtonsAttribute`), plus `using System;` where missing. All in-repo usages are on fields (grep-verified); `DisableIf`/`VisibleIf` inherit it from `BaseIfAttribute`. *(Caveat: this restricts each attribute to fields — a theoretical breaking change only for external code that applied one to a non-field, which wouldn't have worked anyway since these are field-drawn `PropertyAttribute`s. Fixed two accidental duplicate `using System;` the pass introduced.)*
+- **CMP-16/17, ED-14** — were already fixed in round 11; struck from the active list here (doc catch-up).
+- **UEX-33** — explained (`AnimationCurveX.EaseInOut` builds the same zero-tangent 2-key curve as `AnimationCurve.EaseInOut`, differing only in param order + extra convenience overloads); left as-is pending a decision.
+- **UEX-41** — confirmed already resolved (RayX blocks removed in round 5 / UEX-61).
+- **UEX-46** — won't-do (portability); **UEX-62** kept (legitimate diagnostics); **GEO-19** left (already consolidated per-file) — all → `## 🅿️ Left as is`.
+- **Reviewed, awaiting go-ahead** (no code touched): **PD-29** (dead scratch safe to delete; the `EnumFlagsButtonGroupDrawer` 77-87 stub is superseded but hints at a *real* missing feature — filtering 0/composite flags from the static `Draw` overloads, per the live TODO), **UEX-39** (genuine byte-identical `CanvasGroups*` copy, no external callers — dedup vs keep-for-portability), **UEX-40** (safe `BoundsX` refactor), **UEX-42** (delete the unused `(object,string,Type)` overload + inline scraps; keep the two load-bearing overloads + `SetValueFromObject`).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). PD-27/28 by 1 agent + manual dup-using fix; review by 1 read-only agent; every diff reviewed (whitespace-only confirmed for PD-27, brace balance checked, BOM integrity verified).

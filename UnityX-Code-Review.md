@@ -4,82 +4,7 @@ Read-only review of every `.cs` file under `Assets/UnityX/Scripts/` (514 files, 
 
 Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat as anchors, confirm before acting.
 
----
-
-## Components / UI (`Scripts/Components/UI/`)
-
----
-
-## Components (non-UI) (`Scripts/Components/`)
-
----
-
-## Editor Tools (`Scripts/Editor Tools/`)
-
----
-
-## Property Drawers (`Scripts/Property Drawers/`)
-
----
-
-## Extensions / UnityEngineX (`Scripts/Extensions/UnityEngineX/`)
-
----
-
-## Extensions / Geometry (`Scripts/Extensions/Geometry/`)
-
----
-
-## Extensions / Grid + UnityEditorX (`Scripts/Extensions/Grid/`, `Scripts/Extensions/UnityEditorX/`)
-
----
-
-## Extensions / Algorithms + Camera + Spline
-
----
-
-## Extensions / Text + Scene Management + Collections + Serializable Components + Audio
-
----
-
-## Extensions / System (`Scripts/Extensions/System/`)
-
----
-
-## Extensions / Spring (`Scripts/Extensions/Spring/`)
-
----
-
-## Extensions / Easer (`Scripts/Extensions/Easer/`)
-
-### Bugs
-*(EAS-3 resolved: `SpringDamper` now delegates to the analytic `Spring` solver (EAS-2/7 fix), which is the exact closed-form response — no explicit-Euler overshoot. See Done.)*
-
----
-
-## Extensions / Tween (`Scripts/Extensions/Tween/`)
-
----
-
-## Extensions / Range + ValuePicker
-
----
-
-## Extensions / FlexLayout + NoiseSampler + GLDebug + Property Curve + FSM + Version Control + Timer + MeshBuilder + Texture Transform Utils + misc
-
-### Refactoring / dead code
-MISC-8. `Texture Transform Utils/TextureTransformUtil.cs` — *explained.* The two pipelines are a deliberate pair: the default material-`Graphics.Blit` path (orientation in a shader; handles 0-alpha correctly) and a `Graphics.DrawTexture`+GL-matrix path (`...ViaGraphics`; no shader, presumably faster but alpha-quirky, per the header comment). The two GPU cores are legitimately distinct. Actionable cleanup (optional): rename `CopyWithSizeAndImageOrientation2` → `CopyWithSizeAndImageOrientationViaGraphics` (matches the sibling `ViaGraphics` convention), and collapse the ~6 near-identical Copy/Apply wrappers (get-temp-RT → GetReadableTexture → ReleaseTemporary, differing only in which RT-builder they call) to a single impl + a mode param.
-
-### Tidying
-MISC-14. Commented-out lines: `NoiseSamplerPropertyDrawer.cs:32-52`, `NoiseSamplerPropertiesPropertyDrawer.cs:151-336`, `GLDebug.cs:50,62`, `MeshBuilder/AddPlaneParams.cs:45-50`, `FlexLayout/FlexLayout.cs:45`, `Version Control/Editor/VersionBuildPreProcessor.cs:34-44`.
-MISC-16. Inconsistent indentation in the nested `GraphGUI` class (`NoiseSamplerPropertiesPropertyDrawer.cs:163-336`).
-MISC-17. `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` is `static` but effectively const.
-
----
-
-## Cross-cutting themes (worth a single sweep)
-
-XC-8. **Widespread commented-out dead code.** *(Progressively cleared across rounds — LineEditor.cs, TouchInputSimulator, Line.cs, BoundingSphere.cs, RangeInt.cs (revived), and the Text Effects scratch all handled. Remaining: the flagged `TextEffectsController` disabled-feature cluster (outline-2 / base-material restore / pre-render hook / `isDirty=false`) — kept for a human decision, see round-16 notes.)*
+**Status: every finding has been triaged.** No outstanding actionable items remain — each finding is either resolved (see `## ✅ Done`) or a conscious decision to leave / defer (see `## 🅿️ Left as is`).
 
 ---
 
@@ -697,3 +622,19 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **STR-4 fixed** — eliminated the `islands` field shadow between `IslandDetector<Coord>` (`protected List<Island<Coord>> islands`) and `OwnedIslandDetector<Coord,Owner>` (`new List<OwnedIsland<…>> islands`). Both fields were used *only* inside their own `FindIslands()` (`FloodFill` shares just `testedPoints`), so each was converted to a **local variable** — the shadow is gone with zero API change. Bonus: this also fixes a latent aliasing bug — the list was previously a field that `FindIslands()` `.Clear()`ed and reused, so a second call silently wiped the list a caller still held from the first call; now each call returns a fresh, caller-owned list. `testedPoints` stays a field (genuinely shared with `FloodFill`); the `new` on the derived *method* stays (intentional covariant-return hide). Braces 8/8 + 4/4.
 - **GEO-18 / SYS-10 / SYS-11** (assessed) — all kept by decision → Left as is. GEO-18 `PointRect` vs `RectInt` (don't-fix; self-contained Geometry type); SYS-10 `EnumX` generic wrappers over `Enum.GetValues`/`IsDefined` (generic API + values cache); SYS-11 `FlagsX` bitwise shortcuts (readable named ops so callers needn't remember `&`/`|`/`& ~`).
 - **XC-4 resolved** — the cross-cutting "enum `enumValueIndex`/mask handling" umbrella is now fully covered: `EnumFlagsButtonGroupDrawer` unmasked writes (PD-1, round 21), `EnumButtonGroupDrawer` unguarded `IndexOf` in the static `Draw` (PD-6, round 21), and `EnumFlagDrawer` `int`-truncation on `long` enums (PD-7 — auto-resolved by the EnumFlag removal, round 21). Nothing left under XC-4.
+
+### MISC-8/14/16/17 + XC-8 (round 23) — final tidy sweep
+- **MISC-8** `Texture Transform Utils/TextureTransformUtil.cs` — renamed `CopyWithSizeAndImageOrientation2` → `CopyWithSizeAndImageOrientationViaGraphics` (matches the sibling `…ViaGraphics` convention). Collapsed the ~6 near-identical Copy/Apply wrappers: extracted two private tails — `CopyFromTemporaryRT` (get-readable → release) and `ApplyFromTemporaryRT` (reinit-if-resized → read-back → release) — so each public wrapper is now a one-line delegate that just picks a GPU core. The two GPU cores (material `Graphics.Blit` vs `Graphics.DrawTexture`+GL matrix) are kept distinct (legitimately different, per MISC-8's own note). No external callers, so the rename is safe.
+- **MISC-14** — cleared commented-out dead code, salvaging the one block worth keeping:
+  - **Kept** `Version Control/…/VersionBuildPreProcessor.cs` — the Nintendo Switch version-stamping block already carries an explanatory comment (Switch `PlayerSettings` API removed in 6000.5, needs reimplementation); that's documented deferred work, not scratch. Left intact.
+  - **Removed, no salvage:** `NoiseSamplerPropertyDrawer.cs` disabled `if(noiseProperties.isExpanded)` wrappers (+ the dead `noiseProperties` local they left behind); `NoiseSamplerPropertiesPropertyDrawer.cs` the dead `GUI.DrawTexture(CreateFromCenter…)` marker (+ its now-orphaned `currentPositionMarkerIcon`/`_currentPositionMarkerIcon` accessor — `CreateFromCenter` isn't even a member here, so it never compiled; superseded by the live gray centre-line) and two superseded `DrawLine`/`DrawYScaleLabel` alternatives; `GLDebug.cs:50` the `_matZOn.shader.hideFlags` line; `MeshBuilder/AddPlaneParams.cs` the commented-out constructor (only set unused locals — never assigned fields, so a no-op even if revived); `FlexLayout.cs:45` the empty-items early-out (wouldn't compile — returned a `float` where `Result` is expected — and the live path handles empty input without crashing, so no guard was needed).
+- **MISC-16** `NoiseSamplerPropertiesPropertyDrawer.cs` — re-indented the nested `GraphGUI` class body (+4 spaces) so its members sit at 8 spaces under the class keyword and the class-close aligns to 4. Whitespace-only.
+- **MISC-17** `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` changed `static` → `const` (it was only ever read, never reassigned).
+- **XC-8 finished** `Text/Text Effects/TextEffectsController.cs` — resurrected the disabled-feature cluster and fixed the real bugs it hid (this component was written for an older TMP; the constants it needed all still exist in the current `com.unity.ugui` TMP, verified against `TMP_ShaderUtilities`):
+  - **`isDirty` never cleared** → `Refresh()` ran every frame. Now `Refresh()` sets `isDirty = false` after applying, and the `effects == null || fontMaterial == null` guard moved *above* the `internalRefresh = true` set (the early-returns previously left `internalRefresh` stuck true, permanently killing the `OnDirtyVerts` refresh path).
+  - **Material leak** — `Init()` did `fontMaterial = new Material(...)` on every call (Update calls it whenever the atlas/material changes) without freeing the prior instance. Added `DestroyControlledMaterial()` (edit-mode-safe: `DestroyImmediate` when not playing) and call it before re-creating.
+  - **Base-material restore** — re-added `m_TextBaseMaterial`: capture the original `fontSharedMaterial` once, restore it + destroy our instance in `OnDisable` (previously the text was orphaned on the controlled instance).
+  - **Outline features** — re-added the `outlineEnabled` toggle (standard `Keyword_Outline`, and zeroes width when off so it works even on shaders that don't gate by keyword) and the second outline (`outline2Color`/`outline2Width`), the latter guarded by `HasProperty(ID_Outline2Color)` so it's a safe no-op on shaders without a 2nd outline.
+  - **Dropped** the redundant commented-out `RegisterDirtyLayout/MaterialCallback` + `OnPreRenderText` hook (and the now-unused `OnPreRenderText` method) — superseded by the working `Update()`-poll + vertices-callback path.
+  - ⚠️ The `Init()`/`Update()` material-polling (TMP `fontMaterial` vs `fontSharedMaterial` interplay) is unchanged in shape and the leak-fix is strictly safe, but the create/restore lifecycle still wants a runtime in-editor check (couldn't verify blind).
+- ⚠️ **Not compile-verified in-editor** (community Unity MCP not attached this session). Manual edits; braces + parens balance-checked on all 7 touched files.

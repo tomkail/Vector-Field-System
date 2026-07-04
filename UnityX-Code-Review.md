@@ -25,19 +25,11 @@ Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat a
 CMP-16. `Region/Region.cs:269-271` — `SqrDistance` duplicates `(a-b).sqrMagnitude`.
 CMP-17. `Region/Region.cs:431` — `Vector3.Normalize(...)` where `.normalized` is idiomatic.
 
-### Refactoring / dead code
-CMP-24. `Input/InputPoints/KeyboardInput.cs:24-49` — cardinal/combined direction methods share most logic.
-CMP-25. `PolygonRenderer/Editor/PolygonRendererEditor.cs` & `PolygonOutlineRendererEditor.cs` — essentially identical.
-CMP-26. `PolygonRenderer/BasePolygonRenderer.cs:142-170` — `GetColor` is unused by the live path (`RecalculateColors`); it's `protected` in a public abstract class, so it may be intended for external subclasses.
-CMP-27. `ViewAnimator/ViewAnimator.cs:95-117` — 3 cancel methods share a backward-loop body.
-CMP-28. `Transform/Transform Copier/TransformCopier.cs:23-35` — `Update`/`FixedUpdate` repeat guard checks.
-CMP-29. `CoroutineHelper.cs:28-82` — `Execute`/`Delay`/`DelayRealtime`/`DelayFrame` heavily templated; `Delay*` start+return a coroutine (confusing).
-CMP-30. `EnforceDecendentGameObjectProperties/Editor/…:11,16` — `EnforceProperties()` runs on `OnEnable` and every `OnInspectorGUI`, re-walking the subtree and writing tag/layer/isStatic every repaint. Drive it from state changes instead: `OnValidate` on the component, the existing `OnTransformChildrenChanged`, and the save-time processor (drop the per-`OnInspectorGUI`/`OnEnable` calls).
-CMP-31. `Region/Editor/RegionEditor.cs:117-141` — `CreatePolygonMesh` duplicates double-sided mesh construction in `Region.cs`.
+*Documented in code as intentional (not further actionable): CMP-26 (`GetColor` is `protected` subclass API, unused by the live batch `RecalculateColors` path); CMP-30 (`EnforceProperties` per-repaint enforcement is intentional so parent tag/layer edits propagate, and its writes are already `!=`-guarded — no dirtying storm); CMP-31 (RegionEditor's flat gizmo `CreatePolygonMesh` is distinct from Region's extruded runtime one).*
 
 ### Tidying
-CMP-37. Large commented-out blocks: `Input/TouchInputSimulator.cs:9-179`; `PolygonRenderer/PolygonOutlineRenderer.cs` (11-23, 89-160, 216-233); `PolygonRenderer/PolygonRenderer.cs` (55-84, 158-194); `PolygonRenderer/LineDraw.cs` (58-66, 200-219); `TextMeshPro/TextBackgroundHighlightEffect.cs:50-145`; `Input/Gestures/Pinch.cs:91-113`; `InputX.cs`; misc in `ScriptableSingleton.cs`, `CoroutineHelper.cs`, `Transform/LockTransform/Editor/…`, `EnforceDecendent…cs:39-46`, `FPSManager.cs:28`, `RenderTextureCreator.cs:32,67`.
-CMP-38. Typo "Decendent" → "Descendent" throughout the `EnforceDecendentGameObjectProperties` folder (folder/file/class names).
+CMP-37. Large commented-out blocks (`TouchInputSimulator`, `PolygonRenderer`/`PolygonOutlineRenderer`/`LineDraw`, `TextBackgroundHighlightEffect`, `Pinch`, `InputX`, `ScriptableSingleton`, `CoroutineHelper`, `LockTransform` editor, `EnforceDecendent`, `FPSManager`, `RenderTextureCreator`). *(Being characterised as finish-worthy vs delete-worthy before anything is removed — see the current analysis.)*
+CMP-38. Typo "Decendent" → "Descendent" in the `EnforceDecendentGameObjectProperties` folder/file/class names. *(Deferred: renaming a public MonoBehaviour class + its files/folder touches serialized scene/prefab references — safest via Unity's Project-window Rename, which preserves the script GUID. Not done blind without the editor.)*
 
 ---
 
@@ -58,8 +50,6 @@ ED-14. Commented-out code: `Texture Creator/Editor/CreateCustomTextureWindow.cs`
 PD-1. `EnumButtonGroup/Editor/EnumFlagsButtonGroupDrawer.cs:38-45` — individual-flag writes (`|= mask` / `&= ~mask`) don't mask to defined bits → `Everything`/`-1` round-trips inconsistently.
 PD-6. `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:75` — the static `Draw` uses `Array.IndexOf(trueNames, names[i])` unguarded to index `typedValues[sortedIndex]` → throws on a stale/removed enum name.
 PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` via `(int)Convert.ChangeType(...)` → truncates for `long`/`ulong`-backed enums.
-PD-8. `Info/Editor/InfoDrawer.cs` — help box uses a fixed `helpBoxHeight = 38` rather than measuring the text → long multi-line text clips.
-PD-30. *(New)* `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:10` — `OnGUI` only initializes when `_properties == null` and never re-initializes on `property.propertyPath` change, so a drawer instance reused across elements of an enum array/list binds element 0's cached state to every element (toggles read/write the wrong element). Same reused-drawer bug its sibling `EnumFlagsButtonGroupDrawer` was already fixed for (see its `_propertyPath != property.propertyPath` guard); apply the same guard here.
 
 *Verified — not a bug / won't-do: PD-10 (`-standardVerticalSpacing` when hidden is the standard row-collapse idiom → ~0 net height, no overlap); PD-12 (FilePath/FolderPath share only trivial row layout — the rest has drifted, full merge not worth it); PD-14 (`[Label]` relabels any field; `[InspectorName]` is enum-values-only, not a substitute — and `[Label]` is unused in-project); PD-15 (a thin `PasswordField` wrapper is the point — password field via just a drawer); PD-16 (`PreviewTextureDrawer` draws a live sized sub-rect-aware preview — strictly more than `AssetPreview.GetAssetPreview`); PD-18 (no built-in per-axis toggle-mask field; the only real dup is V2/V3, done as PD-19); PD-22 (`HideInEditMode`/`HideInPlayMode` diverge in draw call + hidden height, so not a clean bool-collapse); PD-25 (`MinMax` vs `SteppedRange` use different snap math — not copy-paste).*
 
@@ -70,8 +60,9 @@ PD-13. `Popup` & `PropertyPopup` drawers — both reimplement `EditorGUI.Popup`;
 ### Refactoring / dead code
 PD-20. `EnumButtonGroupDrawer.cs` & `EnumFlagsButtonGroupDrawer.cs` — substantial copy-paste (label rect, per-button widths, toolbar).
 PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is self-referential/broken).
-PD-23. `OnChange` & `SetProperty` drawers — both reflect a member by name uncached, though via different mechanisms (`MonoBehaviour.Invoke` by string vs `GetProperty` + deferred `IsDirty`). SetProperty re-does `GetProperty` every dirty frame.
 PD-24. `Lock/Editor/LockDrawer.cs` — `BeginDisabledGroup`/`EndDisabledGroup` wrap overlaps Disable/DisableIf; share a helper.
+
+*PD-23 — resolved/not-actionable: SetProperty's uncached `GetProperty` is now cached (see PD-3, Done); OnChange's by-name `MonoBehaviour.Invoke` is an intentional (play-mode, deferred) mechanism, not the same as SetProperty's — and per the "each drawer self-contained" rule we won't factor a shared reflection helper across the two.*
 
 ### Tidying
 PD-27. Mixed tabs/spaces: `PropertyPopupDrawer.cs`, `PopupDrawer.cs`.
@@ -85,13 +76,8 @@ PD-29. Commented-out code: `SetPropertyDrawer.cs` (one line); larger commented b
 ### Bugs
 UEX-7. `CameraX.cs:38-40` — `WorldToViewportVector` uses a `f(0)−f(vec)` sign form negated vs a mathematically-correct viewport vector. It *matches* the sibling `…ToWorldVector` methods (shared internal sign convention), so verify intent before changing — callers may rely on it.
 UEX-21. `SelectionX.cs:64-66,86-100` — save-last-selection logic inverted; `CompareWithLastSelection` mixes `objects` vs `gameObjects`.
-UEX-22. `ScreenX.cs:283,295` — `int.Parse(UnityStats.screenRes.Split('x'))` unguarded → FormatException/IndexOutOfRange in a per-frame getter.
-UEX-23. `OnGUIX.cs:97` — `DrawCircle` divides by `numPoints-1` (`2π/(numPoints-1)`) → divide-by-zero when `numPoints==1`. (The ring itself does close — the last sample lands at 2π = the first.)
-UEX-24. `GizmosX.cs:277,301` — `DrawWireArc`/`DrawWireArcSegment` missing `return` after the degenerate circle draw.
 
 ### Unity-native duplication
-UEX-27. `ColliderX.cs:11` — duplicates `Collider.ClosestPoint`/`ClosestPointOnBounds`.
-UEX-28. `HashSetX.cs:5-9` — `AddRange` duplicates `HashSet.UnionWith`.
 UEX-29. `LayerMaskX.cs:31-33,65-68` — `Includes` == `(mask & (1<<layer))!=0`; `Inverse` == `~mask`.
 UEX-31. `UIBehaviourX.cs:6-14` — `GetRectTransform` == cast; `GetParentCanvas` == `GetComponentInParent<Canvas>()`.
 UEX-32. `RectTransformX.cs:459-467` — `GetSize/Width/Height` are trivial getters over `rect.*`; low value but harmless — they mirror the non-trivial `SetWidth`/`SetHeight` (there is still no native `RectTransform.rect` setter). Not worth changing.
@@ -709,3 +695,18 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **PD-5** `OnChangeDrawer.cs` — `ApplyModifiedProperties()` before invoking the change callbacks, so they see the new value (still play-mode-gated by `MonoBehaviour.Invoke` — known limitation).
 - **PD-9** `PositionHandleDrawer.cs` — bare `catch {}` → `catch(Exception e) { Debug.LogException(e); }`.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 2 parallel agents + manual Screenshot-cluster edits; every diff reviewed here (and hardened the PD-3 `PropertyInfo` cache to key on the property name too, guarding drawer-instance reuse).
+
+### CMP refactors (round 3) + PD/UEX
+- **CMP-24** `Input/InputPoints/KeyboardInput.cs` — extracted `IsDirectionKeyHeld(arrow, wasd, alsoUseWASD)`; the cardinal/combined direction methods delegate (signatures unchanged).
+- **CMP-25** `PolygonRenderer/Editor` — new generic `BasePolygonRendererEditor<T> : BaseEditor<T> where T : BasePolygonRenderer` holds the (previously byte-identical) editor body; `PolygonRendererEditor`/`PolygonOutlineRendererEditor` are now one-line subclasses. (Component editors for a shared-base family — not property drawers — so the drawer-portability rule doesn't apply.)
+- **CMP-27** `ViewAnimator/ViewAnimator.cs` — the 3 cancel methods share a `CancelEventsWhere(predicate, completeEvents)` reverse-loop (null predicate = cancel all).
+- **CMP-28** `Transform Copier/TransformCopier.cs` — shared `ShouldCopy()` guard for `OnEnable`/`Update`/`FixedUpdate`; each method keeps its extra per-loop guard.
+- **CMP-29** `CoroutineHelper.cs` — `Delay`/`DelayRealtime`/`DelayFrame` share `ExecuteAndReturn(routine)`; signatures unchanged; added a comment flagging the "returned coroutine is already running" gotcha.
+- **PD-8** `Info/Editor/InfoDrawer.cs` — help-box height now measured via `EditorStyles.helpBox.CalcHeight` (was a fixed 38 that clipped multi-line text). Self-contained.
+- **PD-30** `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs` — added the `_propertyPath != property.propertyPath` re-init guard (copied inline from its sibling, not shared) so a reused drawer instance rebinds per array element.
+- **UEX-22** `ScreenX.cs` — guarded `int.Parse(UnityStats.screenRes.Split('x'))` (length + `TryParse`, falls back to `Screen.width/height`).
+- **UEX-23** `OnGUIX.DrawCircle` — early-out when `numPoints < 2` (was /0 at `numPoints==1`).
+- **UEX-24** `GizmosX` — added the missing `return` after the degenerate full-circle draw in `DrawWireArc`/`DrawWireArcSegment`.
+- **UEX-27** `ColliderX.GetClosestPoint` — resolved by UEX-8 (now delegates to `Collider.ClosestPoint`); stale summary comment corrected.
+- **UEX-28** `HashSetX.AddRange` — now `hashSet.UnionWith(toAdd)` (kept the public API, delegates to the built-in).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 2 parallel agents + manual edits; every diff reviewed. New file `BasePolygonRendererEditor.cs` ships with a hand-authored `.meta`.

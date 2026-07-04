@@ -30,31 +30,19 @@ UI-37. `Outlines/Outline8.cs:7-27` — a special case fully subsumed by `BoxOutl
 ## Components (non-UI) (`Scripts/Components/`)
 
 ### Bugs
-CMP-1. `PolygonRenderer/BasePolygonRenderer.cs:91-101` — `if(isPlaying)` nested inside `if(!isPlaying)` → unreachable branch; `DestroyMesh()` never runs in editor.
-CMP-2. `PolygonRenderer/BasePolygonRenderer.cs:184-194` — `RecalculateColors` re-checks `colorMode == Shape` inside `else if(colorMode == Shape)` → inner check always true.
-CMP-3. `Input/InputPoints/Mouse/MouseInputButton.cs:80` — `ToString()` prints `held` under the "Down" label.
-CMP-4. `Input/InputX.cs:17-21` — `acceptInput` setter calls `ResetInput()` in both branches → branch is pointless.
-CMP-7. `Input/InputPoints/InputPoint.cs:118` — `UpdateDeltaMovement` both lerps and `+=` the delta → double-counts.
-CMP-9. `Render Texture Creator/Editor/RenderTextureCreatorEditor.cs:32-35` — casts `objectReferenceValue` to `RenderTexture` + reads `.width/.height` with no null check.
-CMP-10. `FPSManager/FPSManager.cs:15` — `1f/averageFPS` with no zero guard → Infinity before first sample.
-CMP-11. `FPSManager/FPSManager.cs:95-99` — `RemoveOldDeltaTimes` bounds look off-by-one vs the accumulation loop.
-CMP-12. `HideFlags/Editor/SetChildHideFlagsEditor.cs:21-23` — loops `targets` but always operates on the single primary `target` → multi-select edits only apply to one.
-CMP-13. `GUIDrawer.cs:17-19` — enumerates the drawer dict in `OnGUI` while callbacks mutate it → "Collection was modified".
-CMP-14. `ChangeCheckers/TransformChangeChecker.cs:36` — `enabled = false` set on play path but not edit path → asymmetric self-disable.
-CMP-15. `Input/Gestures/Gesture.cs:17` — `CompleteGesture` sets `inputPoints = null` → post-completion subscribers can NRE. `TextMeshPro/TextBackgroundHighlightEffect.cs:16` — `text` is never auto-wired. `MonoInstancer.cs:29` — `_upToDate` is invalidated on play-mode/compile resets but not on scene open / hierarchy changes in edit mode, so the cached list can go stale on scene load.
-CMP-41. *(New)* `PolygonRenderer/BasePolygonRenderer.cs:129` — `GetMesh` compares `meshFilter.name` (the component/GameObject name) against `"Polygon Renderer Mesh " + GetEntityId()` before reusing `meshFilter.mesh`; it should compare the *mesh's* name (`meshFilter.sharedMesh?.name`). As written the reuse branch is effectively always false, so a fresh mesh is created each time.
+*(CMP-1/2/3/4/7/9/10/12/13/14/15/41 fixed — see the `## ✅ Done` section.)*
+CMP-11. `FPSManager/FPSManager.cs:92-102` — `RemoveOldDeltaTimes`. *(Verified NOT a bug: it accumulates newest-first and `RemoveRange(0, currTimeIndex)` keeps `[currTimeIndex..end]`, i.e. it deliberately retains the frame that tips the total past `fpsGraphHistoryTime` so the kept window fully covers the graph history (≥, not <). `RemoveRange(index, count)` semantics are correct. Left as-is.)*
 
 *Verified — not bugs: CMP-5 (lower slab already rejected by the preceding `localBounds.Contains`; line 274 merely redundant); CMP-6 (`Vector2.normalized` returns zero for a zero vector, no NaN); CMP-8 (release→mutate→create is Unity's required RenderTexture order).*
 
 ### Unity-native duplication
 CMP-16. `Region/Region.cs:269-271` — `SqrDistance` duplicates `(a-b).sqrMagnitude`.
 CMP-17. `Region/Region.cs:431` — `Vector3.Normalize(...)` where `.normalized` is idiomatic.
-CMP-18. `Input/InputUtils.cs:8-16` — `HoveringOverUI` already calls `EventSystem.IsPointerOverGameObject()`; only the extra `GUIUtility.hotControl` / iOS-touch paths are hand-rolled (may be intentional). Also has a dead unused `screenPos` param.
-CMP-19. `Render Texture Creator/RenderTextureCreator.cs:35-58` — string-parses `UnityStats.screenRes.Split('x')` for the editor game-view size. Fix: use `UnityEditor.Handles.GetMainGameViewSize()`, which returns the size directly (no locale-fragile parsing).
+CMP-18. `Input/InputUtils.cs:8-16` — `HoveringOverUI`. *(Low risk, left as-is. The `EventSystem`/`GUIUtility.hotControl`/iOS-touch paths are intentional. The one real gotcha: the `screenPos` param is ignored — the function always tests the **current** EventSystem pointer (the position-specific raycast fallback is commented out). Fine if callers pass the current pointer (they do); misleading if someone expects a hover test at an arbitrary point. Not worth a public-signature change to drop the param.)*
 
 ### Refactoring / dead code
-CMP-20. `Events/TriggerListener.cs:81-154` — 12 collision/trigger handlers repeat the same block.
-CMP-21. `ChangeCheckers/TransformChangeChecker.cs:43-72` — 5 change checks share one structure.
+CMP-20. `Events/TriggerListener.cs:81-154` — 12 collision/trigger handlers repeat the same block. *(Proposal: a generic `Dispatch<T>(T arg, int layer, UnityEvent<T> evt, Action<T> cb)` — `if(ignoreLayers.Includes(layer)) return; evt.Invoke(arg); cb?.Invoke(arg);` — turns each handler into a one-liner e.g. `void OnCollisionEnter(Collision c) => Dispatch(c, c.gameObject.layer, OnCollisionEnterEvent, CollisionEnter);`. Behaviour-identical, works because the event fields derive from `UnityEvent<T>`. Not yet applied — say the word.)*
+CMP-21. `ChangeCheckers/TransformChangeChecker.cs:43-72` — 5 change checks share one structure. *(Proposal: a `CheckChanged(bool changed, TransformDelegate specific, string messageSuffix)` helper (or a comparison-delegate variant) collapsing the assign+fire-events+SendMessage block. **Caveat:** the checks use Unity's `!=` on `Vector3`/`Quaternion`, which is approximate — a generic `EqualityComparer<T>` would change that to exact equality, so the helper must keep the per-type `!=` comparison (pass a `bool changed` or a comparer). Not yet applied.)*
 CMP-22. `ChangeCheckers/GameObjectChangeChecker.cs:22-41` — play/edit-mode guard boilerplate duplicated across `Update`/`OnDestroy`.
 CMP-23. `Input/InputX.cs:338-374` — 4 near-identical linear-search-by-ID methods; `376-413` — 6 mouse handlers on one template.
 CMP-24. `Input/InputPoints/KeyboardInput.cs:24-49` — cardinal/combined direction methods share most logic.
@@ -359,7 +347,7 @@ SPR-1. `Spring.cs:253` — undamped `SettlingDuration` divides by `-omegaZeta` (
 SPR-2. `Spring.cs:327-331` — `CalculateTimeOfMaximumDisplacement` can return a spurious near-zero "peak" only in a narrow edge (post-step `Velocity` rounding to exactly 0 so `Sign==0`); the normal released-from-rest case is handled correctly. Low priority.
 
 ### Unity-native duplication
-SPR-3. `Spring.cs:145-150` — `Update(value, target, ref velocity)` intentionally mirrors `Mathf.SmoothDamp` (deliberate spring alternative, not accidental).
+SPR-3. `Spring.cs:145-150` — *removed: not an issue.* `Update(value, target, ref velocity)` deliberately mirrors the `Mathf.SmoothDamp` signature so a `Spring` is a drop-in alternative; this is by design, not accidental duplication. Nothing to do.
 
 ### Refactoring / dead code
 SPR-4. `Spring.cs:213-231,431-480` — large block of near-identical 3-line forwarders for `Force`/`SpringForce`/`DampingForce`/`Acceleration`.
@@ -456,14 +444,14 @@ RNG-20. `ValuePicker/LogicBlender.cs:26,51-52` — leftover commented assert + a
 ## Extensions / FlexLayout + NoiseSampler + GLDebug + Property Curve + FSM + Version Control + Timer + MeshBuilder + Texture Transform Utils + misc
 
 ### Bugs
-MISC-1. `NoiseSampler/Editor/NoiseSamplerPropertyDrawer.cs:12` — "Create" button assigns `new SpringHandler(...)` to a `NoiseSampler` field (wrong type).
-MISC-2. `GLDebug/GLDebug.cs:55-66` — `matZOff` getter is a copy of `matZOn` (tests/assigns `_matZOn`, loads the ZOff shader into `_matZOn`); `:108-116` — `linesZOff` drawn with `matZOn` and vice-versa (swapped).
+MISC-1. ✅ *Fixed (see Done).* "Create" button now assigns `new NoiseSampler()` (was `new SpringHandler(...)`, a copy-paste from the Spring drawer).
+MISC-2. ✅ *Fixed (see Done).* `matZOff` getter now uses `_matZOff`; `OnPostRender` draws `linesZOn` with `matZOn` and `linesZOff` with `matZOff` (were swapped).
 MISC-3. `Texture Transform Utils/TextureTransformUtil.cs:122-123` — `FlipVertical`'s Graphics-path case leaves the matrix as identity. This likely still flips (because `Graphics.DrawTexture` is inherently Y-flipped and the `Normal` case explicitly un-flips), so it's confusing/fragile rather than broken — verify visually before changing.
-MISC-4. `Version Control/VersionControlX.cs:53-54` — `GetGitBranch` returns `Substring(LastIndexOf("/")+1)` → drops everything before the last `/` for slash-containing branch names.
-MISC-5. `Property Curve/PropertyCurve.cs` — `AddKey` inserts at `ClosestIndexToTime(time)` (the floor index) without the needed `+1` when `keys[closestIndex].time < newKey.time` → keys can end up out of order (e.g. inserting time 1 into `[0,2,4]` yields `[1,0,2,4]`).
+MISC-4. ✅ *Fixed (see Done).* `GetGitBranch` now strips the `refs/heads/` prefix, keeping the full branch name incl. slashes (e.g. `feature/foo`).
+MISC-5. ✅ *Confirmed a bug, fixed (see Done).* Traced: inserting time 1 into `[0,2,4]` gave `[1,0,2,4]` (wrong index) and the exact-time branch fell through to a duplicate `Insert`. `AddKey` now inserts at the order-preserving index and `return`s after an exact-time replace.
 
 ### Unity-native duplication
-MISC-6. `Property Curve/PropertyCurve.cs` — reimplements `AnimationCurve`/`Keyframe`/`WrapMode` (justified only by being generic over `T`).
+MISC-6. `Property Curve/PropertyCurve.cs` — reimplements `AnimationCurve`/`Keyframe`/`WrapMode`. *(Not an issue — the generality is the point: `AnimationCurve` is `float`-only, whereas `PropertyCurve<T>` interpolates any `T` (Color, Vector, quaternion, custom types) via its `Lerp`. There's no built-in to defer to, so keep it. Left as-is; no proposal beyond the AddKey fix in MISC-5.)*
 
 ### Refactoring / dead code
 MISC-7. `NoiseSampler/Editor/NoiseSamplerPropertiesPropertyDrawer.cs:18-124` — `OnGUI`/`Draw` almost identical; three near-identical `DrawNoiseGraph` overloads.
@@ -472,7 +460,7 @@ MISC-9. `GLDebug/GLDebug.cs:205-307` — `DrawSquare`/`DrawCube` overload triple
 
 ### Tidying
 MISC-14. Commented-out lines: `NoiseSamplerPropertyDrawer.cs:32-52`, `NoiseSamplerPropertiesPropertyDrawer.cs:151-336`, `GLDebug.cs:50,62`, `MeshBuilder/AddPlaneParams.cs:45-50`, `FlexLayout/FlexLayout.cs:45`, `Version Control/Editor/VersionBuildPreProcessor.cs:34-44`.
-MISC-15. `GLDebug/GLDebug.cs:311-319` — `DrawCircle` draws each point as a 0.02-unit stub rather than connecting points (renders a dotted ring, not a circle).
+MISC-15. ✅ *Fixed (see Done).* `DrawCircle` now connects consecutive points (and closes the loop) instead of drawing 0.02-unit stubs.
 MISC-16. Inconsistent indentation in the nested `GraphGUI` class (`NoiseSamplerPropertiesPropertyDrawer.cs:163-336`).
 MISC-17. `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` is `static` but effectively const.
 
@@ -482,8 +470,8 @@ MISC-17. `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` is `stati
 
 ## Cross-cutting themes (worth a single sweep)
 
-XC-1. **`GetHashCode` by multiplication / reference hash** — `Range`, `SerializableTransform`, `Polygon`, `AdvancedUILine`, `CameraProperties`, `Point`/`PointRect`. Fix to `hash = hash*prime + field.GetHashCode()` and make `Equals`/`GetHashCode` consistent.
-XC-2. **`Vector2.Scale` / `Vector3.Scale` return value discarded** — `Polygon.Scale`, `AdvancedUILine.Scale` (both silent no-ops).
+XC-1. ✅ *Fixed (see Done).* `Range` and `CameraProperties` switched from `hash *= …` to `hash = hash*31 + …`; `Polygon` switched from the array reference hash to a content hash consistent with its `SequenceEqual`. `SerializableTransform`, `Point`, `PointRect`, `AdvancedUILine` were already correct (`*31 +` / content-based, fixed under earlier findings).
+XC-2. ✅ *Already resolved* under GEO-8 (`Polygon.Scale`) and UI-3 (`AdvancedUILine.Scale`) — both now assign the `Vector2.Scale` result back. Nothing left.
 XC-3. **Editor drawer reflection** — `SetPropertyDrawer` uses public-only `GetProperty` binding, so private/protected setters silently never fire; it also reflects uncached.
 XC-4. **`enumValueIndex` / mask handling for enums** — `EnumFlagsButtonGroupDrawer` (unmasked flag writes), `EnumButtonGroupDrawer` (unguarded `IndexOf` in the static `Draw`), `EnumFlagDrawer` (`int` truncation for `long` enums).
 XC-5. **Unguarded `GetComponentInParent<Canvas>().rootCanvas`** across UI — a shared null-safe helper would fix the whole cluster.
@@ -743,3 +731,26 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **UI-39** `Line/AdvancedUILine.cs` — removed the dead private helpers `AddVert`, `PointInPolyFromIndex`, `GetIndexInPolyAtPoint`, `GetIndexInPolyLyingOnLineBetween` and the `epsilon` const only they referenced (no other in-project callers).
 - **UI-40** `Line/AdvancedUILineRenderer.cs` — removed the `vertexBuffer`/`indexBuffer` static fields and the commented-out `AddUIVertexStream` block in `AddQuad` that were their only references.
 - ⚠️ **Not compile-verified in-editor** (community "MCP for Unity" server down). Most changes are behaviour-preserving; ones worth an in-editor glance: **UI-30** (quad triangulation diagonal), **UI-44** (grid centering now applies a pivot offset — check `Center`/pivot overloads if used), **UI-47** (edit-mode `CompleteImmediate` now on all SLayout animate paths), **UI-51** (blur caching).
+
+### Components (non-UI) + Cross-cutting + Misc
+- **CMP-1** `PolygonRenderer/BasePolygonRenderer.cs` — `OnEnable` collapsed the dead `if(Application.isPlaying) DestroyMesh() else mesh.Clear()` (unreachable inside `if(!isPlaying)`) to just `mesh.Clear()`.
+- **CMP-2** `BasePolygonRenderer.cs` — removed the redundant inner `if(colorMode == ColorMode.Shape)` nested inside `else if(colorMode == ColorMode.Shape)` (always true).
+- **CMP-3** `Input/InputPoints/Mouse/MouseInputButton.cs` — `ToString` now prints `down` under the "Down" label (was `held`).
+- **CMP-4** `Input/InputX.cs` — `acceptInput` setter collapsed the identical if/else `ResetInput()` branches to one call.
+- **CMP-7** `Input/InputPoints/InputPoint.cs` — `UpdateDeltaMovement` dropped the `lerpedMovement += deltaPosition.magnitude` that double-counted on top of the lerp.
+- **CMP-9** `Render Texture Creator/Editor/RenderTextureCreatorEditor.cs` — null-guarded the `RenderTexture` before reading `.width/.height` (`rt != null ? new Vector2Int(...) : Vector2Int.zero`).
+- **CMP-10** `FPSManager/FPSManager.cs` — `averageFrameTime` guards divide-by-zero (`averageFPS > 0 ? 1f/averageFPS : 0f`).
+- **CMP-12** `HideFlags/Editor/SetChildHideFlagsEditor.cs` — the undo and change-check loops now call `ApplySettings()` on each selected target (`(t as SetChildHideFlags)?.ApplySettings()`), not just the primary.
+- **CMP-13** `GUIDrawer.cs` — `OnGUI` iterates a snapshot (`new List<>(drawActions.Values)`) so a callback that Start/StopDrawing mid-iteration can't throw "Collection was modified".
+- **CMP-14** `ChangeCheckers/TransformChangeChecker.cs` — the edit-mode `!useInEditMode` path now also `enabled = false` (symmetric with the play-mode path) instead of returning every frame.
+- **CMP-15** — `Gesture.CompleteGesture` clears `inputPoints` instead of nulling it (no post-completion NRE); `TextBackgroundHighlightEffect` auto-wires `text` in `OnEnable`/`OnValidate` (GetComponent → GetComponentInChildren) when unassigned; `MonoInstancer.CompileReset` now also invalidates the edit-mode cache on `EditorApplication.hierarchyChanged` and `EditorSceneManager.sceneOpened` (mark-dirty only; the FindObjects rescan stays lazy).
+- **CMP-19** `Render Texture Creator/RenderTextureCreator.cs` — editor game-view size now via `UnityEditor.Handles.GetMainGameViewSize()` (both it and the old `UnityStats.screenRes` are editor-only and live in the `#if UNITY_EDITOR` branch; builds still use `Screen.width/height`).
+- **CMP-41** `BasePolygonRenderer.cs` — `GetMesh` reuse branch now compares `meshFilter.sharedMesh?.name` (was the GameObject/component `name`, so reuse never triggered).
+- **MISC-1** `NoiseSampler/Editor/NoiseSamplerPropertyDrawer.cs` — "Create" assigns `new NoiseSampler()` (was `new SpringHandler(...)`).
+- **MISC-2** `GLDebug/GLDebug.cs` — `matZOff` getter fixed to use `_matZOff`; `OnPostRender` line lists un-swapped (`matZOn`↔`linesZOn`, `matZOff`↔`linesZOff`).
+- **MISC-4** `Version Control/VersionControlX.cs` — `GetGitBranch` strips `refs/heads/` (keeps slashes in branch names) with a last-slash fallback.
+- **MISC-5** `Property Curve/PropertyCurve.cs` — `AddKey` inserts at the order-preserving index (`closestIndex+1` when the closest key is earlier) and returns after an exact-time replace (was inserting out of order / duplicating).
+- **MISC-15** `GLDebug/GLDebug.cs` — `DrawCircle` connects consecutive points and closes the loop.
+- **XC-1** `GetHashCode` — `Range` and `CameraProperties` now `hash = hash*31 + field` (were `hash *= field`, which collapses to 0 on any zero-hash field); `Polygon` now content-hashes its vertices to match `SequenceEqual`. (`SerializableTransform`/`Point`/`PointRect`/`AdvancedUILine` already correct.)
+- **XC-2** — already resolved via GEO-8/UI-3 (both `Scale` methods assign the `Vector2.Scale` result back).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Behaviour-preserving except the intended fixes; worth an in-editor glance: **CMP-1/CMP-41** (polygon mesh lifecycle/reuse), **CMP-14** (self-disable in edit mode), **MISC-2/MISC-15** (GLDebug visuals).

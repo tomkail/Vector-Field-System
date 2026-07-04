@@ -64,8 +64,6 @@ GEO-43. `Point/PointRect.cs` — inconsistent namespacing: `Line`/`Polygon`/`Poi
 ## Extensions / Algorithms + Camera + Spline
 
 ### Refactoring / dead code
-ACS-15. `Algorithms/UpscaleTools.cs:2-48` — commented-out `Test` MonoBehaviour. *(Assessed: stale demo scaffolding referencing removed members — safe to delete, or relocate to `Examples/` if the two-pass demo is wanted. Awaiting go-ahead.)*
-ACS-16. `Spline System/Spline.cs:448-463` — dead uncalled private `SubdivideInCurve`; `:490-497` dead `var r`; `:270-289,179-187,237-243` commented-out dups. *(Assessed: all dead/superseded by live code — safe to delete. Awaiting go-ahead.)*
 ACS-20. `Camera/Shots/CameraShotGeneratorTools.cs:144-181` & `CameraProperties.cs:422-432` — commented-out blocks. *(Assessed: the "custom screen rect" feature is NOT implemented — `SerializableCamera.useCustomScreen`/`customScreenParams` are declared but read by nothing; the commented consumer depends on host-app `Main.Instance` absent here. `CameraProperties.HasNaN` block is superseded by the live `IsValid()`. Safe to delete the dead code; to make custom-rect real would need wiring `customScreenParams` into the camera projection. Awaiting direction.)*
 
 ---
@@ -100,8 +98,6 @@ SYS-29. Mixed tabs/spaces + stray blank lines: `FlagsX.cs:108-110`. *(StringX po
 
 ### Bugs
 STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new static islands` hides the base list → base and derived helpers write to different lists → silently dropped results. *(Update: dropped-results hazard resolved — the owned detector no longer calls base helpers; the `new static` shadowing itself remains.)*
-STR-5. `Shape.cs:33` — `pointBounds` truncates via `(int)`; single point → zero-size bounds; negative origins mislocated.
-STR-6. `Shape.cs:54-68` — `CreateContiguous` `do/while(!valid)` has no attempt cap → stall risk; seed at (1,1) assumes `numPoints >= 2`.
 
 ---
 
@@ -120,36 +116,19 @@ SPR-12. `Spring.cs:183-184` — commented-out alternative velocity formula; `:26
 ## Extensions / Easer (`Scripts/Extensions/Easer/`)
 
 ### Bugs
-EAS-2. `SmoothDamp/SpringDamper.cs:79,94` — `DampedSpring`/`CriticallyDampedSpring` overwrite `deltaTime = 1f/60f`, discarding the caller's value → the `deltaTime` param and `Time.deltaTime` overloads are inert/misleading.
-EAS-3. `SmoothDamp/SpringDamper.cs:92-105` — `CriticallyDampedSpring` uses explicit Euler with a fixed step → overshoots for stiff springs (not truly critically damped).
-
-### Refactoring / dead code
-EAS-7. `SmoothDamp/SpringDamper.cs:74` — the no-`deltaTime` `DampedSpring` overload passes `Time.deltaTime`, which line 79 then overwrites with `1f/60f` (pointless).
-EAS-8. `SpringDamper.cs:31-33` — `AddImpulse` vs `AddForce` semantics overlap; `AddImpulse` bypasses the NaN/Inf assert.
+EAS-3. `SmoothDamp/SpringDamper.cs` — `CriticallyDampedSpring` uses explicit Euler → can still overshoot for very stiff springs (not truly critically damped). *(Improved by the EAS-2/7 sub-stepping fix — smaller steps reduce overshoot — but an analytic solver would be exact. Low priority.)*
 
 ---
 
 ## Extensions / Tween (`Scripts/Extensions/Tween/`)
 
-### Refactoring / dead code
-TWN-7. `Types/{Color,Float,Quaternion,Rect,Vector2,Vector3}Tween.cs` — the "iOS generic inheritance event crash workaround" (`new event …`, overrides) is copy-pasted verbatim ×6.
-TWN-8. `Types/FloatTween.cs:24-36` — additionally redeclares `new OnStart` + overrides `TweenStart` (the other 5 don't) → inconsistent.
+*(TWN-7 iOS event-crash workaround — investigated, likely stale but verify on an iOS IL2CPP build before removing — see `## 🅿️ Left as is`.)*
 
 ---
 
 ## Extensions / Range + ValuePicker
 
-### Bugs
-RNG-5. `ValuePicker/Blender.cs:9,85` & `LogicBlender.cs:82` & `Selector.cs:167` — `previousValue.Equals(current)` NREs for reference `T` when previous is null.
-RNG-6. `ValuePicker/LogicBlender.cs` — `Set` uses `.Equals` (`:27`) while `Remove` (`:45`) and `TryGetValueForSource` (`:70`) use `==` → inconsistent equality.
-RNG-7. `ValuePicker/Selector.cs:70,140` — `desiredValue == null` on unconstrained generic `T` → `nullRemovesValue` silently does nothing for value types.
-
-### Refactoring / dead code
-RNG-9. `Range/RangeInt.cs` — the entire file is commented out (a stale int-typed sibling of `Range`, carrying the same old bugs). Delete, or revive as a real `RangeInt` — needs a decision.
-RNG-12. `ValuePicker/Blender.cs` vs `Selector.cs` — `Set`/`AddPriority`/`Remove`/`EntryComparer`/`_priorities` near-identical (comparers differ in direction — significant).
-
-### Tidying
-RNG-20. `ValuePicker/LogicBlender.cs:26,51-52` — leftover commented assert + alternative impl ("This creates garbage.").
+*(RNG-12 Blender/Selector overlap — assessed: could share a prioritised-source base but the differences (blend-fold vs single-select, opposite comparer direction) make it moderate-value/real-risk; LogicBlender stays separate — see `## 🅿️ Left as is`.)*
 
 ---
 
@@ -170,8 +149,7 @@ MISC-17. `NoiseSamplerPropertiesPropertyDrawer.cs:8` — `graphXRange` is `stati
 ## Cross-cutting themes (worth a single sweep)
 
 XC-4. **`enumValueIndex` / mask handling for enums** — `EnumFlagsButtonGroupDrawer` (unmasked flag writes), `EnumButtonGroupDrawer` (unguarded `IndexOf` in the static `Draw`), `EnumFlagDrawer` (`int` truncation for `long` enums).
-XC-6. **Buggy custom HSV/HSB + easing/curve helpers** that duplicate Unity built-ins (`Color.RGBToHSV`, `AnimationCurve.EaseInOut`, `Collider.ClosestPoint`) — prefer the native APIs. *(Partly addressed: `Collider.ClosestPoint` = UEX-8 done, `EaseInOut` = UEX-33; the HSV/HSB structs were assessed and kept — no equivalent Unity struct.)*
-XC-8. **Widespread commented-out dead code** (entire files: `RangeInt.cs`, `Polygon/Editor/LineEditor.cs`; large blocks in `BoundingSphere.cs`, `Line.cs`, `TouchInputSimulator.cs`, `Point3.cs`, the Text Effects folder, etc.). *(Progressively cleared across rounds — LineEditor.cs, TouchInputSimulator, Line.cs blocks done; RangeInt.cs/BoundingSphere/Text Effects remain.)*
+XC-8. **Widespread commented-out dead code.** *(Progressively cleared across rounds — LineEditor.cs, TouchInputSimulator, Line.cs, BoundingSphere.cs, RangeInt.cs (revived), and the Text Effects scratch all handled. Remaining: the flagged `TextEffectsController` disabled-feature cluster (outline-2 / base-material restore / pre-render hook / `isDirty=false`) — kept for a human decision, see round-16 notes.)*
 
 ---
 
@@ -235,10 +213,15 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **TXT-20** — `RuntimeSceneSet`'s hand-rolled build-settings collection + manual array-grow: delicate EditorBuildSettings code; correctness handled by TXT-11.
 - **TXT-24** — identical `Wobble` + scaffold copy-pasted across VertexWobble/CharacterWobble/WordWobble; sharing needs a new base/helper type — invasive for little gain.
 
+- **XC-6** — the "buggy custom HSV/HSB + easing/curve helpers" theme is resolved via its sub-findings: `Collider.ClosestPoint` → native (UEX-8, done); `AnimationCurve.EaseInOut` redundancy (UEX-33, explained — kept, harmless); the HSV/HSB structs assessed and kept (Unity has RGBToHSV/HSVToRGB conversions but no HSV/HSB *struct*, so ours add value). Nothing further actionable.
+- **RNG-12** — `Blender`/`Selector` share a prioritised-source shape and *could* sit on a common base, but they differ in load-bearing ways (blend-fold vs single-select `Value`, opposite `EntryComparer` direction, `Func<T,T>` vs `T` payload, `object` vs generic priority-source), so a merge is feasible-but-moderate-value with real risk of flipping the fold-order/winner semantics — only worth it if that code churns. `LogicBlender` stays standalone (no priorities, Unity-serialized, aggregate-delegate model). Kept separate.
+
 ### Deferred (needs editor / larger effort / vendored)
+- **TWN-7** — the iOS/IL2CPP "generic-inheritance event crash" workaround (`new event` shadowing + raising-method overrides, ×6 tween subclasses) is almost certainly stale (a ~2013 first-gen AOT bug; modern IL2CPP ships generic-base events fine), but it only manifests in an AOT device build, so removal can't be verified from source/Editor. Kept — verify on an iOS IL2CPP build before removing.
 - **CMP-38** — "Decendent" → "Descendent" rename touches a public MonoBehaviour class + files/folder + serialized scene/prefab references; safest via Unity's Project-window rename (preserves GUID). Not done blind without the editor.
 - **GRID-24** — `HeightMapMeshGenerator` ~600-line externals/internals × triangles/quad copy-paste; large mechanical refactor best done with in-editor compile + visual verification.
 - **Vendored** — `SimplexNoise.cs`, `Noise.cs`, `AStar.cs` appear third-party/vendored — findings are real but likely intentionally kept close to upstream. *(ACS-12 EasingFunction if-chains were converted to `switch` — resolved, see Done.)*
+- **XC-8 (residual)** — the `TextEffectsController` disabled-feature cluster (second-outline shader support, base-material save/restore, extra dirty callbacks + `OnPreRenderText` hook, the `isDirty=false` reset that would stop `Refresh()` running every frame) is coherent unfinished work, not scratch — kept for a decision (finish or delete), not blind-deleted.
 
 ---
 
@@ -714,3 +697,14 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **RNG-18** — deleted the commented-out `RangeTests` MonoBehaviour block.
 - **RNG-19** — fixed the `trunctationValue` → `truncationValue` typo (`ShrunkToExclude` param + uses; no external/named-arg callers).
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Manual edits; brace balance even (80/80), typo grep-confirmed gone from live code (only the fully-commented `RangeInt.cs`/RNG-9 still contains it). RNG-9 (RangeInt.cs entirely commented) left as a separate delete-vs-revive decision.
+
+### ValuePicker + STR + EAS + TWN + ACS + RangeInt + XC (round 16)
+- **RNG-5** — `Blender`/`LogicBlender`/`Selector` change-detection now uses `EqualityComparer<T>.Default.Equals` (null-safe). **RNG-6** — `LogicBlender` source lookups unified to `EqualityComparer<object>.Default.Equals` (`Set`/`Remove`/`TryGetValueForSource` were mixing `.Equals`/`==`). **RNG-7** — `Selector`'s `desiredValue == null` kept (correct for reference `T`; a value type is never null so `nullRemovesValue` legitimately can't apply) + commented. **RNG-20** — deleted the commented assert + "creates garbage" alt-impl.
+- **RNG-12** — assessed (Blender/Selector mergeable but moderate-value/risky; LogicBlender separate) → `## 🅿️ Left as is`.
+- **STR-5** — `Shape.OnChangePoints` `pointBounds` now floors the min / ceils the max and clamps extents to ≥1, fixing single-point (zero-size) and negative-origin (truncate-toward-zero) bounds. **STR-6** — `CreateContiguous` got a `numPoints<1` guard, a clamped seed (works for `numPoints==1`), and an attempt cap on the inner `do/while` (bails gracefully instead of hanging); normal-case shape output unchanged.
+- **EAS-2/EAS-7** — `DampedSpring`/`CriticallyDampedSpring` now sub-step the caller's real `deltaTime` in fixed ≤1/60 chunks (capped at 1s) instead of hard-coding `1/60`: stable *and* framerate-independent, so the `deltaTime` params/`Time.deltaTime` overloads are meaningful. ⚠️ Springs now run at correct real-time speed at all framerates (previously slow below 60fps) — affects Boat Game's `ThumbstickUI`. **EAS-8** — `AddImpulse` now has the same NaN/Inf assert as `AddForce` (param renamed `impulse`, doc clarifies instant-Δvelocity vs over-time force). (EAS-3 improved by the smaller steps; analytic solver would be exact — left low-priority.)
+- **TWN-8** — removed `FloatTween`'s extra `new OnStart` shadow + `TweenStart` override (nothing subscribed; now consistent with the other 5 subclasses). **TWN-7** — investigated, likely stale, kept pending iOS verification (→ Left as is).
+- **ACS-15** — the commented `UpscaleTools.Test` demo fixed to compile against the live API (`instance`→`Instance` on `MonoSingleton`), left commented per request. **ACS-16** — removed the dead uncalled private `SubdivideInCurve` (superseded by the live arc-length estimator), the two dead `var r` locals, and the commented `RoughEstimateBestCurveT`/`roughLength`/`GetCurveStartingWith` blocks.
+- **RNG-9** — revived `RangeInt` (a min/max int span with real methods, distinct from Unity's `start+length` `RangeInt`); fixed the same bugs the live `Range` had (the `||`→`&&` guard, multiply-collapse `GetHashCode`, dead struct null-checks, `RemoveRange` clamp). ⚠️ Its global name shadows `UnityEngine.RangeInt` — a footgun (no in-repo callers of either today); recommend renaming (`IntRange`) or namespacing.
+- **XC-6** — resolved via sub-findings (→ Left as is). **XC-8** — deleted 3 dead-scratch lines in `TextEffectsController`/`TextBouncer`; flagged+kept the coherent `TextEffectsController` disabled-feature cluster (→ Left as is).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 6 parallel agents + manual (SpringDamper); every diff reviewed (brace balance checked on all 11 touched files). `Spline.cs` also carries a concurrent `namespace SplineSystem` wrap (consistent with its already-namespaced siblings). RNG-7's `==null` kept by design; RangeInt name-collision + TWN-7 iOS + the TextEffects cluster flagged for decisions.

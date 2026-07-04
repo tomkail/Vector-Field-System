@@ -12,7 +12,6 @@ Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat a
 
 ## Components (non-UI) (`Scripts/Components/`)
 
-
 ---
 
 ## Editor Tools (`Scripts/Editor Tools/`)
@@ -26,9 +25,6 @@ PD-1. `EnumButtonGroup/Editor/EnumFlagsButtonGroupDrawer.cs:38-45` — individua
 PD-6. `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:75` — the static `Draw` uses `Array.IndexOf(trueNames, names[i])` unguarded to index `typedValues[sortedIndex]` → throws on a stale/removed enum name.
 PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` via `(int)Convert.ChangeType(...)` → truncates for `long`/`ulong`-backed enums.
 
-### Unity-native duplication
-PD-11. `EnumFlag/Editor/EnumFlagDrawer.cs:19` — the drawer just wraps `EditorGUI.EnumFlagsField` (Unity's native C# `[Flags]` field — distinct from `MaskField`, the plain-int/layer masker). Since Unity 2017.3 the default inspector auto-renders `[Flags]` enums this way, so the `[EnumFlag]` attribute is largely obsolete.
-
 ### Refactoring / dead code
 PD-20. `EnumButtonGroupDrawer.cs` & `EnumFlagsButtonGroupDrawer.cs` — substantial copy-paste (label rect, per-button widths, toolbar).
 PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is self-referential/broken).
@@ -37,18 +33,12 @@ PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` �
 
 ## Extensions / UnityEngineX (`Scripts/Extensions/UnityEngineX/`)
 
-### Unity-native duplication
-UEX-29. `LayerMaskX.cs:31-33,65-68` — `Includes` == `(mask & (1<<layer))!=0`; `Inverse` == `~mask`.
-UEX-33. `AnimationCurveX.cs:372-393` — `EaseInOut` is redundant with `AnimationCurve.EaseInOut` (both zero-tangent S-curves).
-
 ---
 
 ## Extensions / Geometry (`Scripts/Extensions/Geometry/`)
 
 ### Unity-native duplication
 GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
-
-
 
 ---
 
@@ -57,7 +47,6 @@ GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 ---
 
 ## Extensions / Algorithms + Camera + Spline
-
 
 ---
 
@@ -81,10 +70,6 @@ SYS-16. `EnumX.cs:23-76` — `#if !UNITY_WINRT … if(!typeof(T).IsEnum) throw` 
 SYS-17. `EnumX.cs:87-101` — `ToArray<T>` adds nothing over `(T[])GetValues`; `GetEnumerable` boxes.
 SYS-18. `FlagsX.cs:14-125` — two parallel families (raw-int vs generic enum) with overlapping duties + inconsistent naming; `:101-107` — `(int)Math.Pow(2,x)` vs `1<<x`.
 
-### Tidying
-SYS-28. `FlagsX.cs:167` — leftover `//yield return value;`.
-SYS-29. Mixed tabs/spaces + stray blank lines: `FlagsX.cs:108-110`. *(StringX portion resolved — see Done.)*
-
 ---
 
 ## Extensions / Structures (`Scripts/Extensions/Structures/`)
@@ -95,7 +80,6 @@ STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new stati
 ---
 
 ## Extensions / Spring (`Scripts/Extensions/Spring/`)
-
 
 ---
 
@@ -108,11 +92,9 @@ STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new stati
 
 ## Extensions / Tween (`Scripts/Extensions/Tween/`)
 
-
 ---
 
 ## Extensions / Range + ValuePicker
-
 
 ---
 
@@ -186,6 +168,9 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **UEX-39** — `CanvasGroupsAllowInteraction`/`CanvasGroupsAlpha` are byte-identical in `CanvasGroupX` and `CanvasX` (no external callers). Deliberately kept as separate copies so each extension file stays self-contained/portable — dedup declined by decision.
 - **UEX-46** — the shared `static Vector3[] corners` scratch buffer in `RectTransformX`/`CanvasX` has a theoretical re-entrancy aliasing risk, but the fix (per-call local arrays or thread-local state) is declined in favour of keeping each file simple/self-contained/portable. These are main-thread editor/UI helpers not called re-entrantly in practice, so the risk is accepted.
 - **GEO-19** — closest-point-on-segment is already consolidated to a single canonical `GetNormalizedDistanceOnLineInternal` within each of `Line`/`Line3D` (the other methods are thin wrappers). The remaining duplication is just the 2D vs 3D split, inherent to `Vector2`/`Vector3`; forcing a shared implementation would change the hot-path numerics/allocations for more risk than the near-zero gain. Left as is.
+- **PD-11** — `EnumFlagDrawer` is a one-line wrapper over `EditorGUI.EnumFlagsField` (Unity's native `[Flags]` mask field) and does nothing different in implementation. Since Unity 2017.3 the default inspector auto-renders any `[System.Flags]` enum with that same field, so `[EnumFlag]` is effectively obsolete — and it even carries the PD-7 long-enum truncation bug the native path avoids. Kept for back-compat (removing a public attribute is breaking); prefer `[System.Flags]` on new enums.
+- **UEX-29** — `LayerMaskX.Includes(layer)` is genuinely useful (Unity has no native `LayerMask.Includes`; it's a readable name for the `(mask & (1<<layer)) != 0` bit test) — kept. `Inverse()` is just `~mask` (marginal), but harmless named convenience and breaking to remove — kept.
+- **UEX-33** — `AnimationCurveX.EaseInOut` builds the same zero-tangent 2-key curve as `AnimationCurve.EaseInOut`; the no-arg / `(width,height)` convenience overloads add value Unity lacks, and the 4-arg one only differs in param order. Kept as convenience (could optionally have the 4-arg delegate to the built-in — low priority).
 
 ### Duplication kept (removing breaks callers / invasive / perf / not in netstandard)
 - **GEO-24** — `Polygon.ContainsPoint(Vector2[])` and `(List<Vector2>)` are near-identical, but kept as separate concrete overloads for PERFORMANCE: unifying to `IList<Vector2>` would route every per-vertex index access in this hot point-in-polygon loop through a virtual interface indexer (no inlining / no bounds-check elision). The concrete `Vector2[]`/`List<Vector2>` overloads avoid that. Valid perf motivation — kept.
@@ -715,3 +700,10 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **MISC-8** — explained (the two pipelines are a deliberate material-`Blit` vs `Graphics.DrawTexture`/GL pair — shader-orientation vs CPU-matrix, per the header comment's alpha tradeoff; `...2` should be `...ViaGraphics` to match siblings; only the thin Copy/Apply wrappers are removable dup, the two GPU cores are legitimately distinct). Left active as a real (optional) rename+wrapper-dedup opportunity. **MISC-9** — assessed idiomatic, kept (→ Left as is).
 - **GEO-43** — namespacing won't-do for now (→ Left as is). **Doc sweep** — removed stale resolved/left-as-is stragglers (PD-13, TWN-7/RNG-12 pointers, etc.) from the top half and collapsed emptied subsection headers, per request.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 4 parallel agents + manual (ACS-20 deletions, SPR-2 simulation, doc); brace balance checked (Polygon 292/292, NoiseSampler drawer 42/42, CameraProperties 98/98, CameraShotGeneratorTools 44/44).
+
+### SYS-28/29 (FlagsX) + PD-11/UEX-29/33 assessed (round 20)
+- **SYS-28** — removed the leftover `//yield return value;` between the `if(bits==0L)` and `continue` in `FlagsX.GetFlagValues`.
+- **SYS-29** — normalised `FlagsX.cs` indentation: the lower half (from `Intersects` on) was 4-space while the top was tabs — converted leading-space indentation to tabs throughout and collapsed the stray blank-line runs. Whitespace-only; braces 35/35.
+- **PD-11** (answered) — `EnumFlagDrawer` is a one-line wrapper over the native `EditorGUI.EnumFlagsField`, does nothing different, and is effectively obsolete (Unity auto-renders `[System.Flags]` enums with the same field since 2017.3; ours even has the PD-7 long-enum truncation bug). Kept for back-compat → Left as is.
+- **UEX-29** (answered) — `LayerMaskX.Includes` kept (useful; no native equivalent), `Inverse` kept (marginal `~mask` convenience). **UEX-33** (answered) — `EaseInOut` kept as convenience (only the 4-arg overload duplicates the built-in). Both → Left as is.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Manual edits.

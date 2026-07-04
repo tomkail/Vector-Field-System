@@ -133,7 +133,7 @@ PD-29. Commented-out code: `SetPropertyDrawer.cs` (one line); larger commented b
 
 ### Bugs
 UEX-1. ✅ *Fixed (see Done).* `Vector2Curve.AddKey(time,x,y)` now calls `AddKey(time, new Vector2(x,y))` (was self-recursion → stack overflow).
-UEX-2. `Color/HSBColor.cs:181` & `HSVColor.cs:182` — hue-interp line `h = angle/360f` commented out → `Lerp` always returns hue 0 (red).
+UEX-2. ✅ *Fixed (see Done).* `HSBColor.Lerp`/`HSVColor.Lerp` now assign the interpolated hue (`Mathf.LerpAngle(a.h, b.h, t)` in degrees, then `h = angle`); the old `* 360f` + commented `h = angle/360f` left hue at 0 (red).
 UEX-3. ✅ *Verified + fixed (see Done).* `GPUScale` now returns the still-active temp RT; callers `ReadPixels` inside a try/finally that restores `RenderTexture.active` and releases the RT.
 UEX-4. ✅ *Fixed (see Done).* `Vector3X.Reflect` sign corrected to `d − 2·Project(d,n)`.
 UEX-5. ✅ *Fixed (see Done).* `SelectionX` (`UnityEngineX/SelectionX.cs`) — `objects` null branch sets `instanceIDs = Array.Empty` (was self-assign recursion); `activeObject` gained the `else` guard.
@@ -150,7 +150,7 @@ UEX-15. ✅ *Fixed (see Done).* `PhysicsX` falls back to `Vector3.forward` for t
 UEX-16. ✅ *Fixed (see Done).* `GetClosestDistanceToSphere` subtracts `sphereRadius` (clamped ≥ 0).
 UEX-17. ✅ *Fixed (see Done).* `TestPlanesPoint` iterates `planes.Length` with a null/empty guard.
 UEX-18. ✅ *Fixed (see Done).* `GetDistanceToPointInDirection` honours `Plane.Raycast`'s bool (returns 0 on miss; `TryGetHitPoint` remains for hit/miss).
-UEX-19. ✅ *Fixed (see Done).* `ReflectionX` path-index accesses bounds-guarded; the no-op `value = val;` removed and the struct limitation documented. *(Note: `SetValueFromObject`'s `SetValue` targeting looks shakier than UEX-19's scope — see summary.)*
+UEX-19. ✅ *Fixed properly (see Done).* `ReflectionX` path-index accesses bounds-guarded; **and** `SetValueFromObject` fully rewritten (`SetValueRecursive`) — it now walks the path, sets the leaf on its actual parent, re-assigns boxed struct intermediates back up the chain (nested structs now work), and supports list-element paths (`Array.data[i]`), which the old version never did.
 UEX-20. ✅ *Fixed (see Done).* `TextureX.Create(Color)` forwards `textureFormat`; `Create(Color[])` returns null on size mismatch instead of throwing in `SetPixels`.
 UEX-21. `SelectionX.cs:64-66,86-100` — save-last-selection logic inverted; `CompareWithLastSelection` mixes `objects` vs `gameObjects`.
 UEX-22. `ScreenX.cs:283,295` — `int.Parse(UnityStats.screenRes.Split('x'))` unguarded → FormatException/IndexOutOfRange in a per-frame getter.
@@ -159,8 +159,8 @@ UEX-24. `GizmosX.cs:277,301` — `DrawWireArc`/`DrawWireArcSegment` missing `ret
 UEX-68. *(New)* `ReflectionX.cs:199-202` — in `SetValueFromObject`, if `obj` itself is the target `T` on the first path segment, `fieldInfo` is still null when `fieldInfo.SetValue(obj, val)` runs → NullReferenceException. (Separate from the dead `value = val;` / struct issues already noted in UEX-19.)
 
 ### Unity-native duplication
-UEX-25. `Color/HSVColor.cs` & `HSBColor.cs` — reimplement (buggily) `Color.RGBToHSV`/`HSVToRGB`.
-UEX-26. `ColorX.cs` — `BlendMode.Normal` == `Color.Lerp`; additive/multiply at 1 == `+`/`*`; `Grayscale` == `Color.grayscale`; `RandomRGB` overlaps `Random.ColorHSV`.
+UEX-25. ✅ *Fixed (see Done).* `HSVColor`/`HSBColor` `FromRGBA`/`ToRGBA` now delegate to Unity's `Color.RGBToHSV`/`HSVToRGB` (h kept in degrees to preserve the public convention); no more hand-rolled/buggy conversion.
+UEX-26. `ColorX.cs`. *(Not a bug — convenience API, kept. `Grayscale` already just wraps `color.grayscale`; `BlendAdditive`/`BlendMultiply` take a `lerp` param so they're not literally `+`/`*`; `RandomRGB` ≠ `Random.ColorHSV`. Named blend/utility helpers with real ergonomic value; nothing to remove.)*
 UEX-27. `ColliderX.cs:11` — duplicates `Collider.ClosestPoint`/`ClosestPointOnBounds`.
 UEX-28. `HashSetX.cs:5-9` — `AddRange` duplicates `HashSet.UnionWith`.
 UEX-29. `LayerMaskX.cs:31-33,65-68` — `Includes` == `(mask & (1<<layer))!=0`; `Inverse` == `~mask`.
@@ -174,7 +174,7 @@ UEX-37. `MeshRendererX.cs:6-9` — `SharedMaterialsContains` == `Array.IndexOf`.
 *Verified — not a bug: UEX-30 (`RigidbodyX` `Set*`/`Translate` route through `rigidbody.rotation`/`MovePosition`/`MoveRotation` — physics-aware, not thin transform wrappers, and not equivalent to the Transform versions).*
 
 ### Refactoring / dead code
-UEX-38. `Color/HSVColor.cs` & `HSBColor.cs` near-identical; both have an unreachable trailing `else`.
+UEX-38. ✅ *Resolved (see Done).* The unreachable trailing `else` in both `ToRGBA` methods is gone (those methods now delegate to `Color.HSVToRGB`). The two types stay separate (distinct public `HSVColor`/`HSBColor` — V vs B naming — like the ExtendedButton/Selectable case); their now-tiny bodies aren't worth a shared base.
 UEX-39. `CanvasGroupX.cs`/`CanvasX.cs` — `CanvasGroupsAllowInteraction`/`CanvasGroupsAlpha` duplicated verbatim. (`GetRenderCamera` is only in `CanvasX`, not `RectTransformX` — that half of the original claim was wrong.)
 UEX-40. `BoundsX.cs:21-76` — three copy-pasted `CreateEncapsulating` scans; `:111-169` — a 5-line face block repeated six times.
 UEX-41. `RayX.cs:30-61,68-85` — two large commented-out method bodies (dead).
@@ -188,8 +188,8 @@ UEX-48. `SceneManagerX.cs:12-24` — `GetCurrentSceneNames/Paths` duplicate `Get
 UEX-49. `ScreenX.cs:454-529` — `PlayerLoopUtils` misplaced inside the `ScreenRectProperties` data class.
 
 ### Tidying
-UEX-61. Commented-out dead blocks: `RayX.cs:30-85`, `OnGUIX.cs:66-190`, `ReflectionX.cs`, `GizmosX.cs:38,42`, `RectTransformX.cs:219-223,380-392` ("OLD STUFF, built for 80 Days"), `ColorX.cs:208-220` (`BlendOverlay` commented → returns `color2`, a stub), `TextureX.cs:59-61`, `ScreenX.cs:105-121,172,411`.
-UEX-62. Debug logs in shipping code: `Vector3Curve.cs:143` per call; `ColorX.cs:95` LogError then /0 → NaN; `TrailRendererX.cs:20,25` on error paths (null trail / double-clear); `HSBColor.cs:188-211` `Test()` scaffolding.
+UEX-61. Commented-out dead blocks: `RayX.cs:30-85`, `OnGUIX.cs:66-190`, `ReflectionX.cs`, `GizmosX.cs:38,42`, `RectTransformX.cs:219-223,380-392` ("OLD STUFF, built for 80 Days"), ~~`ColorX.cs:208-220` (`BlendOverlay`)~~ ✅ *fixed — `BlendOverlay` now implements a real per-channel overlay (was a `color2` stub)*, `TextureX.cs:59-61`, `ScreenX.cs:105-121,172,411`. *(Remaining files still to tidy.)*
+UEX-62. Debug logs in shipping code: `Vector3Curve.cs:143` per call; ~~`ColorX.cs:95` LogError then /0 → NaN~~ ✅ *fixed (early `return Color.clear`)*; `TrailRendererX.cs:20,25` on error paths (null trail / double-clear); ~~`HSBColor.cs` `Test()` scaffolding~~ ✅ *removed*. *(Remaining files still to tidy.)*
 UEX-63. Pervasive typo `CameraX.cs` "frustrum" → "frustum" baked into ~14 public method names; also "Cmera" (`:131`).
 UEX-64. Typos: `TransformX.cs` "Heirarchy"/"Descendents"; `GizmosX.cs` "matricies"/"reassinging"; `OnGUIX.cs` "matricies"; `ImageX.cs:20,40` error strings name the wrong method; `ScreenXEditorWindow.cs:12` method name mismatch.
 UEX-65. Unused usings: `SpriteX.cs:2`. *(SystemInfoX.cs:2 resolved with UEX-35.)*
@@ -761,4 +761,12 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **PD-17** `SetCase/Editor/SetCaseDrawer.cs` — `BeginProperty` + change-check so `stringValue` is only written on edit (was every repaint → dirtied objects / clobbered multi-select).
 - **PD-19** `Property Drawers/Editor/BaseVectorToggleDrawer.cs` (new) — shared base looping N axes; `Vector2ToggleDrawer`/`Vector3ToggleDrawer` reduced to `GetAxes`/`SetAxes` + `IsSupported` overrides. Behaviour-identical.
 - **UEX bugs** — **UEX-1** Vector2Curve self-recursion; **UEX-3** TextureX GPUScale keeps the temp RT active until ReadPixels (try/finally restores active + releases); **UEX-4** Vector3X.Reflect sign; **UEX-5** SelectionX objects self-assign + activeObject null; **UEX-6** Rigidbody2DX torque direction; **UEX-8** ColliderX → Collider.ClosestPoint; **UEX-9** ImmediateAncestors `(-1,-1)`; **UEX-10** BetterBroadcastMessage per-child; **UEX-11** AnimationCurveX EaseIn tangent / EaseOutInvert delegate / ks[0] tangents; **UEX-12** FindIndexPosition single-element; **UEX-13** RepeatInclusive min==max; **UEX-14** EventSystemX null pointerEvent; **UEX-15** PhysicsX degenerate up; **UEX-16** RayX sphere radius; **UEX-17** GeometryX planes.Length + null; **UEX-18** PlaneX honours Raycast bool; **UEX-19** ReflectionX path bounds guards + no-op removed (struct limitation documented); **UEX-20** TextureX Create textureFormat + mismatch early-return. *(Done by 4 parallel agents; every diff reviewed here.)*
-- ⚠️ **Not compile-verified in-editor** (community MCP down). Deeper item flagged beyond scope: `ReflectionX.SetValueFromObject`'s `fieldInfo.SetValue(obj, …)` targets the root object and only fires when `value is T` mid-walk — it likely doesn't write correctly for most paths (pre-existing, larger than UEX-19). New file `BaseVectorToggleDrawer.cs` ships with a hand-authored `.meta` (Unity will accept/normalise it on import).
+- ⚠️ **Not compile-verified in-editor** (community MCP down). New file `BaseVectorToggleDrawer.cs` ships with a hand-authored `.meta` (Unity will accept/normalise it on import).
+
+### Color (ColorX / HSVColor / HSBColor) + UEX-19 proper fix
+- **UEX-19 (proper fix)** `ReflectionX.SetValueFromObject` fully rewritten: a recursive `SetValueRecursive` walks the path, sets the leaf on its real parent, and re-assigns boxed **struct** intermediates back up the chain (nested structs now work — the old version's `fieldInfo.SetValue(obj, …)` targeted the root and rarely fired). Also now supports **list-element** paths (`field.Array.data[i]…`), which the old loop never handled. No in-project callers, so purely an improvement.
+- **UEX-2 + UEX-25 + UEX-38** `HSVColor`/`HSBColor` — `FromRGBA`/`ToRGBA` now delegate to Unity's `Color.RGBToHSV`/`HSVToRGB` (h scaled to/from degrees to keep the public convention), killing the hand-rolled conversion, the unreachable trailing `else`, and the h-convention muddle. `Lerp` now actually interpolates hue (`Mathf.LerpAngle(a.h,b.h,t)` → `h = angle`; was stuck at 0/red). No in-project callers — external API shape (fields, static methods, operators) unchanged.
+- **UEX-61 (ColorX part)** `ColorX.BlendOverlay` now implements a real per-channel overlay (`base<0.5 → 2·base·blend, else 1−2(1−base)(1−blend)`) instead of the commented-out stub that returned `color2`.
+- **UEX-62 (ColorX/HSBColor parts)** `ColorX.Average` returns `Color.clear` on an empty list (was `LogError` then divide-by-zero → NaN); removed `HSBColor.Test()` debug scaffolding.
+- **UEX-26** — assessed as convenience API (not a bug); kept. See active note.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Behaviour changes worth a glance if used: `HSVColor`/`HSBColor` conversions now use Unity's math (semantically equivalent, minor float differences possible) and `Lerp` now interpolates hue instead of returning red.

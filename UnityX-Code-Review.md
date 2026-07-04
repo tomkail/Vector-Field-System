@@ -41,8 +41,8 @@ CMP-17. `Region/Region.cs:431` — `Vector3.Normalize(...)` where `.normalized` 
 CMP-18. `Input/InputUtils.cs:8-16` — `HoveringOverUI`. *(Low risk, left as-is. The `EventSystem`/`GUIUtility.hotControl`/iOS-touch paths are intentional. The one real gotcha: the `screenPos` param is ignored — the function always tests the **current** EventSystem pointer (the position-specific raycast fallback is commented out). Fine if callers pass the current pointer (they do); misleading if someone expects a hover test at an arbitrary point. Not worth a public-signature change to drop the param.)*
 
 ### Refactoring / dead code
-CMP-20. `Events/TriggerListener.cs:81-154` — 12 collision/trigger handlers repeat the same block. *(Proposal: a generic `Dispatch<T>(T arg, int layer, UnityEvent<T> evt, Action<T> cb)` — `if(ignoreLayers.Includes(layer)) return; evt.Invoke(arg); cb?.Invoke(arg);` — turns each handler into a one-liner e.g. `void OnCollisionEnter(Collision c) => Dispatch(c, c.gameObject.layer, OnCollisionEnterEvent, CollisionEnter);`. Behaviour-identical, works because the event fields derive from `UnityEvent<T>`. Not yet applied — say the word.)*
-CMP-21. `ChangeCheckers/TransformChangeChecker.cs:43-72` — 5 change checks share one structure. *(Proposal: a `CheckChanged(bool changed, TransformDelegate specific, string messageSuffix)` helper (or a comparison-delegate variant) collapsing the assign+fire-events+SendMessage block. **Caveat:** the checks use Unity's `!=` on `Vector3`/`Quaternion`, which is approximate — a generic `EqualityComparer<T>` would change that to exact equality, so the helper must keep the per-type `!=` comparison (pass a `bool changed` or a comparer). Not yet applied.)*
+CMP-20. ✅ *Done (see Done).* `TriggerListener`'s 12 handlers now delegate to a generic `Dispatch<T>(collider, layer, UnityEvent<T>, Action rawEvent)`; each handler is a one-liner. C# events invoked via `() => CollisionEnter?.Invoke(c)` (they're custom delegate types, not `Action<T>`).
+CMP-21. ✅ *Done (see Done).* `TransformChangeChecker`'s 4 checks share a `FireChange(specificDelegate, suffix)` tail; the per-field `!=` checks stay inline to preserve Unity's approximate Vector3/Quaternion comparison.
 CMP-22. `ChangeCheckers/GameObjectChangeChecker.cs:22-41` — play/edit-mode guard boilerplate duplicated across `Update`/`OnDestroy`.
 CMP-23. `Input/InputX.cs:338-374` — 4 near-identical linear-search-by-ID methods; `376-413` — 6 mouse handlers on one template.
 CMP-24. `Input/InputPoints/KeyboardInput.cs:24-49` — cardinal/combined direction methods share most logic.
@@ -105,22 +105,22 @@ PD-30. *(New)* `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:10` — `OnGUI` 
 
 ### Unity-native duplication
 PD-11. `EnumFlag/Editor/EnumFlagDrawer.cs:19` — the drawer just wraps `EditorGUI.EnumFlagsField` (Unity's native C# `[Flags]` field — distinct from `MaskField`, the plain-int/layer masker). Since Unity 2017.3 the default inspector auto-renders `[Flags]` enums this way, so the `[EnumFlag]` attribute is largely obsolete.
-PD-12. `FilePath` & `FolderPath` drawers — near-identical text-field+browse pattern.
+PD-12. `FilePath` & `FolderPath` drawers — near-identical text-field+browse pattern. *(Suggestion, not applied: only the row layout (prefix label → disabled text field → `...` picker button → `>` reveal button, and the `textRect`/`buttonRect` math) is genuinely shared — extract a `PathFieldRow(rect, path, label, editable, exists, Action browse, Action reveal, extraButtons…)` static helper both call. The rest has drifted a lot (FilePath: red-tint-when-missing, RelativeTo suffix, prev/next-file controls, 5 RelativeTo cases, `EditorApplicationX` conversions; FolderPath: its own mac/win `OpenInFileBrowser`, 4 different RelativeTo cases) and the two `RelativeTo` enums are distinct types — so a full merge isn't worth it. Modest value; happy to extract just the row helper if you want the consistency.)*
 PD-13. `Popup` & `PropertyPopup` drawers — both reimplement `EditorGUI.Popup`; overlap `EnumPopup`.
-PD-14. `Label/Editor/LabelDrawer.cs` — duplicates `[InspectorName]` / GUIContent label.
-PD-15. `Password/Editor/PasswordDrawer.cs` — thin wrapper over `EditorGUI.PasswordField`.
-PD-16. `PreviewTexture/Editor/PreviewTextureDrawer.cs` — duplicates the object-field thumbnail idea (draws via `EditorGUI.DrawPreviewTexture`/`GUI.DrawTextureWithTexCoords`, not `AssetPreview.GetAssetPreview`).
-PD-17. `SetCase/Editor/SetCaseDrawer.cs` — upper/lower duplicate `string.ToUpper()`/`ToLower()` (there is no title-case branch).
-PD-18. `Vector2Toggle`/`Vector3Toggle` drawers — hand-rolled rows over `Vector2/3Field` + mask.
+PD-14. `Label/Editor/LabelDrawer.cs` — *not replaced with `[InspectorName]`.* Correction: `[Label(string)]` relabels **any** serialized field's inspector label; Unity's `[InspectorName]` only relabels **enum values** (in dropdowns) — they are NOT interchangeable, so it can't substitute for field relabeling. Also `[Label]` has **zero** in-project usages, so there was nothing to replace here. Kept `LabelDrawer` (public API, a capability `InspectorName` lacks). Use `[InspectorName]` for enum values where that's the actual need.
+PD-15. `Password/Editor/PasswordDrawer.cs` — *not a bug (confirmed).* Being a thin `EditorGUI.PasswordField` wrapper is the point: it lets you make a password field with just an attribute/drawer, no custom editor. Kept.
+PD-16. `PreviewTexture/Editor/PreviewTextureDrawer.cs`. *(Explanation, left as-is: it's a legit custom drawer, not a redundant reimplementation. It draws a **live, sized** preview below the object field — respects Sprite sub-rects via `GUI.DrawTextureWithTexCoords`, aspect-fits, honours the attribute's width/height, and handles Texture2D/Sprite/RenderTexture. `AssetPreview.GetAssetPreview` returns a small fixed-size async-cached thumbnail with none of that. So it does strictly more than the thumbnail idea; nothing to dedupe.)*
+PD-17. ✅ *Fixed (see Done).* `SetCaseDrawer` now wraps in `BeginProperty` + a change-check so it only writes `stringValue` on edit (was writing every repaint — dirtied the object / clobbered multi-selection). `ToUpper`/`ToLower` are the correct built-ins (`CaseType` only has Upper/Lower; no dup to remove, no title-case value exists).
+PD-18. `Vector2Toggle`/`Vector3Toggle` drawers. *(Explanation: not really a Unity-built-in duplication or a bug — there's no built-in "per-axis 0/1 toggle mask" field, so hand-rolling the toggle row is legitimate. The only real duplication is between the V2 and V3 versions, addressed by PD-19.)*
 
 ### Refactoring / dead code
-PD-19. `Vector2Toggle` & `Vector3Toggle` drawers/attributes — near-identical; share a base looping over N axes.
+PD-19. ✅ *Done (see Done).* Added `BaseVectorToggleDrawer<TAttribute>` (loops N axes via `GetAxes`/`SetAxes`); `Vector2ToggleDrawer`/`Vector3ToggleDrawer` are now ~4-line overrides. Behaviour-identical.
 PD-20. `EnumButtonGroupDrawer.cs` & `EnumFlagsButtonGroupDrawer.cs` — substantial copy-paste (label rect, per-button widths, toolbar).
 PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is self-referential/broken).
-PD-22. `HideInEditMode/*` & `HideInPlayMode/*` — mirror-image pairs; collapse to one bool.
+PD-22. `HideInEditMode/*` & `HideInPlayMode/*` — mirror-image pairs. *(Assessed — NOT a clean collapse, left as-is. Beyond the mirrored `Application.isPlaying` check the two drawers quietly diverge: `HideInPlayMode` draws with `EditorGUI.PropertyField(position, property, label)` and returns height `0` when hidden; `HideInEditMode` draws with `EditorGUIX.DrawSerializedProperty(position, property)` (no label) and returns `-standardVerticalSpacing` when hidden. Collapsing to one attribute+bool would (a) be a public-API break of two attribute types and (b) force one draw-call/hidden-height over the other. Those differences look accidental, but unifying blindly changes behaviour — only worth doing if you first decide the canonical draw call + hidden height.)*
 PD-23. `OnChange` & `SetProperty` drawers — both reflect a member by name uncached, though via different mechanisms (`MonoBehaviour.Invoke` by string vs `GetProperty` + deferred `IsDirty`). SetProperty re-does `GetProperty` every dirty frame.
 PD-24. `Lock/Editor/LockDrawer.cs` — `BeginDisabledGroup`/`EndDisabledGroup` wrap overlaps Disable/DisableIf; share a helper.
-PD-25. `MinMax` & `SteppedRange` — both step-snap, but the math differs (MinMax `Round(v/step)*step`, SteppedRange `RoundToNearest`) — not literally copy-pasted.
+PD-25. `MinMax` & `SteppedRange` — *confirmed different, not a duplication.* Both step-snap but with different math (MinMax `Round(v/step)*step`, SteppedRange `RoundToNearest`) and different purposes; not copy-pasted. Nothing to do.
 
 ### Tidying
 PD-27. Mixed tabs/spaces: `PropertyPopupDrawer.cs`, `PopupDrawer.cs`.
@@ -132,26 +132,26 @@ PD-29. Commented-out code: `SetPropertyDrawer.cs` (one line); larger commented b
 ## Extensions / UnityEngineX (`Scripts/Extensions/UnityEngineX/`)
 
 ### Bugs
-UEX-1. `AnimationCurve/CurveTypes/Vector2Curve.cs:30-32` — `AddKey(time,x,y)` recurses into itself → stack overflow. Should call the `AddKey(time, Vector2)` override.
+UEX-1. ✅ *Fixed (see Done).* `Vector2Curve.AddKey(time,x,y)` now calls `AddKey(time, new Vector2(x,y))` (was self-recursion → stack overflow).
 UEX-2. `Color/HSBColor.cs:181` & `HSVColor.cs:182` — hue-interp line `h = angle/360f` commented out → `Lerp` always returns hue 0 (red).
-UEX-3. `Texture/TextureX.cs:58-79` — `GPUScale` calls `RenderTexture.ReleaseTemporary` (and never restores `RenderTexture.active`) before returning, but callers `CopyWithSizeScaled`/`ResizeScaled` `ReadPixels` *after* that release → reads from a freed/stale target, so scaled output is unreliable.
-UEX-4. `Vector3X.cs:71-73` — `Reflect` returns `2·Project(d,n) − d`, the negation of a true reflection (Unity's is `d − 2·Project`). No callers in the project, so fixing it is internally safe (public API, so external callers could depend on the current sign).
-UEX-5. `ObjectX/SelectionX.cs:131-134` — `objects` setter assigns to its own property when `value==null` → infinite recursion; `:119-122` — `activeObject` setter lacks `else` → NRE on `value.GetEntityId()`.
-UEX-6. `Rigidbody2DX.cs:5` — `Mathf.DeltaAngle(target, current)` gives `current−target` → torque drives away from target (positive feedback). Args reversed.
+UEX-3. ✅ *Verified + fixed (see Done).* `GPUScale` now returns the still-active temp RT; callers `ReadPixels` inside a try/finally that restores `RenderTexture.active` and releases the RT.
+UEX-4. ✅ *Fixed (see Done).* `Vector3X.Reflect` sign corrected to `d − 2·Project(d,n)`.
+UEX-5. ✅ *Fixed (see Done).* `SelectionX` (`UnityEngineX/SelectionX.cs`) — `objects` null branch sets `instanceIDs = Array.Empty` (was self-assign recursion); `activeObject` gained the `else` guard.
+UEX-6. ✅ *Fixed (see Done).* `Rigidbody2DX.TorqueTo` uses `Mathf.DeltaAngle(currentAngle, targetAngle)` so torque drives toward the target.
 UEX-7. `CameraX.cs:38-40` — `WorldToViewportVector` uses a `f(0)−f(vec)` sign form negated vs a mathematically-correct viewport vector. It *matches* the sibling `…ToWorldVector` methods (shared internal sign convention), so verify intent before changing — callers may rely on it.
-UEX-8. `ColliderX.cs:11-23` — `GetClosestPoint` raycasts toward the pivot, not the surface; falls back to the pivot. Duplicates + worse than `Collider.ClosestPoint`.
-UEX-9. `ComponentX.cs:146-151` — `ImmediateAncestorsExcludingSelf` passes child-search params `(1,1)` instead of `(-1,-1)` → searches children.
-UEX-10. `ComponentX.cs:41-50` — `BetterBroadcastMessage` edit-mode branch sends to root N times, never to children.
-UEX-11. `AnimationCurveX.cs:351` (EaseIn drops `inTangent`), `:409-411` (`EaseOutInvert` delegates to `EaseInInvert`), `:419/:467` (reads/writes `ks[1]` before assigned).
-UEX-12. `MathX.cs:630-645` — `FindIndexPosition` accesses `list[1]`/`list[^2]` unguarded → IndexOutOfRange on single-element list.
-UEX-13. `MathX.cs:39-61` — `RepeatInclusive` divides by zero when `min==max`.
-UEX-14. `EventSystemX.cs:149-156` — `ForceStartDrag` derefs `pointerEvent` despite `= null` default → NRE.
-UEX-15. `PhysicsX.cs:18,37` — `LookRotation(dir, Vector3.up)` is degenerate when `dir ∥ up`.
-UEX-16. `RayX.cs:63-66` — `GetClosestDistanceToSphere` ignores `sphereRadius` → distance to center, not surface.
-UEX-17. `GeometryX.cs:29-34` — `TestPlanesPoint` hard-codes `i < 6` → IndexOutOfRange for <6 planes, ignores extras; null-refs on null.
-UEX-18. `PlaneX.cs:14-30` — `GetHitPoint`/`GetDistanceToPointInDirection` ignore `Plane.Raycast`'s bool → return points behind the ray.
-UEX-19. `ReflectionX.cs:34-36,80-81,126-127,164-165` — `parts[i+2]` unguarded → IndexOutOfRange on malformed paths; `SetValueFromObject` (222) ends with a no-op `value = val;` and doesn't work on structs.
-UEX-20. `TextureX.cs:104-107` — `Create` logs mismatch then proceeds → `SetPixels` throws; `:95` — overload silently drops `textureFormat`.
+UEX-8. ✅ *Fixed (see Done).* `ColliderX.GetClosestPoint` delegates to `Collider.ClosestPoint`.
+UEX-9. ✅ *Fixed (see Done).* `ImmediateAncestorsExcludingSelf` uses `(-1,-1)` (ancestor search).
+UEX-10. ✅ *Fixed (see Done).* `BetterBroadcastMessage` edit-mode branch sends to each descendant once.
+UEX-11. ✅ *Fixed (see Done).* `EaseIn` forwards `inTangent`; `EaseOutInvert(3-arg)` delegates to `EaseOutInvert` (not `EaseInInvert`); `ks[0].inTangent = ks[0].outTangent = 0` (was reading unassigned `ks[1]`).
+UEX-12. ✅ *Fixed (see Done).* `FindIndexPosition` returns 0 for a single-element/empty list.
+UEX-13. ✅ *Fixed (see Done).* `RepeatInclusive` (int + float) returns `min` when `min==max`.
+UEX-14. ✅ *Fixed (see Done).* `ForceStartDrag` synthesises a `PointerEventData` when the optional arg is null.
+UEX-15. ✅ *Fixed (see Done).* `PhysicsX` falls back to `Vector3.forward` for the `up` when `dir ∥ up`.
+UEX-16. ✅ *Fixed (see Done).* `GetClosestDistanceToSphere` subtracts `sphereRadius` (clamped ≥ 0).
+UEX-17. ✅ *Fixed (see Done).* `TestPlanesPoint` iterates `planes.Length` with a null/empty guard.
+UEX-18. ✅ *Fixed (see Done).* `GetDistanceToPointInDirection` honours `Plane.Raycast`'s bool (returns 0 on miss; `TryGetHitPoint` remains for hit/miss).
+UEX-19. ✅ *Fixed (see Done).* `ReflectionX` path-index accesses bounds-guarded; the no-op `value = val;` removed and the struct limitation documented. *(Note: `SetValueFromObject`'s `SetValue` targeting looks shakier than UEX-19's scope — see summary.)*
+UEX-20. ✅ *Fixed (see Done).* `TextureX.Create(Color)` forwards `textureFormat`; `Create(Color[])` returns null on size mismatch instead of throwing in `SetPixels`.
 UEX-21. `SelectionX.cs:64-66,86-100` — save-last-selection logic inverted; `CompareWithLastSelection` mixes `objects` vs `gameObjects`.
 UEX-22. `ScreenX.cs:283,295` — `int.Parse(UnityStats.screenRes.Split('x'))` unguarded → FormatException/IndexOutOfRange in a per-frame getter.
 UEX-23. `OnGUIX.cs:97` — `DrawCircle` divides by `numPoints-1` (`2π/(numPoints-1)`) → divide-by-zero when `numPoints==1`. (The ring itself does close — the last sample lands at 2π = the first.)
@@ -744,7 +744,7 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **CMP-13** `GUIDrawer.cs` — `OnGUI` iterates a snapshot (`new List<>(drawActions.Values)`) so a callback that Start/StopDrawing mid-iteration can't throw "Collection was modified".
 - **CMP-14** `ChangeCheckers/TransformChangeChecker.cs` — the edit-mode `!useInEditMode` path now also `enabled = false` (symmetric with the play-mode path) instead of returning every frame.
 - **CMP-15** — `Gesture.CompleteGesture` clears `inputPoints` instead of nulling it (no post-completion NRE); `TextBackgroundHighlightEffect` auto-wires `text` in `OnEnable`/`OnValidate` (GetComponent → GetComponentInChildren) when unassigned; `MonoInstancer.CompileReset` now also invalidates the edit-mode cache on `EditorApplication.hierarchyChanged` and `EditorSceneManager.sceneOpened` (mark-dirty only; the FindObjects rescan stays lazy).
-- **CMP-19** `Render Texture Creator/RenderTextureCreator.cs` — editor game-view size now via `UnityEditor.Handles.GetMainGameViewSize()` (both it and the old `UnityStats.screenRes` are editor-only and live in the `#if UNITY_EDITOR` branch; builds still use `Screen.width/height`).
+- **CMP-19** — *reverted; left as `UnityStats.screenRes`.* `Handles.GetMainGameViewSize()` returns the *logical* Game-view size, whereas `UnityStats.screenRes` reports the actual rendered backbuffer resolution; they diverge under the Game-view Scale slider / Low Resolution Aspect Ratios. Since this sizes a RenderTexture and the "locale-fragile" concern is weak (the `x` delimiter is fixed), not a safe drop-in — kept the original with an explanatory comment.
 - **CMP-41** `BasePolygonRenderer.cs` — `GetMesh` reuse branch now compares `meshFilter.sharedMesh?.name` (was the GameObject/component `name`, so reuse never triggered).
 - **MISC-1** `NoiseSampler/Editor/NoiseSamplerPropertyDrawer.cs` — "Create" assigns `new NoiseSampler()` (was `new SpringHandler(...)`).
 - **MISC-2** `GLDebug/GLDebug.cs` — `matZOff` getter fixed to use `_matZOff`; `OnPostRender` line lists un-swapped (`matZOn`↔`linesZOn`, `matZOff`↔`linesZOff`).
@@ -754,3 +754,11 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **XC-1** `GetHashCode` — `Range` and `CameraProperties` now `hash = hash*31 + field` (were `hash *= field`, which collapses to 0 on any zero-hash field); `Polygon` now content-hashes its vertices to match `SequenceEqual`. (`SerializableTransform`/`Point`/`PointRect`/`AdvancedUILine` already correct.)
 - **XC-2** — already resolved via GEO-8/UI-3 (both `Scale` methods assign the `Vector2.Scale` result back).
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Behaviour-preserving except the intended fixes; worth an in-editor glance: **CMP-1/CMP-41** (polygon mesh lifecycle/reuse), **CMP-14** (self-disable in edit mode), **MISC-2/MISC-15** (GLDebug visuals).
+
+### CMP refactors + Property Drawers + UEX bugs
+- **CMP-20** `Events/TriggerListener.cs` — 12 collision/trigger handlers → generic `Dispatch<T>(collider, layer, UnityEvent<T>, Action rawEvent)` one-liners; C# events fired via `() => Xxx?.Invoke(c)` (custom delegate types).
+- **CMP-21** `ChangeCheckers/TransformChangeChecker.cs` — the 4 change checks share a `FireChange(specificDelegate, suffix)` tail; per-field `!=` checks stay inline (preserves Unity's approximate Vector3/Quaternion equality).
+- **PD-17** `SetCase/Editor/SetCaseDrawer.cs` — `BeginProperty` + change-check so `stringValue` is only written on edit (was every repaint → dirtied objects / clobbered multi-select).
+- **PD-19** `Property Drawers/Editor/BaseVectorToggleDrawer.cs` (new) — shared base looping N axes; `Vector2ToggleDrawer`/`Vector3ToggleDrawer` reduced to `GetAxes`/`SetAxes` + `IsSupported` overrides. Behaviour-identical.
+- **UEX bugs** — **UEX-1** Vector2Curve self-recursion; **UEX-3** TextureX GPUScale keeps the temp RT active until ReadPixels (try/finally restores active + releases); **UEX-4** Vector3X.Reflect sign; **UEX-5** SelectionX objects self-assign + activeObject null; **UEX-6** Rigidbody2DX torque direction; **UEX-8** ColliderX → Collider.ClosestPoint; **UEX-9** ImmediateAncestors `(-1,-1)`; **UEX-10** BetterBroadcastMessage per-child; **UEX-11** AnimationCurveX EaseIn tangent / EaseOutInvert delegate / ks[0] tangents; **UEX-12** FindIndexPosition single-element; **UEX-13** RepeatInclusive min==max; **UEX-14** EventSystemX null pointerEvent; **UEX-15** PhysicsX degenerate up; **UEX-16** RayX sphere radius; **UEX-17** GeometryX planes.Length + null; **UEX-18** PlaneX honours Raycast bool; **UEX-19** ReflectionX path bounds guards + no-op removed (struct limitation documented); **UEX-20** TextureX Create textureFormat + mismatch early-return. *(Done by 4 parallel agents; every diff reviewed here.)*
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Deeper item flagged beyond scope: `ReflectionX.SetValueFromObject`'s `fieldInfo.SetValue(obj, …)` targets the root object and only fires when `value is T` mid-walk — it likely doesn't write correctly for most paths (pre-existing, larger than UEX-19). New file `BaseVectorToggleDrawer.cs` ships with a hand-authored `.meta` (Unity will accept/normalise it on import).

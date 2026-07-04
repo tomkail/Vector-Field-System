@@ -28,7 +28,7 @@ CMP-17. `Region/Region.cs:431` — `Vector3.Normalize(...)` where `.normalized` 
 *Documented in code as intentional (not further actionable): CMP-26 (`GetColor` is `protected` subclass API, unused by the live batch `RecalculateColors` path); CMP-30 (`EnforceProperties` per-repaint enforcement is intentional so parent tag/layer edits propagate, and its writes are already `!=`-guarded — no dirtying storm); CMP-31 (RegionEditor's flat gizmo `CreatePolygonMesh` is distinct from Region's extruded runtime one).*
 
 ### Tidying
-CMP-37. Large commented-out blocks (`TouchInputSimulator`, `PolygonRenderer`/`PolygonOutlineRenderer`/`LineDraw`, `TextBackgroundHighlightEffect`, `Pinch`, `InputX`, `ScriptableSingleton`, `CoroutineHelper`, `LockTransform` editor, `EnforceDecendent`, `FPSManager`, `RenderTextureCreator`). *(Being characterised as finish-worthy vs delete-worthy before anything is removed — see the current analysis.)*
+CMP-37. *Resolved — see the `## ✅ Done` section.*
 CMP-38. Typo "Decendent" → "Descendent" in the `EnforceDecendentGameObjectProperties` folder/file/class names. *(Deferred: renaming a public MonoBehaviour class + its files/folder touches serialized scene/prefab references — safest via Unity's Project-window Rename, which preserves the script GUID. Not done blind without the editor.)*
 
 ---
@@ -93,17 +93,13 @@ UEX-39. `CanvasGroupX.cs`/`CanvasX.cs` — `CanvasGroupsAllowInteraction`/`Canva
 UEX-40. `BoundsX.cs:21-76` — three copy-pasted `CreateEncapsulating` scans; `:111-169` — a 5-line face block repeated six times.
 UEX-41. `RayX.cs:30-61,68-85` — two large commented-out method bodies (dead).
 UEX-42. `ReflectionX.cs` — three near-identical `GetValueFromObject` overloads; `SetValueFromObject` largely dead.
-UEX-43. `AnimationCurveX.cs:188-214` — `RemoveKeysBetween`/`RemoveKeysBetweenAndIncluding` are byte-identical (one is wrong per its name). (The `curve.keys` array is captured once, not re-read in the loop — that part of the original note was wrong.)
-UEX-44. `Vector3Curve.cs:142-145` — `EstimateClosestTimeToValue` is an unimplemented `public` stub (`Debug.Log("TODO"); return 0`); `Vector2Curve`/`Vector3Curve` diverge.
-UEX-45. `PhysicsX.cs:14-46` — `FakeSphereCastRays`/`FakeConeCastRays` near-identical.
 UEX-46. `RectTransformX.cs:4` / `CanvasX.cs:45` — shared static `Vector3[] corners` scratch buffer → reentrancy aliasing.
-UEX-47. `ComponentX.cs:335-374` — `GetInterfaces` returns `Enumerable.Empty` but `GetInterfacesInChildren` returns `null` → NRE in `foreach`.
-UEX-48. `SceneManagerX.cs:12-24` — `GetCurrentSceneNames/Paths` duplicate `GetCurrentScenes` + `.Select`.
-UEX-49. `ScreenX.cs:454-529` — `PlayerLoopUtils` misplaced inside the `ScreenRectProperties` data class.
+
+*UEX-43/44/45/47/48/49 — resolved, see the `## ✅ Done` section.*
 
 ### Tidying
 UEX-61. Commented-out dead blocks: `RayX.cs:30-85`, `OnGUIX.cs:66-190`, `ReflectionX.cs`, `GizmosX.cs:38,42`, `RectTransformX.cs:219-223,380-392` ("OLD STUFF, built for 80 Days"), `TextureX.cs:59-61`, `ScreenX.cs:105-121,172,411`. *(ColorX `BlendOverlay` stub already fixed — see Done.)*
-UEX-62. Debug logs in shipping code: `Vector3Curve.cs:143` per call; `TrailRendererX.cs:20,25` on error paths (null trail / double-clear). *(ColorX `Average` /0 and `HSBColor.Test()` already fixed — see Done.)*
+UEX-62. Debug logs in shipping code: `TrailRendererX.cs:20,25` on error paths (null trail / double-clear). *(ColorX `Average` /0, `HSBColor.Test()`, and the `Vector3Curve` per-call `TODO` log already fixed — see Done / UEX-44.)*
 UEX-63. Pervasive typo `CameraX.cs` "frustrum" → "frustum" baked into ~14 public method names; also "Cmera" (`:131`).
 UEX-64. Typos: `TransformX.cs` "Heirarchy"/"Descendents"; `GizmosX.cs` "matricies"/"reassinging"; `OnGUIX.cs` "matricies"; `ImageX.cs:20,40` error strings name the wrong method; `ScreenXEditorWindow.cs:12` method name mismatch.
 UEX-65. Unused usings: `SpriteX.cs:2`. *(SystemInfoX.cs:2 resolved with UEX-35.)*
@@ -710,3 +706,14 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **UEX-27** `ColliderX.GetClosestPoint` — resolved by UEX-8 (now delegates to `Collider.ClosestPoint`); stale summary comment corrected.
 - **UEX-28** `HashSetX.AddRange` — now `hashSet.UnionWith(toAdd)` (kept the public API, delegates to the built-in).
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 2 parallel agents + manual edits; every diff reviewed. New file `BasePolygonRendererEditor.cs` ships with a hand-authored `.meta`.
+
+### CMP-37 commented-block sweep + UEX fixes (round 4)
+- **CMP-37** — swept every commented-out block across the enumerated files. Deleted the abandoned-alternative / dead-cruft blocks: `TouchInputSimulator` (old single-`Pinch` finger-sim + `UpdateTest` harness + matching OnGUI), `Pinch` (`CheckForPinchEnd` referencing removed fields), `InputX` (dead `OnDrag`, verbose diagnostic logs, disabled pinch-start guard, stray fragments), `PolygonOutlineRenderer` (dup `tintColor`, old mitered-quad meshing), `PolygonRenderer` (double-sided branch), `LineDraw` (JS-port auto-close leftovers + alt round-cap), `CoroutineHelper` (speculative note; kept usage examples), `LockTransformEditor` (PropertyFields on now-nonexistent fields — verified), `FPSManager` (per-call log), `RenderTextureCreator` (old `screenSize` + disabled `ReleaseRenderTexture`; kept the multi-display TODO). `EnforceDecendent`'s disabled auto-reload hook → replaced with a one-line note on why it's off. `ScriptableSingleton`'s editor-fallback stub kept (a real feature stub, not cruft — Unity's `UnityEditor.ScriptableSingleton` is editor-only and not a replacement for this runtime one).
+- **CMP-37 (diagnostics → toggles)** — the three commented gizmo/debug-visualisation blocks were revived as opt-in `[SerializeField] bool drawDebugGizmos;` toggles under `#if UNITY_EDITOR` (first line `if(!drawDebugGizmos) return;`), after verifying every referenced symbol still compiles: `PolygonOutlineRenderer.OnDrawGizmos` (vert corner spheres), `PolygonRenderer.OnDrawGizmosSelected` (UV extent + axis arrows), `TextBackgroundHighlightEffect.OnDrawGizmos` (TMP line-metrics; its `using UnityEditor;` is now `#if UNITY_EDITOR`-guarded).
+- **UEX-43** `AnimationCurveX.cs` — `RemoveKeysBetween` now exclusive (`> start && < end`), `RemoveKeysBetweenAndIncluding` inclusive (`>= start && <= end`); they were byte-identical.
+- **UEX-44** `Vector3Curve.cs` — `EstimateClosestTimeToValue` implemented (100-sample scan over the key time range, returns the sample time minimising `(Evaluate(t)-vector).sqrMagnitude`; empty-curve → 0). `Vector2Curve` has no such method to port, so implemented fresh. Removes the `Debug.Log("TODO")` (also closes UEX-62's Vector3Curve item).
+- **UEX-45** `PhysicsX.cs` — verified NOT a real dup: sphere-cast rays are **parallel** (offset around a circle), cone-cast rays **diverge** from one origin toward a circle at `distance`. Added clarifying comments on both methods; no logic change.
+- **UEX-47** `ComponentX.cs` — `GetInterfacesInChildren` now returns `Enumerable.Empty<T>()` instead of `null` (was NRE-in-`foreach`), matching `GetInterfaces`.
+- **UEX-48** `SceneManagerX.cs` — `GetCurrentSceneNames/Paths` reimplemented as `GetCurrentScenes().Select(...).ToArray()`.
+- **UEX-49** `ScreenX.cs` — the misplaced nested `PlayerLoopUtils` was a verbatim twin of the existing top-level `Components/Screen/PlayerLoopUtils.cs`, so removed the nested copy and repointed the one reference to the top-level type (promoting it would have been a CS0101 dup); also dropped the now-unused `using System.Text;`.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 3 parallel agents + manual review; every diff reviewed here (verified no duplicate gizmo methods and that all revived-toggle symbols resolve).

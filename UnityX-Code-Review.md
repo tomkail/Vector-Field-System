@@ -55,14 +55,12 @@ PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` v
 
 ### Unity-native duplication
 PD-11. `EnumFlag/Editor/EnumFlagDrawer.cs:19` — the drawer just wraps `EditorGUI.EnumFlagsField` (Unity's native C# `[Flags]` field — distinct from `MaskField`, the plain-int/layer masker). Since Unity 2017.3 the default inspector auto-renders `[Flags]` enums this way, so the `[EnumFlag]` attribute is largely obsolete.
-PD-13. `Popup` & `PropertyPopup` drawers — both reimplement `EditorGUI.Popup`; overlap `EnumPopup`.
+PD-13. `Popup` & `PropertyPopup` drawers. *Explained/assessed — keep.* `[Popup]` shows a dropdown from a FIXED option list baked into the attribute; `[PropertyPopup]` shows a dropdown sourced from a sibling serialized array (dynamic, optional "NONE"). Both wrap `EditorGUI.Popup` with the same `getValue`/`setValue`/`validateValue` index boilerplate on string/int/float fields. The "overlap `EnumPopup`" note is misleading: `EnumPopup` only works on enum-typed fields, whereas these target non-enum fields with arbitrary value lists — so they're not redundant with it. The real overlap is between the two drawers themselves, but per the self-contained-drawer rule we don't factor a shared base/helper across drawers. → `## 🅿️ Left as is`.
 
 ### Refactoring / dead code
 PD-20. `EnumButtonGroupDrawer.cs` & `EnumFlagsButtonGroupDrawer.cs` — substantial copy-paste (label rect, per-button widths, toolbar).
 PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is self-referential/broken).
-PD-24. `Lock/Editor/LockDrawer.cs` — `BeginDisabledGroup`/`EndDisabledGroup` wrap overlaps Disable/DisableIf; share a helper.
-
-*(PD-23 resolved/not-actionable — see `## 🅿️ Left as is`.)*
+*(PD-13 assessed-keep, PD-23 resolved/not-actionable, PD-24 won't-do — see `## 🅿️ Left as is`.)*
 
 ### Tidying
 PD-27. Mixed tabs/spaces: `PropertyPopupDrawer.cs`, `PopupDrawer.cs`.
@@ -73,19 +71,11 @@ PD-29. Commented-out code: `SetPropertyDrawer.cs` (one line); larger commented b
 
 ## Extensions / UnityEngineX (`Scripts/Extensions/UnityEngineX/`)
 
-### Bugs
-UEX-21. `SelectionX.cs:64-66,86-100` — save-last-selection logic inverted; `CompareWithLastSelection` mixes `objects` vs `gameObjects`.
-
 ### Unity-native duplication
 UEX-29. `LayerMaskX.cs:31-33,65-68` — `Includes` == `(mask & (1<<layer))!=0`; `Inverse` == `~mask`.
-UEX-31. `UIBehaviourX.cs:6-14` — `GetRectTransform` == cast; `GetParentCanvas` == `GetComponentInParent<Canvas>()`.
-UEX-32. `RectTransformX.cs:459-467` — `GetSize/Width/Height` are trivial getters over `rect.*`; low value but harmless — they mirror the non-trivial `SetWidth`/`SetHeight` (there is still no native `RectTransform.rect` setter). Not worth changing.
 UEX-33. `AnimationCurveX.cs:372-393` — `EaseInOut` is redundant with `AnimationCurve.EaseInOut` (both zero-tangent S-curves).
-UEX-34. `Vector4X.cs:19-21` / `QuaternionX.cs:72-74` — duplicate implicit Vector4↔Quaternion conversion.
-UEX-36. `RandomX.cs:37` — `eulerAngle` == `Random.value*360` (≈ `Random.Range(0f,360f)`), a trivial convenience. (`onUnitCircle` is NOT a duplicate — it returns a point on the edge; `Random.insideUnitCircle` is inside the disk, and there is no 2D built-in for the edge — so it stays.)
-UEX-37. `MeshRendererX.cs:6-9` — `SharedMaterialsContains` == `Array.IndexOf`.
 
-*(UEX-7 and UEX-26/30 verified/intentional — see `## 🅿️ Left as is`.)*
+*UEX-21/31/37 — resolved, see the `## ✅ Done` section. UEX-7/26/30/32/34/36 verified/intentional/not-a-bug — see `## 🅿️ Left as is`.*
 
 ### Refactoring / dead code
 UEX-39. `CanvasGroupX.cs`/`CanvasX.cs` — `CanvasGroupsAllowInteraction`/`CanvasGroupsAlpha` duplicated verbatim. (`GetRenderCamera` is only in `CanvasX`, not `RectTransformX` — that half of the original claim was wrong.)
@@ -135,18 +125,12 @@ GRID-30. `Grid 2D/Grid/SquareGridAgent.cs` & `RadialGridAgent.cs` — duplicated
 ## Extensions / Algorithms + Camera + Spline
 
 
-### Unity-native duplication
-*(ACS-12 EasingFunction if-chains — vendored/deferred — see `## 🅿️ Left as is`.)*
-ACS-13. `Spline System/SplineBezierControlPoint.cs:30-31` — `GetAutoDistanceIn`/`Out` identical.
-
 ### Refactoring / dead code
-ACS-14. `Camera/Shots/Bounding Sphere/BoundingSphere.cs:253-1067` — ~815 lines of commented-out XNA-style alternate impl.
-ACS-15. `Algorithms/UpscaleTools.cs:2-48` — commented-out `Test` MonoBehaviour.
-ACS-16. `Spline System/Spline.cs:448-463` — `SubdivideInCurve` never called; `:490-497` — `var r` computed, never used; `:270-289,179-187,237-243` — commented-out duplicates.
-ACS-17. `Spline System/Editor/SplineEditor.cs:368-452` — commented-out block referencing an obsolete `RiverBezierPoint`.
-ACS-18. `Algorithms/Noise/SimplexNoiseGenerator.cs:39-88` — `Generate`/`GenerateRepeating` duplicate setup.
-ACS-19. `Camera/Camera Properties/CameraProperties.cs:607-620` — `GetHashCode` multiplies each field hash → zero-hash field zeroes all.
-ACS-20. `Camera/Shots/CameraShotGeneratorTools.cs:144-181` & `CameraProperties.cs:422-432` — sizeable commented-out blocks.
+ACS-15. `Algorithms/UpscaleTools.cs:2-48` — commented-out `Test` MonoBehaviour. *(Assessed: stale demo scaffolding referencing removed members — safe to delete, or relocate to `Examples/` if the two-pass demo is wanted. Awaiting go-ahead.)*
+ACS-16. `Spline System/Spline.cs:448-463` — dead uncalled private `SubdivideInCurve`; `:490-497` dead `var r`; `:270-289,179-187,237-243` commented-out dups. *(Assessed: all dead/superseded by live code — safe to delete. Awaiting go-ahead.)*
+ACS-20. `Camera/Shots/CameraShotGeneratorTools.cs:144-181` & `CameraProperties.cs:422-432` — commented-out blocks. *(Assessed: the "custom screen rect" feature is NOT implemented — `SerializableCamera.useCustomScreen`/`customScreenParams` are declared but read by nothing; the commented consumer depends on host-app `Main.Instance` absent here. `CameraProperties.HasNaN` block is superseded by the live `IsValid()`. Safe to delete the dead code; to make custom-rect real would need wiring `customScreenParams` into the camera projection. Awaiting direction.)*
+
+*ACS-12/13/14/17/18/19 — resolved, see the `## ✅ Done` section (ACS-19 was already a correct rolling hash).*
 
 ### Tidying
 *ACS-25/26/28/29/30/31 — resolved, see the `## ✅ Done` section. ACS-27 (Quaternion "Multiply" no-op) left as a documented no-op — see `## 🅿️ Left as is`.*
@@ -324,6 +308,7 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **TWN-2** — `Timer.GetNormalizedTime()` clamps to [0,1], so the timer can't return >1; no overshoot.
 - **MISC-3** — `TextureTransformUtil.FlipVertical`'s Graphics-path identity matrix: confirmed by the author it worked as built (`Graphics.DrawTexture` is inherently Y-flipped and the `Normal` case explicitly un-flips). Left as-is.
 - **MISC-6** — `PropertyCurve` reimplements `AnimationCurve` on purpose (it's generic over `T`; no built-in to defer to). `FlexLayout` margin accounting is self-consistent (no double-count); `StateMachine.GetStatesInheriting<R>` is loosely typed but not a concrete bug.
+- **UEX-34** — false positive: `Vector4X.ToQuaternion` and `QuaternionX.ToVector4` are *inverse* conversions (opposite directions), each defined once in its natural home — not duplicates. Nothing to remove.
 
 ### Intentional / documented (won't change)
 - **UI-31** — private `ScrollRect` methods reimplemented out of necessity (originals are private); the local copy is public API.
@@ -347,11 +332,15 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **SPR-4** — the `Force`/`SpringForce`/`DampingForce`/`Acceleration` instance overloads are an intentional overload ladder over the static core; can't be collapsed with optional params (full form has `time` last, convenience form first — reordering breaks the API).
 - **EAS-9** — `GetDelta` (`newValue - lastValue`) has no generic form (Unity's runtime lacks generic `-`); each concrete type must override it. EAS-5/6 minimised it to the unavoidable 1-liner.
 - **ACS-27** — `CameraPropertiesModifier`'s empty Axis+Multiply branch: `axis` is a `Quaternion`, and "multiply" has no defined scalar semantics for a rotation (the other Multiply branches multiply scalar euler components; rotation composition is already what Additive does). Left as a no-op with an explanatory `// TODO` comment rather than inventing behaviour.
+- **UEX-32** — `RectTransformX.GetSize/GetWidth/GetHeight` are trivial `rect.*` getters, but kept for symmetry with the non-trivial `SetWidth`/`SetHeight` (Unity still has no `RectTransform.rect` setter). Not worth changing.
+- **UEX-36** — `RandomX.eulerAngle` (`Random.value*360`) is a trivial convenience; `onUnitCircle` is NOT a duplicate (edge of the circle, vs `Random.insideUnitCircle`'s disk — no 2D built-in for the edge). Kept.
+- **PD-13** — `[Popup]` (fixed option list) and `[PropertyPopup]` (options from a sibling serialized array) both wrap `EditorGUI.Popup` on string/int/float fields. Not redundant with `EnumPopup` (that's enum-only). The intra-pair overlap isn't factored out because each drawer stays self-contained (portability rule).
+- **PD-24** — `LockDrawer`'s `BeginDisabledGroup`/`EndDisabledGroup` wrap overlaps `Disable`/`DisableIf`, but sharing a helper across those three drawers would violate the self-contained-drawer rule; the overlap is a trivial 3-line idiom. Kept separate.
 
 ### Deferred (needs editor / larger effort / vendored)
 - **CMP-38** — "Decendent" → "Descendent" rename touches a public MonoBehaviour class + files/folder + serialized scene/prefab references; safest via Unity's Project-window rename (preserves GUID). Not done blind without the editor.
 - **GRID-24** — `HeightMapMeshGenerator` ~600-line externals/internals × triangles/quad copy-paste; large mechanical refactor best done with in-editor compile + visual verification.
-- **ACS-12 / vendored** — `EasingFunction.cs` ~160-line if-chains (a dictionary/switch would replace both). `EasingFunction.cs`, `SimplexNoise.cs`, `Noise.cs`, `AStar.cs` appear third-party/vendored — findings are real but likely intentionally kept close to upstream.
+- **Vendored** — `SimplexNoise.cs`, `Noise.cs`, `AStar.cs` appear third-party/vendored — findings are real but likely intentionally kept close to upstream. *(ACS-12 EasingFunction if-chains were converted to `switch` — resolved, see Done.)*
 
 ---
 
@@ -778,3 +767,17 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **ACS-25** `CameraShotGeneratorTools` — the per-call `Debug.LogWarning` now fires only for the genuinely-unhandled scaling mode (was spamming every call). **ACS-26** `CameraModifierZone` — empty `if(!isPlaying){}else{…}` inverted to `if(isPlaying){…}`. **ACS-28** `CameraPropertiesTween` — now lerps `orthographicSize` (`Mathf.Lerp`), `axis` (`Quaternion.Slerp`), and `orthographic` (midpoint snap), matching the canonical `CameraProperties.LerpUnclamped`. **ACS-29** `UpscaleTools` — removed the unused local `i`. **ACS-30** — deleted the commented `BinarySearch`/index lines in `SplineBezierCurve`/`Spline`. **ACS-31** `CameraPropertiesBuilderQueue` — the 2-arg `Add` now re-sorts like the other overloads; `Update` null-checks the delegate (`?.Invoke`).
 - **Doc reorg** — added the `## 🅿️ Left as is` section and moved every "verified-not-a-bug / intentional / won't-do / deferred" note there (UI-31/32/35/36/37, CMP-5/6/8/11/26/30/31/38, ED-5/6/7, PD-10/12/14/15/16/18/22/23/25, UEX-7/26/30, GRID-24, ACS-12/27 + vendored, SYS-26, SPR-4, EAS-9, TWN-2, MISC-3/6, GEO-20), so the per-area sections now show only outstanding, actionable findings. MISC-3 (`FlipVertical`) reclassified as verified-working per the author.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 3 parallel agents + manual (XC-5 `GetCanvasEventCamera` guard, doc reorg); every diff reviewed (brace balance checked on all 15 touched files).
+
+### ACS-12/13/14/17/18 + ED-14 + CMP-16/17 + UEX-21/31/37 (round 11)
+- **ACS-12** `EasingFunction` — converted both `GetEasingFunction`/`GetEasingFunctionDerivative` if-chains to `switch` (dispatch only; every enum case maps to the same body, `default` = the old `return null`). Behaviour-identical. *(Caveat: this file is vendored-ish, so a future upstream sync will need re-merging.)*
+- **ACS-13** `SplineBezierControlPoint` — `GetAutoDistanceOut` delegates to `GetAutoDistanceIn` (identical by magnitude symmetry).
+- **ACS-14** `BoundingSphere` — deleted the ~815-line commented XNA/SharpDX block (uncompilable here; live Welzl class covers all real usage). File truncated to 246 lines.
+- **ACS-17** `SplineEditor` — deleted the commented block referencing the obsolete `RiverBezierPoint` (grep-confirmed the type is gone).
+- **ACS-18** `SimplexNoiseGenerator` — extracted the byte-identical pre-loop setup of `Generate`/`GenerateRepeating` into a private `GetSetup(...)`; the differing per-sample bodies (incl. `GenerateRepeating`'s wrap) stay inline.
+- **ACS-19** — no change: the `GetHashCode` was already a correct rolling hash consistent with `Equals` (stale finding).
+- **ED-14** `CreateCustomTextureWindow` — deleted the trailing commented `EditorGrid` class (~90 lines); no external refs.
+- **CMP-16** `Region` — inlined the one-call-site `SqrDistance` helper to `(a-b).sqrMagnitude`. **CMP-17** — `Vector3.Normalize(x)` → `x.normalized`.
+- **UEX-21** `SelectionX` — fixed the `CompareWithLastSelection` copy-paste bug: the object loops now compare `.objects` against `.objects` (were comparing against `.gameObjects`, mis-firing `OnSelect/DeselectObject` for non-GameObject `Object`s). Did NOT touch the `if(Length==0)` save guard — verified it's actually fine (the line-101 mutation maintains selection order/`instanceIDs` for the non-empty case), so the "inverted logic" half of the finding is a false positive.
+- **UEX-31** `UIBehaviourX` — kept `GetRectTransform`/`GetParentCanvas` as public convenience wrappers (added comments). **UEX-37** `MeshRendererX.SharedMaterialsContains` — body now `Array.IndexOf(...) != -1` (public API kept).
+- **UEX-34** — assessed as NOT a duplicate (inverse conversions) — no change; see `## 🅿️ Left as is`.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 2 parallel agents + manual (ACS-14 truncation, UEX-21); every diff reviewed (brace balance checked on all 10 touched files).

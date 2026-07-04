@@ -28,7 +28,6 @@ PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` v
 
 ### Unity-native duplication
 PD-11. `EnumFlag/Editor/EnumFlagDrawer.cs:19` — the drawer just wraps `EditorGUI.EnumFlagsField` (Unity's native C# `[Flags]` field — distinct from `MaskField`, the plain-int/layer masker). Since Unity 2017.3 the default inspector auto-renders `[Flags]` enums this way, so the `[EnumFlag]` attribute is largely obsolete.
-PD-13. `Popup` & `PropertyPopup` drawers. *Explained/assessed — keep.* `[Popup]` shows a dropdown from a FIXED option list baked into the attribute; `[PropertyPopup]` shows a dropdown sourced from a sibling serialized array (dynamic, optional "NONE"). Both wrap `EditorGUI.Popup` with the same `getValue`/`setValue`/`validateValue` index boilerplate on string/int/float fields. The "overlap `EnumPopup`" note is misleading: `EnumPopup` only works on enum-typed fields, whereas these target non-enum fields with arbitrary value lists — so they're not redundant with it. The real overlap is between the two drawers themselves, but per the self-contained-drawer rule we don't factor a shared base/helper across drawers. → `## 🅿️ Left as is`.
 
 ### Refactoring / dead code
 PD-20. `EnumButtonGroupDrawer.cs` & `EnumFlagsButtonGroupDrawer.cs` — substantial copy-paste (label rect, per-button widths, toolbar).
@@ -49,11 +48,7 @@ UEX-33. `AnimationCurveX.cs:372-393` — `EaseInOut` is redundant with `Animatio
 ### Unity-native duplication
 GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 
-### Refactoring / dead code
-GEO-25. `Polygon/Polygon.cs:262-300` — `GetRegularEdgePosition(normalized)` and `GetPositionAtNormalizedArcLength(normalized)` are functionally identical (both = position at normalized arc length; `GetRegularEdgePosition` just inlines the edge-walk the other delegates to `GetPositionAtArcLength`). `GetPositionAtArcLength(absolute)` is the distinct base. The `GetRegularEdgePosition` name + its commented `edgeIndex`/`edgeArcLength` scraps hint it was *meant* to be by-edge-index (evenly per edge) but was implemented as arc-length — so it's a misnamed/unfinished duplicate. Dedup (delegate) or implement the intended by-edge behaviour.
 
-### Tidying
-GEO-43. `Point/PointRect.cs` — inconsistent namespacing: `Line`/`Polygon`/`Point`/`PointRect` are global while `Triangle`/`Sphere`/`RegularPolygon`/`StarPolygon` are in `UnityX.Geometry`.
 
 ---
 
@@ -63,8 +58,6 @@ GEO-43. `Point/PointRect.cs` — inconsistent namespacing: `Line`/`Polygon`/`Poi
 
 ## Extensions / Algorithms + Camera + Spline
 
-### Refactoring / dead code
-ACS-20. `Camera/Shots/CameraShotGeneratorTools.cs:144-181` & `CameraProperties.cs:422-432` — commented-out blocks. *(Assessed: the "custom screen rect" feature is NOT implemented — `SerializableCamera.useCustomScreen`/`customScreenParams` are declared but read by nothing; the commented consumer depends on host-app `Main.Instance` absent here. `CameraProperties.HasNaN` block is superseded by the live `IsValid()`. Safe to delete the dead code; to make custom-rect real would need wiring `customScreenParams` into the camera projection. Awaiting direction.)*
 
 ---
 
@@ -103,8 +96,6 @@ STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new stati
 
 ## Extensions / Spring (`Scripts/Extensions/Spring/`)
 
-### Bugs
-SPR-2. `Spring.cs` — `CalculateTimeOfMaximumDisplacement` can return a spurious near-zero "peak" only in a narrow numerical edge (post-step `Velocity` rounding to exactly 0 so `Sign==0`) in a loop-based heuristic (the method isn't closed-form). Normal released-from-rest case is correct. Low priority; left unfixed — not confident of a safe fix without in-editor testing.
 
 ---
 
@@ -117,22 +108,18 @@ SPR-2. `Spring.cs` — `CalculateTimeOfMaximumDisplacement` can return a spuriou
 
 ## Extensions / Tween (`Scripts/Extensions/Tween/`)
 
-*(TWN-7 iOS event-crash workaround — investigated, likely stale but verify on an iOS IL2CPP build before removing — see `## 🅿️ Left as is`.)*
 
 ---
 
 ## Extensions / Range + ValuePicker
 
-*(RNG-12 Blender/Selector overlap — assessed: could share a prioritised-source base but the differences (blend-fold vs single-select, opposite comparer direction) make it moderate-value/real-risk; LogicBlender stays separate — see `## 🅿️ Left as is`.)*
 
 ---
 
 ## Extensions / FlexLayout + NoiseSampler + GLDebug + Property Curve + FSM + Version Control + Timer + MeshBuilder + Texture Transform Utils + misc
 
 ### Refactoring / dead code
-MISC-7. `NoiseSampler/Editor/NoiseSamplerPropertiesPropertyDrawer.cs:18-124` — `OnGUI`/`Draw` almost identical; three near-identical `DrawNoiseGraph` overloads.
-MISC-8. `Texture Transform Utils/TextureTransformUtil.cs` — two parallel pipelines (blit vs `Graphics.DrawTexture`) with heavy copy-paste; `CopyWithSizeAndImageOrientation2` unhelpfully named.
-MISC-9. `GLDebug/GLDebug.cs:205-307` — `DrawSquare`/`DrawCube` overload triplets are repetitive boilerplate.
+MISC-8. `Texture Transform Utils/TextureTransformUtil.cs` — *explained.* The two pipelines are a deliberate pair: the default material-`Graphics.Blit` path (orientation in a shader; handles 0-alpha correctly) and a `Graphics.DrawTexture`+GL-matrix path (`...ViaGraphics`; no shader, presumably faster but alpha-quirky, per the header comment). The two GPU cores are legitimately distinct. Actionable cleanup (optional): rename `CopyWithSizeAndImageOrientation2` → `CopyWithSizeAndImageOrientationViaGraphics` (matches the sibling `ViaGraphics` convention), and collapse the ~6 near-identical Copy/Apply wrappers (get-temp-RT → GetReadableTexture → ReleaseTemporary, differing only in which RT-builder they call) to a single impl + a mode param.
 
 ### Tidying
 MISC-14. Commented-out lines: `NoiseSamplerPropertyDrawer.cs:32-52`, `NoiseSamplerPropertiesPropertyDrawer.cs:151-336`, `GLDebug.cs:50,62`, `MeshBuilder/AddPlaneParams.cs:45-50`, `FlexLayout/FlexLayout.cs:45`, `Version Control/Editor/VersionBuildPreProcessor.cs:34-44`.
@@ -168,6 +155,7 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **MISC-6** — `PropertyCurve` reimplements `AnimationCurve` on purpose (it's generic over `T`; no built-in to defer to). `FlexLayout` margin accounting is self-consistent (no double-count); `StateMachine.GetStatesInheriting<R>` is loosely typed but not a concrete bug.
 - **UEX-34** — false positive: `Vector4X.ToQuaternion` and `QuaternionX.ToVector4` are *inverse* conversions (opposite directions), each defined once in its natural home — not duplicates. Nothing to remove.
 - **UEX-62** — `TrailRendererX`'s null-trail and double-clear `Debug.LogError`/`LogWarning` are legitimate misuse diagnostics (each followed immediately by `yield break`), not per-frame noise — kept. (Could downgrade the null-trail one to a warning if quieter behaviour is ever wanted.)
+- **SPR-2** — `CalculateTimeOfMaximumDisplacement`'s "spurious near-zero peak" edge was empirically tested (simulated the exact algorithm): every released-from-rest case returns the correct first-peak time (matches analytic `π/ωD`), and across 200k random underdamped springs the post-step velocity was *never* exactly `0.0` — the `Sign==0` trigger is a measure-zero float coincidence that doesn't occur. Not a real bug; left as-is.
 
 ### Intentional / documented (won't change)
 - **UI-31** — private `ScrollRect` methods reimplemented out of necessity (originals are private); the local copy is public API.
@@ -210,8 +198,10 @@ Consolidated here so the sections above show only outstanding, actionable findin
 
 - **XC-6** — the "buggy custom HSV/HSB + easing/curve helpers" theme is resolved via its sub-findings: `Collider.ClosestPoint` → native (UEX-8, done); `AnimationCurve.EaseInOut` redundancy (UEX-33, explained — kept, harmless); the HSV/HSB structs assessed and kept (Unity has RGBToHSV/HSVToRGB conversions but no HSV/HSB *struct*, so ours add value). Nothing further actionable.
 - **RNG-12** — `Blender`/`Selector` share a prioritised-source shape and *could* sit on a common base, but they differ in load-bearing ways (blend-fold vs single-select `Value`, opposite `EntryComparer` direction, `Func<T,T>` vs `T` payload, `object` vs generic priority-source), so a merge is feasible-but-moderate-value with real risk of flipping the fold-order/winner semantics — only worth it if that code churns. `LogicBlender` stays standalone (no priorities, Unity-serialized, aggregate-delegate model). Kept separate.
+- **MISC-9** — `GLDebug` `DrawSquare`/`DrawCube` overload triplets (Euler / Quaternion / raw Matrix rotation input) are idiomatic Unity-style overloads, not collapsible: the color/duration/depthTest args are already optional params, and the three rotation inputs are distinct TYPES that can't share one optional-param slot. Matches Unity's own `Debug.DrawLine`/`Gizmos` convention. Kept as-is.
 
 ### Deferred (needs editor / larger effort / vendored)
+- **GEO-43** — inconsistent namespacing (`Line`/`Polygon`/`Point`/`PointRect` global vs `Triangle`/`Sphere`/`RegularPolygon`/`StarPolygon` in `UnityX.Geometry`). Won't-do for now — a broader namespacing pass (arguably all of UnityX) is a job for another time; not worth piecemeal churn.
 - **TWN-7** — the iOS/IL2CPP "generic-inheritance event crash" workaround (`new event` shadowing + raising-method overrides, ×6 tween subclasses) is almost certainly stale (a ~2013 first-gen AOT bug; modern IL2CPP ships generic-base events fine), but it only manifests in an AOT device build, so removal can't be verified from source/Editor. Kept — verify on an iOS IL2CPP build before removing.
 - **CMP-38** — "Decendent" → "Descendent" rename touches a public MonoBehaviour class + files/folder + serialized scene/prefab references; safest via Unity's Project-window rename (preserves GUID). Not done blind without the editor.
 - **GRID-24** — `HeightMapMeshGenerator` ~600-line externals/internals × triangles/quad copy-paste; large mechanical refactor best done with in-editor compile + visual verification.
@@ -716,3 +706,12 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 ### HierarchyX reflected instance-id + RangeInt namespacing (round 18)
 - **HierarchyX** — switched from `GetInstanceID()` + `#pragma` to fetching the instance id **via reflection** (`typeof(Object).GetMethod("GetInstanceID")`). `SetExpandedRecursive` still keys the tree by the int instance id (confirmed in current UnityCsReference), and Unity has no lossless `EntityId`→`int` (a hash code isn't unique, so it wouldn't match) — but reflecting the accessor removes the compile-time dependency on the soon-removed API: the tool keeps compiling regardless and simply no-ops (guarded `if (getInstanceIDMethod == null) return;`) if the accessor is ever removed. Rest of the project already uses the modern patterns (`EntityId.ToULong` for keys, `GetEntityId().GetHashCode()` for hashing) — HierarchyX was the only int-requiring holdout.
 - **RangeInt** — namespaced under `UnityX` (an existing project namespace) rather than renamed, so it keeps the natural `RangeInt` name alongside `UnityEngine.RangeInt` (qualify as `UnityX.RangeInt` if both are in scope). Zero callers, so no churn.
+
+### GEO-25 impl + MISC-7 + ACS-20/SPR-2 resolution + doc sweep (round 19)
+- **GEO-25** — implemented the intended by-edge-index `GetRegularEdgePosition` (each edge gets an equal `1/n` slice of the [0,1] parameter regardless of length; wraps negatives via `floor`; closed-polygon `n = vertices.Length`), now genuinely distinct from the arc-length methods, with a clear doc comment. Removed the obsolete `edgeIndex`/`edgeArcLength` scraps in that method.
+- **MISC-7** — `NoiseSamplerPropertiesPropertyDrawer.OnGUI` now delegates to `Draw` (intra-drawer, no cross-drawer sharing). The three `DrawNoiseGraph` overloads were already a core + two thin forwarders (and can't merge further without dropping a public signature) — left as-is.
+- **ACS-20** — the custom-screen-rect feature is **already wired** (`SerializableCamera.screenParams` returns `customScreenParams` when `useCustomScreen`, and all screen/aspect logic routes through it — my round-16 "not implemented" was a truncated-grep error). Deleted the two confirmed-dead commented blocks: the `Main.Instance` custom-screen scratch in `CameraShotGeneratorTools` and the `HasNaN` block in `CameraProperties` (superseded by `IsValid`). Left the `// OffsetShot(...)` line (a disabled feature with a live `OffsetShot` method).
+- **SPR-2** — empirically tested (simulated the exact algorithm): correct first-peak for all released-from-rest cases, and the `Sign==0` spurious trigger never fires across 200k random springs → confirmed non-issue, moved to `## 🅿️ Left as is`.
+- **MISC-8** — explained (the two pipelines are a deliberate material-`Blit` vs `Graphics.DrawTexture`/GL pair — shader-orientation vs CPU-matrix, per the header comment's alpha tradeoff; `...2` should be `...ViaGraphics` to match siblings; only the thin Copy/Apply wrappers are removable dup, the two GPU cores are legitimately distinct). Left active as a real (optional) rename+wrapper-dedup opportunity. **MISC-9** — assessed idiomatic, kept (→ Left as is).
+- **GEO-43** — namespacing won't-do for now (→ Left as is). **Doc sweep** — removed stale resolved/left-as-is stragglers (PD-13, TWN-7/RNG-12 pointers, etc.) from the top half and collapsed emptied subsection headers, per request.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 4 parallel agents + manual (ACS-20 deletions, SPR-2 simulation, doc); brace balance checked (Polygon 292/292, NoiseSampler drawer 42/42, CameraProperties 98/98, CameraShotGeneratorTools 44/44).

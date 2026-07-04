@@ -20,14 +20,8 @@ Paths are relative to `Assets/UnityX/`. Line numbers are approximate — treat a
 
 ## Property Drawers (`Scripts/Property Drawers/`)
 
-### Bugs
-PD-1. `EnumButtonGroup/Editor/EnumFlagsButtonGroupDrawer.cs:38-45` — individual-flag writes (`|= mask` / `&= ~mask`) don't mask to defined bits → `Everything`/`-1` round-trips inconsistently.
-PD-6. `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:75` — the static `Draw` uses `Array.IndexOf(trueNames, names[i])` unguarded to index `typedValues[sortedIndex]` → throws on a stale/removed enum name.
-PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` via `(int)Convert.ChangeType(...)` → truncates for `long`/`ulong`-backed enums.
-
 ### Refactoring / dead code
-PD-20. `EnumButtonGroupDrawer.cs` & `EnumFlagsButtonGroupDrawer.cs` — substantial copy-paste (label rect, per-button widths, toolbar).
-PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is self-referential/broken).
+PD-21. `EnumButtons/Editor/EnumButtonsDrawer.cs` vs `EnumButtonGroupDrawer.cs` — overlapping intent (EnumButtonsDrawer is a simpler `GUI.Toolbar` single-select; its `attribute` override is infinitely self-recursive → `StackOverflowException`, only dead because unused; should be `base.attribute`). Explained + recommendation in Done (round 21); **kept active pending a decision** (remove the drawer, or fix `base.attribute` + dedupe).
 
 ---
 
@@ -56,19 +50,9 @@ GEO-18. `Point/PointRect.cs` — duplicates `RectInt`.
 
 ## Extensions / System (`Scripts/Extensions/System/`)
 
-### Bugs
-SYS-2. `FlagsX.cs:98` — `CreateEverything<T>()` does `(T)(object)~0` → InvalidCastException for non-int-backed enums; `:123-125` `Invert<T>` depends on it; `:75-82` `Create<T>` casts via `(int)(object)flags[i]` → same crash.
-SYS-3. `FlagsX.cs:154-158` — `GetFlags` zero-named-member branch is unreachable → `GetFlags(0)` never yields the zero member.
-SYS-32. *(New)* `EnumX.cs:47-52` — `Random<T>()` does `Enum.ToObject(typeof(T), Random.Range(0, Length<T>()))`, treating the random *index* as the enum's *underlying value*. For any enum not numbered contiguously `0..N-1` (flags, explicit values) it returns wrong/undefined members and can never reach higher ones. Should index into `GetValues<T>()`.
-
 ### Unity-native / .NET duplication
 SYS-10. `EnumX.cs:14-147` — `Length<T>`/`IsValid`/`ToArray`/`GetEnumerable` duplicate `Enum.GetValues`/`Enum.IsDefined`.
 SYS-11. `FlagsX.cs:33-56` — `SetFlag`/`UnsetFlag`/`HasFlag` reimplement `Enum.HasFlag` + bitwise ops.
-
-### Refactoring / dead code
-SYS-16. `EnumX.cs:23-76` — `#if !UNITY_WINRT … if(!typeof(T).IsEnum) throw` copy-pasted 5× and dead (the `where T:Enum` constraint already guarantees it).
-SYS-17. `EnumX.cs:87-101` — `ToArray<T>` adds nothing over `(T[])GetValues`; `GetEnumerable` boxes.
-SYS-18. `FlagsX.cs:14-125` — two parallel families (raw-int vs generic enum) with overlapping duties + inconsistent naming; `:101-107` — `(int)Math.Pow(2,x)` vs `1<<x`.
 
 ---
 
@@ -168,7 +152,7 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **UEX-39** — `CanvasGroupsAllowInteraction`/`CanvasGroupsAlpha` are byte-identical in `CanvasGroupX` and `CanvasX` (no external callers). Deliberately kept as separate copies so each extension file stays self-contained/portable — dedup declined by decision.
 - **UEX-46** — the shared `static Vector3[] corners` scratch buffer in `RectTransformX`/`CanvasX` has a theoretical re-entrancy aliasing risk, but the fix (per-call local arrays or thread-local state) is declined in favour of keeping each file simple/self-contained/portable. These are main-thread editor/UI helpers not called re-entrantly in practice, so the risk is accepted.
 - **GEO-19** — closest-point-on-segment is already consolidated to a single canonical `GetNormalizedDistanceOnLineInternal` within each of `Line`/`Line3D` (the other methods are thin wrappers). The remaining duplication is just the 2D vs 3D split, inherent to `Vector2`/`Vector3`; forcing a shared implementation would change the hot-path numerics/allocations for more risk than the near-zero gain. Left as is.
-- **PD-11** — `EnumFlagDrawer` is a one-line wrapper over `EditorGUI.EnumFlagsField` (Unity's native `[Flags]` mask field) and does nothing different in implementation. Since Unity 2017.3 the default inspector auto-renders any `[System.Flags]` enum with that same field, so `[EnumFlag]` is effectively obsolete — and it even carries the PD-7 long-enum truncation bug the native path avoids. Kept for back-compat (removing a public attribute is breaking); prefer `[System.Flags]` on new enums.
+- **SYS-18** — `FlagsX` keeps two parallel families: raw-`int`-domain helpers (`HasFlag`/`Set`/`Unset`/`Intersection`/`Invert`/…) and generic `T:Enum` ones (`SetFlag`/`Create<T>`/`CreateEverything<T>`/…). Kept both by decision — the `int` overloads serve callers already working in mask space, the generic ones give type-safe ergonomics; merging would break existing call sites for no functional gain. Naming asymmetry (`Set` vs `SetFlag`, `Create` vs `CreateEverything`) is noted but left to avoid churn. The one clear wart, `Math.Pow` in `LinearToFlagValue`, was replaced with `1 << x` (correctness/perf, not an API change — see Done).
 - **UEX-29** — `LayerMaskX.Includes(layer)` is genuinely useful (Unity has no native `LayerMask.Includes`; it's a readable name for the `(mask & (1<<layer)) != 0` bit test) — kept. `Inverse()` is just `~mask` (marginal), but harmless named convenience and breaking to remove — kept.
 - **UEX-33** — `AnimationCurveX.EaseInOut` builds the same zero-tangent 2-key curve as `AnimationCurve.EaseInOut`; the no-arg / `(width,height)` convenience overloads add value Unity lacks, and the 4-arg one only differs in param order. Kept as convenience (could optionally have the 4-arg delegate to the built-in — low priority).
 
@@ -180,6 +164,7 @@ Consolidated here so the sections above show only outstanding, actionable findin
 - **TXT-18** — `WordWobble`'s manual `IndexOf(' ')` word-split reimplements `string.Split`, but is entangled with the char→vertex-index mapping guarded in TXT-10.
 - **TXT-20** — `RuntimeSceneSet`'s hand-rolled build-settings collection + manual array-grow: delicate EditorBuildSettings code; correctness handled by TXT-11.
 - **TXT-24** — identical `Wobble` + scaffold copy-pasted across VertexWobble/CharacterWobble/WordWobble; sharing needs a new base/helper type — invasive for little gain.
+- **PD-20** — `EnumButtonGroupDrawer` and `EnumFlagsButtonGroupDrawer` share a copy-pasted button-layout/hit-testing core, but each property drawer is deliberately kept self-contained so the drawers stay independently portable (portability rule). Sharing declined by decision — portability preferred over dedup.
 
 - **XC-6** — the "buggy custom HSV/HSB + easing/curve helpers" theme is resolved via its sub-findings: `Collider.ClosestPoint` → native (UEX-8, done); `AnimationCurve.EaseInOut` redundancy (UEX-33, explained — kept, harmless); the HSV/HSB structs assessed and kept (Unity has RGBToHSV/HSVToRGB conversions but no HSV/HSB *struct*, so ours add value). Nothing further actionable.
 - **RNG-12** — `Blender`/`Selector` share a prioritised-source shape and *could* sit on a common base, but they differ in load-bearing ways (blend-fold vs single-select `Value`, opposite `EntryComparer` direction, `Func<T,T>` vs `T` payload, `object` vs generic priority-source), so a merge is feasible-but-moderate-value with real risk of flipping the fold-order/winner semantics — only worth it if that code churns. `LogicBlender` stays standalone (no priorities, Unity-serialized, aggregate-delegate model). Kept separate.
@@ -707,3 +692,17 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **PD-11** (answered) — `EnumFlagDrawer` is a one-line wrapper over the native `EditorGUI.EnumFlagsField`, does nothing different, and is effectively obsolete (Unity auto-renders `[System.Flags]` enums with the same field since 2017.3; ours even has the PD-7 long-enum truncation bug). Kept for back-compat → Left as is.
 - **UEX-29** (answered) — `LayerMaskX.Includes` kept (useful; no native equivalent), `Inverse` kept (marginal `~mask` convenience). **UEX-33** (answered) — `EaseInOut` kept as convenience (only the 4-arg overload duplicates the built-in). Both → Left as is.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Manual edits.
+
+### EnumFlag removal + Enum/Flags fixes (round 21)
+- **PD-11 / EnumFlag removed** — after PD-11's assessment (round 20) the user chose removal over back-compat. Deleted `Property Drawers/EnumFlag/` entirely (`EnumFlagAttribute.cs` + `Editor/EnumFlagDrawer.cs` + metas via `git rm -r`). The one usage — `CameraPropertiesModifier.modifiers` — was migrated to rely on Unity's native `[Flags]` auto-render (`CameraPropertiesAxis` is already `[System.Flags]`), with a comment noting the attribute was a redundant wrapper. **PD-7** (EnumFlagDrawer's `int`-truncation on >32-value enums) is auto-resolved — the buggy drawer no longer exists.
+- **PD-6** `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs` — the static `Draw` looped over enum names and did an unguarded `Array.IndexOf` on the sorted list, throwing on a stale/removed enum name. Added `if (sortedIndex < 0) continue;` to skip unknown names. *(The same `IndexOf` idiom in `Initialize` and in `EnumFlagsButtonGroupDrawer` is out of scope — noted for a follow-up.)*
+- **PD-1** `EnumButtonGroup/Editor/EnumFlagsButtonGroupDrawer.cs` — flag writes didn't mask to the defined bits, so toggling could leave the value at `Everything`/`-1` or set undefined bits (inconsistent with the inspector's mask semantics). Now computes `definedMask` (OR of all entry masks) once and masks every write: on = `(intValue | entry.mask) & definedMask`, off = `(intValue & ~entry.mask) & definedMask`. *(The static `Draw` overloads still use raw writes — existing TODO, out of scope.)*
+- **SYS-2** `FlagsX.cs` — `Create<T>`/`CreateEverything<T>`/`Invert<T>` crashed on non-`int`-backed enums (`(int)(object)enumValue` throws `InvalidCastException` for `byte`/`long`/… backing). Rewrote to underlying-type-agnostic bit reinterpretation: `Create<T>` ORs via `Convert.ToInt64` + `Enum.ToObject`; `CreateEverything<T>` returns `Enum.ToObject(typeof(T), -1L)` (all-bits for any backing type); `Invert<T>` uses `Convert.ToInt32(CreateEverything<T>())`. *(Correction: the initial agent fix used a checked `Caster<T,ulong>` `Expression.ConvertChecked`, which regresses — it throws `OverflowException` on members whose bit pattern is negative, e.g. an `All = ~0` entry like `CameraPropertiesAxis` has. Replaced with the unchecked `Enum.ToObject`/`Convert.ToInt64` approach.)*
+- **SYS-3** `FlagsX.cs` — `GetFlags`' zero-member branch was unreachable (`GetFlagValues` skips the zero value, so the old `values[0] == 0` tail check never fired), so `GetFlags(0)` never yielded a defined `None = 0` member. Added an up-front `if (bits == 0L)` that looks the zero-named member up from the enum type directly (returns it, or empty if none), then the main decomposition returns unconditionally.
+- **SYS-32** `EnumX.cs` — `Random<T>()` treated the random *index* as the underlying enum value (wrong for non-contiguous/explicit-value enums). Now indexes into the values array: `var values = ToArray<T>(); return values[Random.Range(0, values.Length)];`.
+- **SYS-16** `EnumX.cs` — removed 5 copy-pasted dead `#if !UNITY_WINRT … IsEnum … throw` guards (`Length`/`IndexOf`/`Random`/`Next`/`Previous`); all have `where T : Enum`, so the runtime `IsEnum` throw was unreachable.
+- **SYS-17** `EnumX.cs` — `ToArray<T>` reimplemented value enumeration; now `return (T[])GetValues<T>();` (reuses the cached values). `GetEnumerable<T>` boxed via the non-generic path; now `return ToArray<T>();` (no boxing).
+- **SYS-18** (assessed) — keep both the `int` and generic-`T:Enum` families in `FlagsX` (portability/back-compat, see Left as is). Applied the one clear fix: `LinearToFlagValue(int)` now `return 1 << indexValue;` instead of `(int)Math.Pow(2, indexValue)` (avoids float round-trip; correctness at high bits + faster).
+- **PD-20** (declined) — `EnumButtonGroupDrawer`/`EnumFlagsButtonGroupDrawer` shared button-layout code left duplicated: portability preferred over shared code (→ Left as is).
+- **PD-21** (explained) — `EnumButtonsDrawer` is a weaker single-select `GUI.Toolbar` near-duplicate of `EnumButtonGroupDrawer`. Its `private new EnumButtonsAttribute attribute { get { return (EnumButtonsAttribute)attribute; } }` is infinitely self-recursive (`StackOverflowException`) — it reads its own getter instead of `base.attribute`; only dead because nothing invokes it. Recommendation: remove the drawer, or fix the override to `base.attribute` and dedupe against `EnumButtonGroup`. Left active pending a decision.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Manual edits + 3 parallel agents; every diff reviewed here (braces: FlagsX 36/36, EnumX 17/17, EnumButtonGroupDrawer 41/41, EnumFlagsButtonGroupDrawer 52/52, CameraPropertiesModifier 55/55). Corrected the agent's SYS-2 `Caster` regression as noted above.

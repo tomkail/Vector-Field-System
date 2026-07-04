@@ -50,7 +50,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		foreach (var component in removed) {
 			layers.RemoveAll(x => x.component == component);
 		}
-		layers = layers.OrderBy(x => x.component.transform.GetHeirarchyIndex()).ToList();
+		layers = layers.OrderBy(x => x.component.transform.GetHierarchyIndex()).ToList();
 	}
 
 	protected override void RenderInternal() {

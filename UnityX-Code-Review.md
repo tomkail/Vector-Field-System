@@ -44,23 +44,9 @@ CMP-38. Typo "Decendent" → "Descendent" throughout the `EnforceDecendentGameOb
 ## Editor Tools (`Scripts/Editor Tools/`)
 
 
-### Bugs
-ED-1. `SerializedEditorSettings/SerializedEditorSettings.cs:15` — EditorPrefs key is `string.Format("{0} Settings ({1})", typeof(T).Name, …)`; `typeof(T).Name` is the short name → same-name types in different namespaces collide.
-ED-2. `CommentComponent/Editor/CommentComponentEditor.cs:54` — `Save()` writes `data.text` directly with no `Undo.RecordObject`/`EditorUtility.SetDirty` → edits aren't undoable and may not persist.
-ED-3. `GameLayersClassGenerator/Editor/GameLayersClassGenerator.cs` — a layer like "2D Collider" becomes `2dCollider` via `ToCamelCase`, still an invalid identifier (leading digit) → generated file wouldn't compile. (Currently moot: the generator's `[InitializeOnLoad]` hook and ctor call are commented out.)
-
-### Unity-native duplication
-ED-5. `Screenshot Exporter/ScreenshotCapturer.cs` — the multi-camera render-to-RT + `ReadPixels` path overlaps `ScreenCapture.CaptureScreenshotAsTexture` (though it adds per-camera selection the built-in lacks).
-ED-6. `EditorTime/Editor/EditorTime.cs` — layers over `Time.realtimeSinceStartup` + `EditorApplication.update` to push a `_EditorTime` shader global; overlaps Unity's editor time.
-ED-7. `Screenshot Exporter/ScreenshotSaverTextureFormat.cs` — enum+switch maps to `TextureFormat`; the actual PNG/JPG encoding (`EncodeToPNG`/`JPG`, i.e. `ImageConversion`) lives in `ScreenshotExportSettings`, not here.
-
-### Refactoring / dead code
-ED-9. `CameraUtilities/Editor/CameraInfoWindow.cs` — ~7 near-identical `GUILayout.Label(...)` calls per row; also allocates `new GUIStyle(...)` every OnGUI.
-ED-10. `Screenshot Exporter/ScreenshotSaverComponent.cs` vs `ScreenshotSaverWindow.cs` — overlapping capture-setup/export logic (the component delegates capture to `ScreenshotCapturer`).
-ED-11. `Screenshot Exporter/Editor/ScreenshotSaverWindow.cs` — long `OnGUI` fanning to many `Draw*` helpers; calls `Repaint()` every frame.
+*Verified — not a bug: ED-5 (`ScreenshotCapturer` renders a chosen camera *subset* to an arbitrary-resolution offscreen RT with texture-format control + callback — a superset of `ScreenCapture.CaptureScreenshotAsTexture`, which only grabs the whole screen at screen res, all cameras, no format control); ED-6 (`EditorTime` pushes a `_EditorTime` shader global that ticks in edit mode via `EditorApplication.update` — Unity has no built-in editor-time shader global, and `_Time` doesn't reliably advance in edit mode). ED-7's enum→`TextureFormat` mapping is a justified curated subset (only the dead `FormatToDepth` was removed).*
 
 ### Tidying
-ED-13. Unused using: `CommentComponent/CommentComponent.cs` — `using System.Collections;` is unused.
 ED-14. Commented-out code: `Texture Creator/Editor/CreateCustomTextureWindow.cs` (large `EditorGrid` block near the end).
 
 ---
@@ -70,14 +56,9 @@ ED-14. Commented-out code: `Texture Creator/Editor/CreateCustomTextureWindow.cs`
 
 ### Bugs
 PD-1. `EnumButtonGroup/Editor/EnumFlagsButtonGroupDrawer.cs:38-45` — individual-flag writes (`|= mask` / `&= ~mask`) don't mask to defined bits → `Everything`/`-1` round-trips inconsistently.
-PD-2. `Vector2Toggle/Editor/Vector2ToggleDrawer.cs` (& `Vector3ToggleDrawer.cs`) — toggling an axis writes literal `0`/`1` and reads `== 1`, so any prior non-0/1 magnitude is lost.
-PD-3. `SetProperty/Editor/SetPropertyDrawer.cs:38` — `type.GetProperty(attribute.Name)` uses public-only binding, so a fully non-public property isn't found (logs an error); a public property with a private *setter* still works. The real issue is the stale value: `IsDirty` is set and cleared in the same `OnGUI`, so the setter runs on the pre-apply field value; it also re-does `GetProperty` uncached each dirty frame.
-PD-4. `Regex/Editor/RegexDrawer.cs` — when `attribute.regex` is null the pattern is compiled per-call with no try/catch → an invalid pattern throws on every repaint.
-PD-5. `OnChange/Editor/OnChangeDrawer.cs` — the callback fires via `MonoBehaviour.Invoke(name)` before any explicit apply, so it can observe a pre-change value (and requires a no-arg method; won't run in edit mode).
 PD-6. `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:75` — the static `Draw` uses `Array.IndexOf(trueNames, names[i])` unguarded to index `typedValues[sortedIndex]` → throws on a stale/removed enum name.
 PD-7. `EnumFlag/Editor/EnumFlagDrawer.cs:20` — writes to `property.intValue` via `(int)Convert.ChangeType(...)` → truncates for `long`/`ulong`-backed enums.
 PD-8. `Info/Editor/InfoDrawer.cs` — help box uses a fixed `helpBoxHeight = 38` rather than measuring the text → long multi-line text clips.
-PD-9. `PositionHandle/Editor/PositionHandleDrawer.cs:54` — swallows all exceptions in a bare `catch {}`. (Undo *is* recorded via `ApplyModifiedProperties()`, so the earlier 'no Undo' claim was wrong.)
 PD-30. *(New)* `EnumButtonGroup/Editor/EnumButtonGroupDrawer.cs:10` — `OnGUI` only initializes when `_properties == null` and never re-initializes on `property.propertyPath` change, so a drawer instance reused across elements of an enum array/list binds element 0's cached state to every element (toggles read/write the wrong element). Same reused-drawer bug its sibling `EnumFlagsButtonGroupDrawer` was already fixed for (see its `_propertyPath != property.propertyPath` guard); apply the same guard here.
 
 *Verified — not a bug / won't-do: PD-10 (`-standardVerticalSpacing` when hidden is the standard row-collapse idiom → ~0 net height, no overlap); PD-12 (FilePath/FolderPath share only trivial row layout — the rest has drifted, full merge not worth it); PD-14 (`[Label]` relabels any field; `[InspectorName]` is enum-values-only, not a substitute — and `[Label]` is unused in-project); PD-15 (a thin `PasswordField` wrapper is the point — password field via just a drawer); PD-16 (`PreviewTextureDrawer` draws a live sized sub-rect-aware preview — strictly more than `AssetPreview.GetAssetPreview`); PD-18 (no built-in per-axis toggle-mask field; the only real dup is V2/V3, done as PD-19); PD-22 (`HideInEditMode`/`HideInPlayMode` diverge in draw call + hidden height, so not a clean bool-collapse); PD-25 (`MinMax` vs `SteppedRange` use different snap math — not copy-paste).*
@@ -712,3 +693,19 @@ Completed findings, moved out of the sections above. IDs are the original findin
 - **CMP-39** `ViewAnimator/ViewAnimationEvent.cs` — the "starts after ending" warning now includes the event name and start/end times.
 - **CMP-40** `Audio/AudioSource/AudioSourceManager.cs` — fixed `OnPause!= null` spacing; the `clip`-null short-circuit before `clip.samples` was **verified safe** (`clip` is the captured `audioSource.clip`, and `clip == null ||` short-circuits) — switched the later access to the captured local for clarity.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). InputX is a CRLF file; edits applied via perl.
+
+### Editor Tools + Property Drawers
+- **ED-1** `SerializedEditorSettings.cs` — EditorPrefs key uses `typeof(T).FullName` (was `.Name`, so same-named types in different namespaces collided). *Persisted-key change: old saved settings won't be found on first load — a fresh default is created; harmless.*
+- **ED-2** `CommentComponentEditor.cs` — `Save()` now `Undo.RecordObject(data,…)` before the write and `EditorUtility.SetDirty(data)` after (edits are undoable and persist).
+- **ED-3** `GameLayersClassGenerator.cs` — added `SanitizeIdentifier` (strips non-identifier chars, prefixes `_` if empty/leading-digit) so a layer like "2D Collider" generates `_2dCollider` instead of the uncompilable `2dCollider`.
+- **ED-7** `ScreenshotSaverTextureFormat.cs` — removed the dead, self-admitted-unused `FormatToDepth`. (The curated enum→`TextureFormat` mapping is intentional — kept.)
+- **ED-9** `CameraInfoWindow.cs` — the two `new GUIStyle(...)` allocated every OnGUI are now cached in lazily-initialised static fields (constructed inside OnGUI, as GUIStyle requires). Label rows left as-is (their widths/controls differ).
+- **ED-10** `ScreenshotExporter` — extracted the identical timestamp filename into `ScreenshotExporter.DefaultFileName()`, used by both `ScreenshotSaverComponent` and `ScreenshotSaverWindow` (the export path itself was already shared via `ScreenshotExporter.Export`; the rest legitimately differs — component is runtime/unfinished, window is editor).
+- **ED-11** `ScreenshotSaverWindow.cs` — removed the unconditional `Repaint()` at the top of `OnGUI` (continuous-repaint / 100%-CPU anti-pattern); the window still repaints on interaction and `Update()`.
+- **ED-13** `CommentComponent.cs` — removed the unused `using System.Collections;`.
+- **PD-2** `BaseVectorToggleDrawer.cs` — reads "on" as `axes[i] != 0` (was `== 1`) and only writes on an actual toggle (`BeginChangeCheck`/`EndChangeCheck` + `BeginProperty`), so a pre-existing non-0/1 value is shown as on and preserved rather than destroyed on the next repaint.
+- **PD-3** `SetPropertyDrawer.cs` — (a) `ApplyModifiedProperties()` now runs *before* the C# property setter, so it observes the applied value (not the stale pre-apply one); (b) `PropertyInfo` resolved with `NonPublic` binding and cached (keyed on type + name).
+- **PD-4** `RegexDrawer.cs` — null/empty pattern is skipped, `Regex` compilation is cached by pattern string and wrapped in try/catch (invalid pattern logs once, draws the field normally, no per-repaint throw).
+- **PD-5** `OnChangeDrawer.cs` — `ApplyModifiedProperties()` before invoking the change callbacks, so they see the new value (still play-mode-gated by `MonoBehaviour.Invoke` — known limitation).
+- **PD-9** `PositionHandleDrawer.cs` — bare `catch {}` → `catch(Exception e) { Debug.LogException(e); }`.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 2 parallel agents + manual Screenshot-cluster edits; every diff reviewed here (and hardened the PD-3 `PropertyInfo` cache to key on the property name too, guarding drawer-instance reuse).

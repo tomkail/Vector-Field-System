@@ -223,10 +223,7 @@ STR-11. `Island/IslandDetector.cs:9-11` — static scratch collections should be
 STR-12. `Island/OutlineDetector.cs:16-17` — `found = true` set twice; the outer is dead except in the degenerate `numCorners==0` case (inner loop never runs).
 
 ### Tidying
-STR-16. `Island/OwnedIsland.cs:14-101` — ~88-line commented-out `OutlineSolver` block.
-STR-17. `Island/OutlineDetector.cs:8,36-37,83,94-107` — multiple commented-out lines; `:100` — stray `;` after a `foreach`.
-STR-18. `Shape.cs:41-89` — mixed tabs/spaces; a `TypeMap<bool>` local named "shape" collides with the returned `Shape` type.
-STR-19. Unused usings in `Island/Island.cs`, `OwnedIslandDetector.cs`.
+*STR-16/17/18/19 — resolved, see the `## ✅ Done` section.*
 
 ---
 
@@ -734,3 +731,10 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **SYS-31** `StringX.LowercaseFirstCharacter` — now a `this` extension, matching `UppercaseFirstCharacter`.
 - **SYS-29** — normalised StringX indentation/blank-lines around the edits (FlagsX portion left open).
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 3 parallel agents + manual review; every diff reviewed here (brace balance checked on all six files). Flags/Enum items (SYS-2/3/10/11/16/17/18/28/32 + FlagsX half of SYS-29) left open by request.
+
+### Structures / Island tidying (round 7)
+- **STR-16** `Island/OwnedIsland.cs` — deleted the ~88-line commented-out inner `OutlineSolver` (an abandoned island-outline tracer that never compiled — generic `<Coord>` shadowing, untyped `new OutlineSolver(this)`, `Coord`/`Point` confusion); it's superseded by the live, generic `OutlineDetector.GetOutlinePoly<Coord>`. Left a one-line breadcrumb comment.
+- **STR-17** `Island/OutlineDetector.cs` — removed the commented-out dead lines (old `hexPoints` cast, `startCoord`/`startRotIndex`, the `if(outlineDistance…)` scaffolding around the live `outline.Add`, the old `yield` loop, `pointsToSearch`) and dropped a stray `;` empty-statement after the point-collection `foreach`'s closing brace. No live logic changed.
+- **STR-18** `Structures/Shape.cs` — normalised the mixed tab/space indentation in `CreateContiguous` to tabs; renamed the confusing `TypeMap<bool> shape` local (collided with the returned `Shape` type) to `shapeMap` and updated all references.
+- **STR-19** — removed unused usings: `System.Collections`+`System.Linq` from `Island/Island.cs`; `System.Collections`+`System.Linq`+`UnityX.Geometry` from `Island/OwnedIslandDetector.cs`.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 1 agent + manual (STR-16); every diff reviewed here (brace balance checked on all five files).

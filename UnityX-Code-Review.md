@@ -104,19 +104,14 @@ STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new stati
 ## Extensions / Spring (`Scripts/Extensions/Spring/`)
 
 ### Bugs
-SPR-1. `Spring.cs:253` — undamped `SettlingDuration` divides by `-omegaZeta` (zero when `dampingRatio == 0`) → division by zero yielding `+Infinity`; the spring never settles.
-SPR-2. `Spring.cs:327-331` — `CalculateTimeOfMaximumDisplacement` can return a spurious near-zero "peak" only in a narrow edge (post-step `Velocity` rounding to exactly 0 so `Sign==0`); the normal released-from-rest case is handled correctly. Low priority.
-
-### Tidying
-SPR-11. Pervasive "oscellate"/"oscellation" (→ oscillate); "Contructors" (82); "my be specified" (117,125).
-SPR-12. `Spring.cs:183-184` — commented-out alternative velocity formula; `:261` — un-indented comment.
+SPR-2. `Spring.cs` — `CalculateTimeOfMaximumDisplacement` can return a spurious near-zero "peak" only in a narrow numerical edge (post-step `Velocity` rounding to exactly 0 so `Sign==0`) in a loop-based heuristic (the method isn't closed-form). Normal released-from-rest case is correct. Low priority; left unfixed — not confident of a safe fix without in-editor testing.
 
 ---
 
 ## Extensions / Easer (`Scripts/Extensions/Easer/`)
 
 ### Bugs
-EAS-3. `SmoothDamp/SpringDamper.cs` — `CriticallyDampedSpring` uses explicit Euler → can still overshoot for very stiff springs (not truly critically damped). *(Improved by the EAS-2/7 sub-stepping fix — smaller steps reduce overshoot — but an analytic solver would be exact. Low priority.)*
+*(EAS-3 resolved: `SpringDamper` now delegates to the analytic `Spring` solver (EAS-2/7 fix), which is the exact closed-form response — no explicit-Euler overshoot. See Done.)*
 
 ---
 
@@ -708,3 +703,12 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **RNG-9** — revived `RangeInt` (a min/max int span with real methods, distinct from Unity's `start+length` `RangeInt`); fixed the same bugs the live `Range` had (the `||`→`&&` guard, multiply-collapse `GetHashCode`, dead struct null-checks, `RemoveRange` clamp). ⚠️ Its global name shadows `UnityEngine.RangeInt` — a footgun (no in-repo callers of either today); recommend renaming (`IntRange`) or namespacing.
 - **XC-6** — resolved via sub-findings (→ Left as is). **XC-8** — deleted 3 dead-scratch lines in `TextEffectsController`/`TextBouncer`; flagged+kept the coherent `TextEffectsController` disabled-feature cluster (→ Left as is).
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 6 parallel agents + manual (SpringDamper); every diff reviewed (brace balance checked on all 11 touched files). `Spline.cs` also carries a concurrent `namespace SplineSystem` wrap (consistent with its already-namespaced siblings). RNG-7's `==null` kept by design; RangeInt name-collision + TWN-7 iOS + the TextEffects cluster flagged for decisions.
+
+### Spring analytic delegation + SPR fixes + HierarchyX (round 17)
+- **EAS-2/7/EAS-3 (re-done)** — per feedback, `SpringDamper` now **delegates to the analytic `Spring.Update`** (closed-form damped-spring solver) instead of the round-16 explicit-Euler sub-stepping. This is deterministic + framerate-independent by construction (exact solution at any `deltaTime`), needs no fixed-step hack or sub-stepping, unifies the two spring systems, and removes the explicit-Euler overshoot (resolves EAS-3). Unit mass (mass=1); `CriticallyDampedSpring` maps to `damping = 2·√stiffness`. ⚠️ Spring feel changes (now the exact analytic response) — affects Boat Game's `ThumbstickUI`; worth an in-editor check of the velocity/sign convention round-trip since `Spring.Update` is a SmoothDamp-style step.
+- **SPR-1** `Spring.SettlingDuration` — added an `if (dampingRatio <= 0) return Mathf.Infinity;` guard (undamped springs never settle), removing the `/-omegaZeta` div-by-zero that could yield `+Infinity` or NaN (corner case where the log numerator is also 0).
+- **SPR-11** — typos fixed: "oscellate/oscellation" → "oscillate/oscillation" (all sites), "Contructors" → "Constructors", "my be specified" → "may be specified".
+- **SPR-12** — deleted the commented-out alternative velocity formula (the live line 181 is the canonical, self-contained analytic derivative and is what's used/tested; the commented variant reused `displacement` and my expansion showed a sign discrepancy making it a dubious "reference") and fixed the un-indented comment in the overdamped branch. *(Answer: the live formula is better.)*
+- **HierarchyX** (compile fix) — `SetExpandedRecursive` (reflected internal Unity API) still takes an `int` id; per Unity's EntityId migration docs there's no lossless `EntityId`→`int` conversion, so reverted to `GetInstanceID()` with `#pragma warning disable 618` (documented stopgap for legacy int APIs) — resolves the CS0619 from the earlier `(int)GetEntityId()` cast.
+- **SPR-2** left unfixed (narrow numerical edge in a heuristic loop; not confident of a safe fix without in-editor testing). **TWN-7** left in place — online validation was *inconclusive* (IL2CPP generic/AOT issues, esp. value-type generics which these tweens use, remain an active concern in 2026; the specific 2013 event-crash isn't confirmed fixed and only manifests in an iOS AOT device build), so I'm not confident enough to remove it per your "if you're sure" gate.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). Manual edits; brace balance checked (SpringDamper 17/17, Spring 72/72, HierarchyX 6/6). RangeInt naming decision still open (recommend `IntRange`).

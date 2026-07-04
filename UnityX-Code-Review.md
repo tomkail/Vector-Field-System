@@ -215,15 +215,7 @@ STR-4. `Island/OwnedIslandDetector.cs:10` + `IslandDetector.cs:9` — `new stati
 STR-5. `Shape.cs:33` — `pointBounds` truncates via `(int)`; single point → zero-size bounds; negative origins mislocated.
 STR-6. `Shape.cs:54-68` — `CreateContiguous` `do/while(!valid)` has no attempt cap → stall risk; seed at (1,1) assumes `numPoints >= 2`.
 
-### Unity-native duplication
-STR-8. `Structure.cs` — `Contains(Func)` duplicates `Enumerable.Any`.
-
-### Refactoring / dead code
-STR-11. `Island/IslandDetector.cs:9-11` — static scratch collections should be instance fields. *(Update: the `List` work-set is gone and the flood-fill `Stack`/owned seed-`Queue` are now locals; `testedPoints` and `islands` remain `static`.)*
-STR-12. `Island/OutlineDetector.cs:16-17` — `found = true` set twice; the outer is dead except in the degenerate `numCorners==0` case (inner loop never runs).
-
-### Tidying
-*STR-16/17/18/19 — resolved, see the `## ✅ Done` section.*
+*STR-8/11/12/16/17/18/19 — resolved, see the `## ✅ Done` section.*
 
 ---
 
@@ -235,15 +227,13 @@ SPR-2. `Spring.cs:327-331` — `CalculateTimeOfMaximumDisplacement` can return a
 
 
 ### Refactoring / dead code
-SPR-4. `Spring.cs:213-231,431-480` — large block of near-identical 3-line forwarders for `Force`/`SpringForce`/`DampingForce`/`Acceleration`.
-SPR-5. `Editor/SpringPropertyDrawer.cs:22-60` — `OnGUI` and `Draw` almost identical; `:330-348` — `DrawYMinMaxScaleLabels`/`DrawXScaleLabel`/`DrawYAxisLabel` unused.
-SPR-6. `Editor/SpringContextMenuPresets.cs:1` — unused `using System.Collections;`.
+SPR-4. `Spring.cs:213-231,431-480` — *Assessed — keep.* 213-231 are the static core methods (real work); 431-480 are an intentional instance-overload ladder (`(time)`, `(start,end,time)`, `(start,end,initialVel,time)`) threading the instance's mass/stiffness/damping. Can't be collapsed with optional params (the full form has `time` last, the convenience form has it first — reordering would break the public API), and each is a genuine 1-line forwarder. Not worth restructuring.
 
 ### Tidying
 SPR-11. Pervasive "oscellate"/"oscellation" (→ oscillate); "Contructors" (82); "my be specified" (117,125).
 SPR-12. `Spring.cs:183-184` — commented-out alternative velocity formula; `:261` — un-indented comment.
-SPR-13. `Editor/SpringPropertyDrawer.cs:138,173-179,296,332-333` — commented-out fragments; nested `GraphGUI` uses a different indent scheme.
-SPR-14. `Editor/SpringHandlerPropertyDrawer.cs:39,42,64-67` — `new GUIContent(new GUIContent("…"))` double-wrapping.
+
+*SPR-5/6/13/14 — resolved, see the `## ✅ Done` section.*
 
 ---
 
@@ -738,3 +728,13 @@ Context: project is .NET Standard 2.1, but UnityX must also build on .NET Framew
 - **STR-18** `Structures/Shape.cs` — normalised the mixed tab/space indentation in `CreateContiguous` to tabs; renamed the confusing `TypeMap<bool> shape` local (collided with the returned `Shape` type) to `shapeMap` and updated all references.
 - **STR-19** — removed unused usings: `System.Collections`+`System.Linq` from `Island/Island.cs`; `System.Collections`+`System.Linq`+`UnityX.Geometry` from `Island/OwnedIslandDetector.cs`.
 - ⚠️ **Not compile-verified in-editor** (community MCP down). Done by 1 agent + manual (STR-16); every diff reviewed here (brace balance checked on all five files).
+
+### Remaining STR + SPR editor (round 8)
+- **STR-8** `Structure.cs` — `Contains(Func)` now delegates to `points.Any(checker)` (public API kept; `using System.Linq` added).
+- **STR-11** `IslandDetector`/`OwnedIslandDetector` — `islands`/`testedPoints` changed from `protected static`/`static new` to instance fields, so two detectors (or a re-entrant call) no longer clobber shared state. No external static access existed; behaviour unchanged for normal single-use.
+- **STR-12** `OutlineDetector.GetOutlinePoly` — removed the redundant per-`testCoord` `found = true;` (dead for `numCorners>0` since it's re-set per corner; the only case it mattered — `numCorners==0` — divides by zero downstream anyway). Verified behaviour-preserving; added a clarifying comment on the load-bearing per-corner init.
+- **SPR-5** `Editor/SpringPropertyDrawer.cs` — `OnGUI` now delegates to `Draw(…, 1, 0, 0, null)` (bodies were identical bar the `BeginProperty`/`EndProperty` wrapper); deleted the unused `DrawYAxisLabel`/`DrawXScaleLabel`/`DrawYMinMaxScaleLabels` (grep-confirmed no callers; the sibling `NoiseSampler` drawer's own copy left untouched per the self-contained-drawer rule).
+- **SPR-6** `Editor/SpringContextMenuPresets.cs` — removed unused `using System.Collections;`.
+- **SPR-13** `Editor/SpringPropertyDrawer.cs` — deleted the dead commented fragments (old Damp-Ratio PropertyField, disabled tick-lines); reindented the nested `GraphGUI` to tabs. **Kept** the commented `_settlingDurationMarkerIcon` accessor — it's a plausible unfinished "mark the settling point on the graph" feature (mirrors the live `_currentTimeMarkerIcon`), flagged for a future decision rather than deleted.
+- **SPR-14** `Editor/SpringHandlerPropertyDrawer.cs` — unwrapped six `new GUIContent(new GUIContent("…"))` double-wraps.
+- ⚠️ **Not compile-verified in-editor** (community MCP down). STR by manual edits, SPR by 1 agent; every diff reviewed (brace balance checked on all touched files). SPR-4 assessed as intentional (kept — see active list).

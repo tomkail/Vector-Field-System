@@ -10,7 +10,7 @@ using UnityEngine;
 // painted source fades over time so emission is transient (a trail), not permanent.
 //
 // Renders the density on a world plane aligned to the grid.
-[ExecuteAlways, RequireComponent(typeof(GridRenderer))]
+[ExecuteAlways]
 public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
 
     static ComputeShader smokeComputeShader;
@@ -44,8 +44,9 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     [Tooltip("Multiplies density into opacity when rendering.")]
     public float opacity = 1f;
 
-    GridRenderer _gridRenderer;
-    public GridRenderer gridRenderer => _gridRenderer != null ? _gridRenderer : (_gridRenderer = GetComponent<GridRenderer>());
+    // Spatial grid (world<->cell mapping + size), owned by this component. Bound to the transform in ConfigureGrid.
+    // Public so the mouse painter can read its floor plane (satisfies IPaintTarget<Color>.grid).
+    [field: SerializeField] public GridTransform grid { get; private set; } = new GridTransform();
 
     // GPU density ping-pong (RGBA, raw). Advected on the GPU.
     RenderTexture densityA, densityB;
@@ -117,7 +118,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     }
 
     void EnsureInjectionMap() {
-        var size = gridRenderer.gridSize;
+        var size = new Point(grid.Size.x, grid.Size.y);
         if (injectionMap == null || injectionMap.size != size)
             injectionMap = new ColorMap(size);
     }
@@ -129,17 +130,11 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
         EnsureTextures();
     }
 
-    // Unlike VectorFieldComponent (which sets its GridRenderer up in OnValidate), this component isn't a
-    // VectorFieldComponent, so nothing configures its required GridRenderer. Do it here — otherwise the mode module is
-    // null (cellCenter.gridToWorldMatrix NREs) and gridSize is (0,0) so the density textures allocate at 0×0. Matches
-    // the vector-field setup so smoke and fluid share the same grid convention. Runs at runtime too, so a built player
-    // (no OnValidate) is covered.
+    // Bind the grid to this transform so its world<->cell conversions are live. GridTransform defaults to 64×64 and
+    // self-clamps to ≥1, so (unlike the old required GridRenderer) there's nothing to default or guard here. Runs at
+    // runtime too, so a built player (no OnValidate) is covered.
     void ConfigureGrid() {
-        var gr = gridRenderer;
-        if (gr.modeModule is not GridRendererManhattanModeModule)
-            gr.modeModule = ScriptableObject.CreateInstance<GridRendererManhattanModeModule>();
-        gr.scaleWithGridSize = false;
-        if (gr.gridSize == Point.zero) gr.gridSize = new Point(64, 64);
+        grid.Bind(transform);
     }
 
     void OnDisable() {
@@ -176,7 +171,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     // --- simulation ------------------------------------------------------------------------------------------------
     void Step(float dt) {
         var cs = SmokeComputeShader;
-        int w = gridRenderer.gridSize.x, h = gridRenderer.gridSize.y;
+        int w = grid.Size.x, h = grid.Size.y;
         cs.SetInt(ID_width, w);
         cs.SetInt(ID_height, h);
         cs.SetFloat(ID_dt, dt);
@@ -209,7 +204,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     void FadeSource(float deltaTime) {
         if (!everPainted || injectionRT == null) return;
         var cs = SmokeComputeShader;
-        int w = gridRenderer.gridSize.x, h = gridRenderer.gridSize.y;
+        int w = grid.Size.x, h = grid.Size.y;
         cs.SetInt(ID_width, w);
         cs.SetInt(ID_height, h);
         cs.SetFloat(ID_sourceRetain, Mathf.Pow(Mathf.Clamp01(sourceRetainPerSecond), deltaTime));
@@ -224,7 +219,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     // can't re-assert stale (un-faded) values over the GPU's fading source.
     void UploadDirtyRegion() {
         if (!pendingDirty.HasValue || injectionMap == null || injectionRT == null) return;
-        var size = gridRenderer.gridSize;
+        var size = new Point(grid.Size.x, grid.Size.y);
         int x0 = Mathf.Clamp(pendingDirty.Value.xMin, 0, size.x);
         int y0 = Mathf.Clamp(pendingDirty.Value.yMin, 0, size.y);
         int x1 = Mathf.Clamp(pendingDirty.Value.xMax, 0, size.x);
@@ -275,8 +270,8 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
         renderMaterial.SetFloat("_Opacity", opacity);
 
         // Unit quad (0..1) scaled across the grid and mapped to world by the grid transform.
-        int w = gridRenderer.gridSize.x, h = gridRenderer.gridSize.y;
-        Matrix4x4 m = gridRenderer.cellCenter.gridToWorldMatrix * Matrix4x4.Scale(new Vector3(w, h, 1f));
+        int w = grid.Size.x, h = grid.Size.y;
+        Matrix4x4 m = grid.GridToWorldMatrix * Matrix4x4.Scale(new Vector3(w, h, 1f));
         Graphics.DrawMesh(quad, m, renderMaterial, gameObject.layer);
     }
 
@@ -297,7 +292,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
 
     // --- texture lifecycle -----------------------------------------------------------------------------------------
     void EnsureTextures() {
-        var size = gridRenderer.gridSize;
+        var size = new Point(grid.Size.x, grid.Size.y);
         if (allocatedSize == size && densityA != null) return;
         ReleaseTextures();
         densityA = NewDensityTexture(size);

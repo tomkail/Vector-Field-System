@@ -3,7 +3,7 @@ using UnityEngine;
 [AddComponentMenu("Vector Fields/Drawable Vector Field")]
 public class DrawableVectorFieldComponent : VectorFieldComponent, ISerializationCallbackReceiver, IPaintTarget<Vector2> {
     // IPaintTarget<Vector2>: the generic painting core (PaintStroke<Vector2>, the brush kernel) drives this component.
-    // gridRenderer and MarkRegionDirty already satisfy the interface; PaintField/CreateMap need explicit impls because
+    // grid and MarkRegionDirty already satisfy the interface; PaintField/CreateMap need explicit impls because
     // the interface is typed on the base TypeMap<Vector2> while our members are the Vector2Map subtype.
     TypeMap<Vector2> IPaintTarget<Vector2>.PaintField => PaintField;
     TypeMap<Vector2> IPaintTarget<Vector2>.CreateMap(Point size) => new Vector2Map(size);
@@ -42,7 +42,7 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     // which RenderInternal uses to choose between a region and a full GPU upload. A deserialized Vector2Map can come
     // back non-null with a null `values` array, so IsValid treats that as "needs (re)building" too.
     bool EnsurePaintField() {
-        var size = gridRenderer != null ? gridRenderer.gridSize : (ActiveMap != null ? ActiveMap.size : Point.zero);
+        var size = new Point(grid.Size.x, grid.Size.y);
         if (IsValid(ActiveMap, size)) return false;
         ActiveMap = new Vector2Map(size);
         return true;
@@ -84,6 +84,10 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         } else {
             paintField = null;   // built lazily by PaintField
         }
+        // Restore the grid size from the serialized paint-field size (component mode), so a resized field survives a
+        // reload without depending on the legacy GridRenderer — and so EnsurePaintField never shrinks the painted data
+        // to a stale default. No-op when there's no stored field; asset mode syncs when the asset's field loads.
+        if (paintField != null) grid.Size = new Vector2Int(storedSize.x, storedSize.y);
     }
 
     // A paint field is usable when it exists, has a backing array, and that array matches the requested grid size.
@@ -233,7 +237,7 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     // target), so the painting actually shows up and serializes.
     public void LoadPaintField(Vector2Map source) {
         if (source == null) return;
-        if (gridRenderer != null) gridRenderer.gridSize = source.size;
+        grid.Size = new Vector2Int(source.size.x, source.size.y);
         ActiveMap = new Vector2Map(source);   // writes to the asset in asset mode, else the component
         SetDirty();
         MarkSourceAssetDirty();

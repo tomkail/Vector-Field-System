@@ -14,8 +14,8 @@ public static class ColorPainting {
     static void Validate(IPaintTarget<Color> field, in PaintBrush<Color> brush) {
         if (field == null)
             throw new ArgumentNullException(nameof(field), "Cannot paint into a null colour field.");
-        if (field.gridRenderer == null)
-            throw new InvalidOperationException("Colour paint target has no GridRenderer yet — paint after it's enabled.");
+        if (field.grid == null)
+            throw new InvalidOperationException("Colour paint target has no grid yet — paint after it's enabled.");
         if (!brush.IsValid)
             throw new ArgumentException("Brush is invalid: it needs a shape and an IBrushOp<Color>.", nameof(brush));
     }
@@ -43,7 +43,7 @@ public static class ColorPainting {
     // (brushForce magnitude) and smoke ops ignore direction, so no emitter map is involved.
     public static void Stamp(this IPaintTarget<Color> field, in PaintBrush<Color> brush, Vector3 worldPosition) {
         Validate(field, brush);
-        var cc = field.gridRenderer.cellCenter;
+        var cc = field.grid;
         Vector2 gridCenter = cc.WorldToGridPosition(worldPosition);
         float gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);
         float invR = 1f / gridRadius;

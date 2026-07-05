@@ -182,8 +182,8 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	// One fixed-dt solver step: forces -> advect -> project (divergence, pressure solve, gradient subtract).
 	void Step(float dt) {
 		var cs = FluidComputeShader;
-		cs.SetInt(ID_width, gridRenderer.gridSize.x);
-		cs.SetInt(ID_height, gridRenderer.gridSize.y);
+		cs.SetInt(ID_width, grid.Size.x);
+		cs.SetInt(ID_height, grid.Size.y);
 		cs.SetFloat(ID_dt, dt);
 		cs.SetFloat(ID_viscosityDamp, viscosityDamp);
 		cs.SetInt(ID_boundaryMode, (int)boundaryMode);
@@ -207,9 +207,9 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		// WorldSpace mapping needs the grid<->world transforms of both fields and the relative rotation that brings the
 		// force field's local vectors into ours. (Only consulted when hasForce && forceMapping == WorldSpace.)
 		if (hasForce && forceMapping == ForceMapping.WorldSpace) {
-			cs.SetMatrix(ID_simGridToWorld, gridRenderer.cellCenter.gridToWorldMatrix);
-			cs.SetMatrix(ID_forceWorldToGrid, forceField.gridRenderer.cellCenter.gridToWorldMatrix.inverse);
-			cs.SetVector(ID_forceGridSize, new Vector4(forceField.gridRenderer.gridSize.x, forceField.gridRenderer.gridSize.y, 0, 0));
+			cs.SetMatrix(ID_simGridToWorld, grid.GridToWorldMatrix);
+			cs.SetMatrix(ID_forceWorldToGrid, forceField.GridToWorldMatrix.inverse);
+			cs.SetVector(ID_forceGridSize, new Vector4(forceField.GridSize.x, forceField.GridSize.y, 0, 0));
 			var relativeRotation = Quaternion.Inverse(transform.rotation) * forceField.transform.rotation;
 			cs.SetMatrix(ID_forceToSimDir, Matrix4x4.Rotate(relativeRotation));
 		}
@@ -283,8 +283,8 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
 	void Encode() {
 		var cs = FluidComputeShader;
-		cs.SetInt(ID_width, gridRenderer.gridSize.x);
-		cs.SetInt(ID_height, gridRenderer.gridSize.y);
+		cs.SetInt(ID_width, grid.Size.x);
+		cs.SetInt(ID_height, grid.Size.y);
 		cs.SetInt(ID_boundaryMode, (int)boundaryMode);
 		cs.SetFloat(ID_outputScale, outputScale);
 		cs.SetTexture(kEncode, ID_VelocityIn, velA);
@@ -302,8 +302,8 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	}
 
 	void Dispatch(int kernel) {
-		int gx = Mathf.CeilToInt((float)gridRenderer.gridSize.x / ThreadsX);
-		int gy = Mathf.CeilToInt((float)gridRenderer.gridSize.y / ThreadsY);
+		int gx = Mathf.CeilToInt((float)grid.Size.x / ThreadsX);
+		int gy = Mathf.CeilToInt((float)grid.Size.y / ThreadsY);
 		FluidComputeShader.Dispatch(kernel, gx, gy, 1);
 	}
 
@@ -311,7 +311,7 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
 	// --- solver texture lifecycle ---------------------------------------------------------------------------------
 	void EnsureSimTextures() {
-		var size = gridRenderer.gridSize;
+		var size = new Point(grid.Size.x, grid.Size.y);
 		if (allocatedSize == size && velA != null) return;
 
 		ReleaseSimTextures();

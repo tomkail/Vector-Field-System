@@ -505,7 +505,7 @@ public class GrassComputeScript : MonoBehaviour
             vectorField.EnsureUpToDate();
 
         RenderTexture rt = vectorField != null ? vectorField.renderTexture : null;
-        if (rt == null || vectorField.gridRenderer == null)
+        if (rt == null)
         {
             m_InstantiatedComputeShader.SetFloat("_VectorFieldEnabled", 0f);
             return;

@@ -17,13 +17,13 @@ public static class VectorFieldPainting {
     static readonly List<VectorFieldBrushCell> _stampCells = new List<VectorFieldBrushCell>();
 
     // Fail fast with a clear message on misuse, rather than a silent no-op or a NullReferenceException from deep in the
-    // grid math. field/brush are the caller's contract; a missing GridRenderer means the component isn't ready yet.
+    // grid math. field/brush are the caller's contract; a missing grid means the component isn't ready yet.
     static void Validate(DrawableVectorFieldComponent field, in VectorFieldBrush brush) {
         if (field == null)
             throw new ArgumentNullException(nameof(field), "Cannot paint into a null vector field.");
-        if (field.gridRenderer == null)
+        if (field.grid == null)
             throw new InvalidOperationException(
-                $"'{field.name}' has no GridRenderer yet — paint after the component is enabled/initialised.");
+                $"'{field.name}' has no grid yet — paint after the component is enabled/initialised.");
         if (!brush.IsValid)
             throw new ArgumentException(
                 "Brush is invalid: it needs a shape (BrushShape.Radial/FromCookie/FromMap) and an op " +
@@ -51,7 +51,7 @@ public static class VectorFieldPainting {
     public static void Stamp(this DrawableVectorFieldComponent field, in VectorFieldBrush brush, Vector3 worldPosition,
                              Vector2 direction = default) {
         Validate(field, brush);
-        var cc = field.gridRenderer.cellCenter;
+        var cc = field.grid;
         Vector2 gridCenter = cc.WorldToGridPosition(worldPosition);
         float gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(brush.size, 0f, 0f)).magnitude);
         Vector2 dir = direction.sqrMagnitude > 1e-8f ? direction.normalized : Vector2.up;

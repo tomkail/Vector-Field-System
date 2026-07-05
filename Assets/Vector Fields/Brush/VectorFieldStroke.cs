@@ -107,7 +107,7 @@ public class PaintStroke<T> {
         _pressure = pressure;
         _tipMode = tipMode;
         _dirMode = dirMode;
-        var cc = field.gridRenderer.cellCenter;
+        var cc = field.grid;
         _gridRadius = Mathf.Max(0.5f, cc.WorldToGridVector(new Vector3(size, 0f, 0f)).magnitude);
         _accPerArc = 1f / _gridRadius;
         _subStepCells = Mathf.Max(SubStepCells, _gridRadius * SubStepRadiusFraction);
@@ -127,7 +127,7 @@ public class PaintStroke<T> {
 
     public void To(Vector3 worldPosition) {
         if (_field == null || !IsValid) return;   // _field == null => already ended (and possibly pooled)
-        Vector2 g = _field.gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+        Vector2 g = _field.grid.WorldToGridPosition(worldPosition);
         // Coalesce moves too small to define a direction, so the first rendered span carries the real drag direction.
         if (_n > 0 && (g - Pt(0)).sqrMagnitude < MinStepCells * MinStepCells) return;
         Push(g);

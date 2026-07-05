@@ -262,7 +262,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
     // Brush cursor: an outer disc at the brush radius plus a faded inner disc hinting at the falloff core, and (for a
     // directional emitter) a short arrow showing the stamp direction. Colour-coded by the active brush op.
     void DrawBrushGizmo(RaycastHit hit, IVectorFieldBrushOp op) {
-        var cellCenter = vectorFieldManager.gridRenderer.cellCenter;
+        var cellCenter = vectorFieldManager.grid;
         Color color = op.GizmoColor;
 
         var lastMatrix = Handles.matrix;
@@ -300,7 +300,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         var shape = VectorFieldBrushShape.FromMap(brushMap);
         // gridSpaceBrushSize is the brush's full grid-space extent; the runtime brush wants a WORLD-space radius, which
         // the stroke converts back to ~gridSpaceBrushSize/2 grid cells (exact for a uniform grid scale).
-        float worldRadius = vectorFieldManager.gridRenderer.cellCenter
+        float worldRadius = vectorFieldManager.grid
             .GridToWorldVector(new Vector3(gridSpaceBrushSize * 0.5f, 0f, 0f)).magnitude;
         // Leading tip so the paint tracks the cursor with no lag (reads as responsive when drawing by hand).
         return new VectorFieldBrush(shape, op, worldRadius, pressure, TipMode.Leading, settings.directionMode);
@@ -314,11 +314,11 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
         if (Physics.Raycast(ray, out hit)) {
             return true;
         } else {
-            Vector3 point = Vector3.zero;
-            if (vectorFieldManager.gridRenderer.floorPlane.TryGetHitPoint(ray, out point)) {
+            var floorPlane = vectorFieldManager.grid.FloorPlane;
+            if (floorPlane.Raycast(ray, out float enter)) {
                 hit = new RaycastHit() {
-                    point = point,
-                    normal = vectorFieldManager.gridRenderer.floorPlane.normal
+                    point = ray.GetPoint(enter),
+                    normal = floorPlane.normal
                 };
                 return true;
             }

@@ -61,7 +61,12 @@ public class SmokeMousePainter : MonoBehaviour {
 
     bool TryGetPoint(out Vector3 point) {
         Ray ray = cam.ScreenPointToRay(Input.mousePosition);
-        return _smoke.gridRenderer.floorPlane.TryGetHitPoint(ray, out point);
+        if (_smoke.grid.FloorPlane.Raycast(ray, out float enter)) {
+            point = ray.GetPoint(enter);
+            return true;
+        }
+        point = default;
+        return false;
     }
 
     static Color RandomHue(float alpha) {

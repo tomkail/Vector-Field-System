@@ -62,8 +62,8 @@ public class VectorFieldDebugRenderer : System.IDisposable
         var fieldTexture = vectorFieldComponent.renderTexture;
         if (fieldTexture == null) return; // nothing has been rendered yet
 
-        var gridSize = vectorFieldComponent.gridRenderer.gridSize;
-        var gridToWorldMatrix = vectorFieldComponent.gridRenderer.cellCenter.gridToWorldMatrix;
+        var gridSize = vectorFieldComponent.GridSize;
+        var gridToWorldMatrix = vectorFieldComponent.GridToWorldMatrix;
 
         // The arrow grid is laid out edge-to-edge and decoupled from the field cells: per axis we draw a power-of-two
         // number of *intervals* spanning cell 0 to the far-edge cell, sampling the field (bilinearly) at each arrow.
@@ -157,7 +157,7 @@ public class VectorFieldDebugRenderer : System.IDisposable
 
     // Continuous cells-per-arrow needed to keep arrows ~targetSpacingPixels apart on screen, never below 1
     // (native res) and never finer than the maxArrows cap on the long axis.
-    static float ComputeStride(Point gridSize, Matrix4x4 gridToWorldMatrix, Camera camera, float targetSpacingPixels, int maxArrows) {
+    static float ComputeStride(Vector2Int gridSize, Matrix4x4 gridToWorldMatrix, Camera camera, float targetSpacingPixels, int maxArrows) {
         var centre = new Vector3((gridSize.x - 1) * 0.5f, (gridSize.y - 1) * 0.5f, 0);
         Vector3 worldOrigin = gridToWorldMatrix.MultiplyPoint3x4(centre);
         float pixelsPerCellX = ScreenDistance(camera, worldOrigin, gridToWorldMatrix.MultiplyPoint3x4(centre + Vector3.right));

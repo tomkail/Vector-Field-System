@@ -97,18 +97,14 @@ public static class SmokeDemoSceneBuilder {
     }
 
     // Every field (noise / fluid / smoke) sits at the origin, unrotated, scaled so its grid fills the same world area.
-    // The components configure their own GridRenderer (Manhattan mode, scaleWithGridSize = false, gridSize); we only set
-    // the transform scale, which they don't touch — that's what maps the normalized grid to FieldWorldSize world units.
+    // The transform scale (which the components don't touch) is what maps the normalized 1×1 grid quad to FieldWorldSize
+    // world units; each component owns its own GridTransform, so we just set its grid size.
     static void ConfigureFieldTransform(GameObject go) {
         go.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
         go.transform.localScale = Vector3.one * FieldWorldSize;
-        var gr = go.GetComponent<GridRenderer>();
-        if (gr != null) {
-            if (gr.modeModule is not GridRendererManhattanModeModule)
-                gr.modeModule = ScriptableObject.CreateInstance<GridRendererManhattanModeModule>();
-            gr.scaleWithGridSize = false;
-            gr.gridSize = new Point(GridResolution, GridResolution);
-        }
+        var size = new Vector2Int(GridResolution, GridResolution);
+        if (go.TryGetComponent(out VectorFieldComponent vf)) vf.grid.Size = size;
+        if (go.TryGetComponent(out SmokeSimulationComponent smoke)) smoke.grid.Size = size;
     }
 
     // The noise force field only pushes the fluid if it has a non-zero frequency. Set sensible values via the

@@ -7,7 +7,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-[ExecuteAlways, RequireComponent(typeof(GridRenderer))]
+[ExecuteAlways]
 public abstract class VectorFieldComponent : MonoBehaviour {
 	protected GroupVectorFieldComponent group {
 		get {
@@ -25,16 +25,17 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		}
 	}
 
-	public GridRenderer gridRenderer { get; private set; }
+	// The spatial grid (world<->cell mapping + size), owned by the component and serialized here. Bound to this
+	// transform on init. Public so the painting API / drawing tool can read its world<->grid conversions and floor
+	// plane directly (satisfies IPaintTarget.grid on the drawable subclass).
+	[field: SerializeField] public GridTransform grid { get; private set; } = new GridTransform();
 	public Vector3 planeNormal => transform.forward;
 
-	// Grid convenience surface. Subclasses (and consumers) go through these instead of reaching into gridRenderer
-	// directly, so the field's dependency on GridRenderer lives behind one small API — the single seam to swap if the
-	// grid is ever folded onto the component itself.
-	public Vector2Int GridSize => gridRenderer != null ? new Vector2Int(gridRenderer.gridSize.x, gridRenderer.gridSize.y) : Vector2Int.zero;
-	public Matrix4x4 GridToWorldMatrix => gridRenderer.cellCenter.gridToWorldMatrix;
-	public Matrix4x4 GridToLocalMatrix => gridRenderer.cellCenter.gridToLocalMatrix;
-	public Vector2 WorldToGridPosition(Vector3 worldPosition) => gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+	// Grid convenience surface. Subclasses (and consumers) go through these instead of reaching into `grid` directly.
+	public Vector2Int GridSize => grid.Size;
+	public Matrix4x4 GridToWorldMatrix => grid.GridToWorldMatrix;
+	public Matrix4x4 GridToLocalMatrix => grid.GridToLocalMatrix;
+	public Vector2 WorldToGridPosition(Vector3 worldPosition) => grid.WorldToGridPosition(worldPosition);
 
 	[Space]
 	[NonSerialized] public RenderTexture renderTexture;
@@ -117,7 +118,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	}
 
 	protected virtual void EnsureInitialized() {
-		gridRenderer = GetComponent<GridRenderer>();
+		grid.Bind(transform);
 #if UNITY_EDITOR
 		// In edit mode Unity only calls Update on a repaint, so drive the dirty pump off the editor's own tick as
 		// well to process changes promptly while idle. Tick is a cheap no-op whenever nothing is dirty.
@@ -148,16 +149,9 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 #if UNITY_EDITOR
 	protected virtual void OnValidate() {
 		if (!isActiveAndEnabled) return;
-		gridRenderer = GetComponent<GridRenderer>();
-		// Only create the mode module when one of the right type isn't already present — CreateInstance allocates a new
-		// ScriptableObject every call, and the old one would leak (it's never destroyed) on each OnValidate otherwise.
-		if (gridRenderer.modeModule is not GridRendererManhattanModeModule)
-			gridRenderer.modeModule = ScriptableObject.CreateInstance<GridRendererManhattanModeModule>();
-		gridRenderer.scaleWithGridSize = false;
-		if (gridRenderer.gridSize == Point.zero) gridRenderer.gridSize = new Point(64, 64);
-		if (gridRenderer.gridSize.x < 1) gridRenderer.gridSize = new Point(1, gridRenderer.gridSize.y);
-		if (gridRenderer.gridSize.y < 1) gridRenderer.gridSize = new Point(gridRenderer.gridSize.x, 1);
-		// gridRenderer.showGizmos = true;
+		// Grid size defaults to 64×64 and self-clamps to ≥1 on each axis (see GridTransform.Size), so no explicit
+		// defaulting/guarding is needed here.
+		grid.Bind(transform);
 		lastTransform = new SerializableTransform(transform);
 		SetDirty();
 	}
@@ -250,8 +244,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	public void EnsureUpToDate() {
 		if (!isActiveAndEnabled || !isDirty) return;
 		// A group pulls its children up to date during its own OnEnable, which can run before a child's OnEnable has
-		// initialized it — so make sure gridRenderer is resolved before rendering, rather than NRE'ing on it.
-		if (gridRenderer == null) EnsureInitialized();
+		// initialized it — so make sure the grid is bound to this transform before rendering.
+		grid.Bind(transform);
 		// Guard against a degenerate grid size (e.g. an object enabled with a serialized (0,0) size before editor-only
 		// OnValidate has defaulted it): rendering it would try to allocate a zero-dimension RenderTexture and throw.
 		// Leave isDirty set so we render for real as soon as a valid size arrives.
@@ -451,7 +445,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	}
 
 	public void EnsureHasValidRenderTexture() {
-		VectorFieldRenderTextureUtils.EnsureValid(ref renderTexture, gridRenderer.gridSize.x, gridRenderer.gridSize.y);
+		VectorFieldRenderTextureUtils.EnsureValid(ref renderTexture, grid.Size.x, grid.Size.y);
 	}
 
 	public Vector3 EvaluateWorldVector(Vector3 position) {
@@ -465,7 +459,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 			Debug.LogWarning("EvaluateVector called but this field has no CPU copy. Register a CPU consumer (RegisterCpuConsumer) or use TrySampleVector for GPU sampling.", this);
 			return Vector2.zero;
 		}
-		var gridPosition = gridRenderer.cellCenter.WorldToGridPosition(position);
+		var gridPosition = grid.WorldToGridPosition(position);
 		// magnitude is already baked into vectorField (read back from the output-transformed texture), so no re-scale.
 		return vectorField.GetValueAtGridPosition(gridPosition);
 	}
@@ -489,7 +483,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		localVector = Vector2.zero;
 		if (renderTexture == null || !SupportsGPUSampling) return false;
 
-		var gridPosition = gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+		var gridPosition = grid.WorldToGridPosition(worldPosition);
 		var region = GetSampleRegion(gridPosition);
 		var request = AsyncGPUReadback.Request(renderTexture, 0, region.x, region.width, region.y, region.height, 0, 1, TextureFormat.RGBAFloat);
 		request.WaitForCompletion();
@@ -513,7 +507,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	public void SampleWorldVectorAsync(Vector3 worldPosition, Action<Vector3> onComplete) {
 		if (renderTexture == null || !SupportsGPUSampling || onComplete == null) return;
 
-		var gridPosition = gridRenderer.cellCenter.WorldToGridPosition(worldPosition);
+		var gridPosition = grid.WorldToGridPosition(worldPosition);
 		var region = GetSampleRegion(gridPosition);
 		AsyncGPUReadback.Request(renderTexture, 0, region.x, region.width, region.y, region.height, 0, 1, TextureFormat.RGBAFloat, request => {
 			if (request.hasError || this == null) return;
@@ -531,7 +525,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		var gridPositions = new Vector2[worldPositions.Count];
 		float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
 		for (int i = 0; i < worldPositions.Count; i++) {
-			var gp = gridRenderer.cellCenter.WorldToGridPosition(worldPositions[i]);
+			var gp = grid.WorldToGridPosition(worldPositions[i]);
 			gridPositions[i] = gp;
 			minX = Mathf.Min(minX, gp.x); minY = Mathf.Min(minY, gp.y);
 			maxX = Mathf.Max(maxX, gp.x); maxY = Mathf.Max(maxY, gp.y);
@@ -578,7 +572,6 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	}
 
 	public Bounds GetBounds() {
-		var bounds = gridRenderer.edge.NormalizedToWorldRect(new Rect(0, 0, 1, 1));
-		return BoundsX.CreateEncapsulating(bounds);
+		return grid.GetWorldBounds();
 	}
 }

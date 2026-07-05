@@ -6,7 +6,7 @@ using UnityEngine;
 // dispatch here is off the hot path — the per-cell Get/Set happens directly on the concrete TypeMap<T> it hands back.
 public interface IPaintTarget<T> {
 	// Grid<->world mapping used to turn stroke world positions into grid positions.
-	GridRenderer gridRenderer { get; }
+	GridTransform grid { get; }
 
 	// The field being painted. A TypeMap<T> subclass (Vector2Map / ColorMap) so per-cell Get/Set are direct calls
 	// and bilinear GetValueAtGridPosition uses the subclass's Lerp.

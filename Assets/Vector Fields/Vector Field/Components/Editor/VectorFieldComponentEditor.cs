@@ -137,10 +137,8 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		var vectorFieldComponent = Undo.AddComponent<DrawableVectorFieldComponent>(go);
 		// Write into the painted field (the authored source of truth), not base.vectorField (the non-serialized
 		// readback target) — otherwise the rasterized field is empty and doesn't persist.
-		vectorFieldComponent.gridRenderer.scaleWithGridSize = data.gridRenderer.scaleWithGridSize;
 		vectorFieldComponent.LoadPaintField(source);
 		Undo.RegisterCompleteObjectUndo(vectorFieldComponent, "Update Vector Field");
-		Undo.RegisterCompleteObjectUndo(vectorFieldComponent.gridRenderer, "Update Vector Field");
 
 		// Name undo group
 		Undo.SetCurrentGroupName("Create and Reposition GameObject with Child");
@@ -151,13 +149,13 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 
 	// Frame the field's grid bounds (the same rect drawn as the selection gizmo) instead of the transform center
 	// when the user frames the selection (F / double-click in the hierarchy).
-	bool HasFrameBounds() => data != null && data.gridRenderer != null;
+	bool HasFrameBounds() => data != null;
 
 	Bounds OnGetFrameBounds() {
 		var bounds = data.GetBounds();
 		// Encapsulate every selected field so framing a multi-selection fits them all.
 		foreach (var t in targets) {
-			if (t is VectorFieldComponent field && field != data && field.gridRenderer != null)
+			if (t is VectorFieldComponent field && field != data)
 				bounds.Encapsulate(field.GetBounds());
 		}
 		return bounds;
@@ -193,10 +191,12 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 		EditorGUI.EndDisabledGroup();
 	}
 
+	static Vector3[] s_gizmoCorners;
 	[DrawGizmo(GizmoType.Selected)]
 	static void DrawGizmoForMyScript(VectorFieldComponent vectorFieldComponent, GizmoType gizmoType) {
-		GizmosX.BeginColor(Color.white.WithAlpha(1f));
-		var bounds = vectorFieldComponent.gridRenderer.edge.NormalizedToWorldRect(new Rect(0, 0, 1, 1));
-		GizmosX.DrawWirePolygon(bounds);
+		Gizmos.color = Color.white;
+		vectorFieldComponent.grid.GetWorldCorners(ref s_gizmoCorners);
+		for (int i = 0; i < 4; i++)
+			Gizmos.DrawLine(s_gizmoCorners[i], s_gizmoCorners[(i + 1) % 4]);
 	}
 }

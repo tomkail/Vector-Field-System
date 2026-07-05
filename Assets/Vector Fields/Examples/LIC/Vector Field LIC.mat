@@ -34,7 +34,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _AnimSpeed: 2
-    - _Contrast: 3
+    - _Contrast: 3.19
     - _NoiseScale: 2
     - _Phase: 0
     - _StepCount: 32

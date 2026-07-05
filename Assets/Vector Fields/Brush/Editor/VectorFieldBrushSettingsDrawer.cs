@@ -1,51 +1,32 @@
+using UnityEngine.UIElements;
 using UnityEditor;
-using UnityEngine;
+using UnityEditor.UIElements;
 
-// IMGUI drawer: the vector field component inspectors draw via DrawDefaultInspector (IMGUI), so a
-// UIElements-only drawer would render as "No GUI Implemented". Shows the force type plus only the angle that type uses
-// — directionalAngle for Directional, vortexAngle for Spot.
+// UI Toolkit drawer for the stamp brush: the force type plus only the angle that type uses — directionalAngle for
+// Directional, vortexAngle for Spot. Used by the vector field inspectors (which are UITK) via PropertyField.
 [CustomPropertyDrawer(typeof(VectorFieldBrushSettings))]
 public class VectorFieldBrushSettingsDrawer : PropertyDrawer {
 
-	// The one angle field the current force type uses, or null if it uses none.
-	static SerializedProperty RelevantField(SerializedProperty property) {
-		var forceType = (VectorFieldBrushSettings.ForceEmitterType)property.FindPropertyRelative("forceType").enumValueIndex;
-		switch (forceType) {
-			case VectorFieldBrushSettings.ForceEmitterType.Directional: return property.FindPropertyRelative("directionalAngle");
-			case VectorFieldBrushSettings.ForceEmitterType.Spot:        return property.FindPropertyRelative("vortexAngle");
-			default:                                                     return null;
-		}
+	public override VisualElement CreatePropertyGUI(SerializedProperty property) {
+		var root = new VisualElement();
+
+		var typeProp = property.FindPropertyRelative("forceType");
+		root.Add(new PropertyField(typeProp, "Force Type"));
+
+		var directional = Indented(new PropertyField(property.FindPropertyRelative("directionalAngle"), "Angle"));
+		var vortex = Indented(new PropertyField(property.FindPropertyRelative("vortexAngle"), "Vortex Angle"));
+		root.Add(directional);
+		root.Add(vortex);
+
+		bool Is(VectorFieldBrushSettings.ForceEmitterType t) => (VectorFieldBrushSettings.ForceEmitterType)typeProp.enumValueIndex == t;
+		VectorFieldInspectorUI.ShowIf(directional, typeProp, () => Is(VectorFieldBrushSettings.ForceEmitterType.Directional));
+		VectorFieldInspectorUI.ShowIf(vortex, typeProp, () => Is(VectorFieldBrushSettings.ForceEmitterType.Spot));
+
+		return root;
 	}
 
-	public override float GetPropertyHeight(SerializedProperty property, GUIContent label) {
-		float line = EditorGUIUtility.singleLineHeight;
-		if (!property.isExpanded) return line;
-		float spacing = EditorGUIUtility.standardVerticalSpacing;
-		var forceTypeProp = property.FindPropertyRelative("forceType");
-		float height = line + spacing + EditorGUI.GetPropertyHeight(forceTypeProp); // foldout + force type
-		var field = RelevantField(property);
-		if (field != null) height += spacing + EditorGUI.GetPropertyHeight(field);
-		return height;
-	}
-
-	public override void OnGUI(Rect position, SerializedProperty property, GUIContent label) {
-		float line = EditorGUIUtility.singleLineHeight;
-		float spacing = EditorGUIUtility.standardVerticalSpacing;
-
-		var foldoutRect = new Rect(position.x, position.y, position.width, line);
-		property.isExpanded = EditorGUI.Foldout(foldoutRect, property.isExpanded, label, true);
-		if (!property.isExpanded) return;
-
-		using (new EditorGUI.IndentLevelScope()) {
-			var forceTypeProp = property.FindPropertyRelative("forceType");
-			var forceTypeRect = new Rect(position.x, foldoutRect.yMax + spacing, position.width, EditorGUI.GetPropertyHeight(forceTypeProp));
-			EditorGUI.PropertyField(forceTypeRect, forceTypeProp);
-
-			var field = RelevantField(property);
-			if (field != null) {
-				var fieldRect = new Rect(position.x, forceTypeRect.yMax + spacing, position.width, EditorGUI.GetPropertyHeight(field));
-				EditorGUI.PropertyField(fieldRect, field, true);
-			}
-		}
+	static VisualElement Indented(VisualElement element) {
+		element.style.marginLeft = 6;
+		return element;
 	}
 }

@@ -1,0 +1,134 @@
+/* Shared design system for the Vector Field component inspectors. All colours reference Unity's built-in
+   editor USS variables so light and dark themes both read correctly; the only fixed colour is the plugin
+   accent, chosen to sit well on either theme. See VectorFieldInspectorUI.cs for the elements that use these. */
+
+/* --- Header: an accent title bar naming the field type --------------------------------------------------- */
+.vf-header {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 6px;
+    padding: 5px 7px;
+    background-color: var(--unity-colors-inspector_titlebar-background);
+    border-radius: 4px;
+    border-left-width: 3px;
+    border-left-color: #4a9db5;
+}
+
+.vf-header__mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 7px;
+    background-color: #4a9db5;
+}
+
+.vf-header__title {
+    -unity-font-style: bold;
+    font-size: 13px;
+}
+
+/* --- Section: a collapsible card grouping related settings ----------------------------------------------- */
+.vf-section {
+    margin-top: 3px;
+    margin-bottom: 3px;
+    padding: 2px 7px 6px 7px;
+    background-color: var(--unity-colors-helpbox-background);
+    border-width: 1px;
+    border-color: var(--unity-colors-helpbox-border);
+    border-radius: 4px;
+}
+
+.vf-section > Toggle {
+    -unity-font-style: bold;
+    margin-left: 0;
+    margin-bottom: 2px;
+}
+
+/* Nested sub-card (e.g. one blend layer inside the Group inspector). */
+.vf-subsection {
+    margin-top: 4px;
+    padding: 2px 6px 5px 6px;
+    background-color: var(--unity-colors-window-background);
+    border-width: 1px;
+    border-color: var(--unity-colors-helpbox-border);
+    border-radius: 4px;
+}
+
+.vf-subsection__title {
+    -unity-font-style: bold;
+    margin-bottom: 2px;
+}
+
+/* --- Inline help text (muted, wrapping) ------------------------------------------------------------------ */
+.vf-help {
+    white-space: normal;
+    opacity: 0.7;
+    font-size: 11px;
+    margin: 2px 2px 4px 2px;
+}
+
+/* --- Footer: actions + diagnostics under the sections -------------------------------------------------- */
+.vf-footer {
+    margin-top: 8px;
+}
+
+.vf-footer Button {
+    height: 22px;
+}
+
+/* --- Segmented enum control (side-by-side options, like a toggle button group) --------------------------- */
+.vf-seg-group {
+    flex-direction: row;
+}
+
+.vf-seg {
+    flex-grow: 1;
+    margin: 0;
+    border-radius: 0;
+    border-width: 1px;
+    border-color: var(--unity-colors-button-border);
+}
+
+.vf-seg--first {
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+}
+
+.vf-seg--last {
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+/* Collapse the seam between adjacent buttons. */
+.vf-seg--mid,
+.vf-seg--last {
+    border-left-width: 0;
+}
+
+.vf-seg--active {
+    background-color: #4a9db5;
+    color: #ffffff;
+    -unity-font-style: bold;
+}
+
+/* --- Diagnostics rows ------------------------------------------------------------------------------------ */
+.vf-diag-row {
+    flex-direction: row;
+    margin-bottom: 1px;
+}
+
+.vf-diag-label {
+    width: 78px;
+    opacity: 0.7;
+    font-size: 11px;
+}
+
+.vf-diag-value {
+    flex-grow: 1;
+    font-size: 11px;
+}
+
+.vf-diag-link {
+    font-size: 11px;
+}

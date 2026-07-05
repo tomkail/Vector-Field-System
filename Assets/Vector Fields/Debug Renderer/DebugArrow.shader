@@ -1,6 +1,10 @@
 Shader "VectorField/InstanceDebugRenderer" {
     Properties {
         _MainTex ("Texture", 2D) = "white" {}
+        // Blend factors, driven from VectorFieldDebugRenderer so the Invert Background colour mode can switch the pass
+        // from straight alpha-over to a destination invert. Defaults reproduce the normal transparent blend.
+        [HideInInspector] _SrcBlend ("__src", Float) = 5  // SrcAlpha
+        [HideInInspector] _DstBlend ("__dst", Float) = 10 // OneMinusSrcAlpha
     }
 
     // Shared program body, included by both the URP and Built-in SubShaders below.
@@ -31,7 +35,7 @@ Shader "VectorField/InstanceDebugRenderer" {
     float displayWidth;      // arrows drawn along x at the current LOD (whole number; float for reliable binding)
     float2 arrowSpacing;     // cells between adjacent arrows (per axis); the grid spans edge-to-edge
     float2 detailFade;       // per-axis cross-fade weight for the odd-index arrows the finer level adds
-    float colorMode;         // 0 = direction (hue), 1 = magnitude (low->high gradient), 2 = fixed colour
+    float colorMode;         // 0 = direction (hue), 1 = magnitude (low->high gradient), 2 = fixed colour, 3 = invert background
     float4 fixedColor;       // Fixed mode tint
     float4 lowColor;         // Magnitude mode colour at zero magnitude
     float4 highColor;        // Magnitude mode colour at (and above) maxMagnitude
@@ -156,6 +160,15 @@ Shader "VectorField/InstanceDebugRenderer" {
         if (any(i.cellPos < -0.5) || any(i.cellPos > fieldSize - 0.5)) discard;
         half4 shape = tex2D(_MainTex, i.uv); // arrow glyph (alpha mask + its own texture colour)
 
+        if (colorMode > 2.5) {
+            // Invert Background: ignore the colour fields and output premultiplied coverage. Combined with the
+            // OneMinusDstColor/OneMinusSrcAlpha blend the renderer sets for this mode, the result is
+            // lerp(dst, 1-dst, coverage) — each arrow inverts whatever it's drawn over, so it stands out against any
+            // background (the one null is exact mid-grey, which inverts to itself). Coverage = glyph mask * opacity * LOD fade.
+            float coverage = shape.a * _Opacity * i.alpha;
+            return half4(coverage, coverage, coverage, coverage);
+        }
+
         half4 color;
         if (colorMode < 0.5) {
             // Direction: hue from the vector's angle, opacity from its magnitude.
@@ -180,7 +193,7 @@ Shader "VectorField/InstanceDebugRenderer" {
         Tags { "RenderPipeline" = "UniversalPipeline" "Queue" = "Overlay" }
         Pass {
             Tags { "LightMode" = "SRPDefaultUnlit" }
-            Blend SrcAlpha OneMinusSrcAlpha
+            Blend [_SrcBlend] [_DstBlend]
             ZWrite Off
             Cull Off
             ZTest Always
@@ -196,7 +209,7 @@ Shader "VectorField/InstanceDebugRenderer" {
     SubShader {
         Tags { "Queue" = "Overlay" }
         Pass {
-            Blend SrcAlpha OneMinusSrcAlpha // enable transparency
+            Blend [_SrcBlend] [_DstBlend] // straight alpha-over, or destination-invert in Invert Background mode
             ZWrite Off
             Cull Off
             ZTest Always

@@ -8,6 +8,9 @@ public enum VectorFieldDebugColorMode {
     Magnitude,
     // A single flat colour, regardless of direction or magnitude.
     Fixed,
+    // Invert whatever's behind each arrow instead of tinting — guarantees the arrows stand out against any
+    // background (the one null is exact mid-grey, which inverts to itself). Ignores the colour fields.
+    InvertBackground,
 }
 
 // Appearance settings for the vector field debug arrows. This is plain runtime data so the renderer can consume it

@@ -50,6 +50,12 @@ static class VectorFieldDebugSettingsProvider {
                         EditorGUILayout.PropertyField(lowColor, new GUIContent("Low Magnitude"));
                         EditorGUILayout.PropertyField(highColor, new GUIContent("High Magnitude"));
                         break;
+                    case VectorFieldDebugColorMode.InvertBackground:
+                        EditorGUILayout.HelpBox(
+                            "Arrows invert whatever's behind them, so they stand out against any background. " +
+                            "Colour is ignored in this mode. (Exact mid-grey backgrounds are the one exception — " +
+                            "they invert to themselves.)", MessageType.Info);
+                        break;
                 }
 
                 if (EditorGUI.EndChangeCheck()) {

@@ -35,6 +35,8 @@ public class VectorFieldDebugRenderer : System.IDisposable
     static readonly int FixedColorProp = Shader.PropertyToID("fixedColor");
     static readonly int LowColorProp = Shader.PropertyToID("lowColor");
     static readonly int HighColorProp = Shader.PropertyToID("highColor");
+    static readonly int SrcBlendProp = Shader.PropertyToID("_SrcBlend");
+    static readonly int DstBlendProp = Shader.PropertyToID("_DstBlend");
 
     Material arrowMaterial;
     GraphicsBuffer argsBuffer;
@@ -115,6 +117,11 @@ public class VectorFieldDebugRenderer : System.IDisposable
         arrowMaterial.SetColor(FixedColorProp, appearance.fixedColor);
         arrowMaterial.SetColor(LowColorProp, appearance.lowColor);
         arrowMaterial.SetColor(HighColorProp, appearance.highColor);
+        // Invert Background mode composites as a destination invert (OneMinusDstColor) with premultiplied coverage from
+        // the shader; every other mode is straight alpha-over. Blend state is fixed-function, so switch it here.
+        bool invert = appearance.colorMode == VectorFieldDebugColorMode.InvertBackground;
+        arrowMaterial.SetFloat(SrcBlendProp, (float)(invert ? BlendMode.OneMinusDstColor : BlendMode.SrcAlpha));
+        arrowMaterial.SetFloat(DstBlendProp, (float)BlendMode.OneMinusSrcAlpha);
         arrowMaterial.SetVector(FieldSize, new Vector2(gridSize.x, gridSize.y));
         arrowMaterial.SetFloat(DisplayWidth, displayWidth);
         arrowMaterial.SetVector(ArrowSpacing, arrowSpacing);

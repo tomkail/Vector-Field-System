@@ -31,6 +31,7 @@ public class GridTransform {
 	// localToWorldMatrix changes (detected by comparing against the value the cache was built from, so this doesn't
 	// consume the shared Transform.hasChanged flag that other code may rely on).
 	bool _dirty = true;
+	Vector2Int _cachedSize;
 	Matrix4x4 _cachedOwnerMatrix = Matrix4x4.identity;
 	Matrix4x4 _gridToLocal = Matrix4x4.identity;
 	Matrix4x4 _gridToWorld = Matrix4x4.identity;
@@ -50,16 +51,21 @@ public class GridTransform {
 
 	void EnsureUpToDate() {
 		var ownerMatrix = OwnerLocalToWorld;
-		if (!_dirty && ownerMatrix == _cachedOwnerMatrix) return;
-		_cachedOwnerMatrix = ownerMatrix;
+		// Recompute when the size changed — including inspector edits, which write the serialized _size field directly
+		// and bypass the Size setter (so _dirty stays false) — when the owner moved, on a Bind, or on first use.
+		if (!_dirty && _size == _cachedSize && ownerMatrix == _cachedOwnerMatrix) return;
 		_dirty = false;
+		_cachedSize = _size;
+		_cachedOwnerMatrix = ownerMatrix;
 
 		// Cell-center conversion, Manhattan mode, scaleWithGridSize = false (exactly the old GridRenderer path):
 		//   cellSize    = (1/sx, 1/sy, 1/sy)
 		//   gridToLocal = TRS(0, id, cellSize) · TRS((-sx/2, -sy/2, 0), id, 1) · TRS((0.5, 0.5, 0), id, 1)
-		Vector3 cellSize = new Vector3(1f / _size.x, 1f / _size.y, 1f / _size.y);
+		// Clamp defensively so an inspector-typed 0 (which bypasses the Size setter's clamp) can't divide by zero.
+		int sx = Mathf.Max(1, _size.x), sy = Mathf.Max(1, _size.y);
+		Vector3 cellSize = new Vector3(1f / sx, 1f / sy, 1f / sy);
 		Matrix4x4 m = Matrix4x4.Scale(cellSize);
-		m *= Matrix4x4.Translate(new Vector3(-_size.x * 0.5f, -_size.y * 0.5f, 0f));
+		m *= Matrix4x4.Translate(new Vector3(-sx * 0.5f, -sy * 0.5f, 0f));
 		m *= Matrix4x4.Translate(new Vector3(0.5f, 0.5f, 0f));
 		_gridToLocal = m;
 		_gridToWorld = ownerMatrix * _gridToLocal;

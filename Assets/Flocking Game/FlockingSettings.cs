@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityX.NoiseSampler;
 
 [CreateAssetMenu(fileName = "FlockingSettings", menuName = "Flocking/Flocking Settings")]
 public class FlockingSettings : ScriptableObject {

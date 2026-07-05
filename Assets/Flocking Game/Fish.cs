@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityX.NoiseSampler;
 
 [RequireComponent(typeof(SpriteRenderer))]
 public class Fish : MonoBehaviour {

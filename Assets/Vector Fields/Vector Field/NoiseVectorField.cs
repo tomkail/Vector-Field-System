@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityX.NoiseSampler;
 
 // Code-callable noise vector field generator. Writes a fractal-noise flow field into an ARGBFloat render texture on
 // the GPU, with no dependency on a MonoBehaviour or GridRenderer: give it the target, the grid size, the matrix that

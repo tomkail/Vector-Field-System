@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityX.NoiseSampler;
 
 // Editor-facing wrapper around the code-callable NoiseVectorField generator: holds the sampler settings, detects
 // changes, builds the grid->sample matrix from the grid/transform, and dispatches into the base render texture.

@@ -1,6 +1,6 @@
-# Flow Visualization — design notes & the cell-seam investigation
+# Flow-Aligned Texture — design notes & the cell-seam investigation
 
-Internals/design note for `VectorFieldFlowVisualization.shader` + `VectorFieldFlow.cginc`. Not user-facing
+Internals/design note for `VectorFieldFlowAligned.shader` + `VectorFieldFlowAligned.cginc`. Not user-facing
 (`VECTOR_FIELDS.md` is the usage reference). This captures *why* the shader is shaped the way it is, and the long
 investigation into the per-cell **seam** so we don't re-run the dead ends.
 
@@ -156,7 +156,7 @@ field-texel crease); a **recolor gradient** with selectable source (`_GradientSo
 
 ## Gotcha: Unity doesn't recompile on `.cginc`-only edits
 
-Editing `VectorFieldFlow.cginc` alone often does **not** trigger a shader recompile — Unity only watches the `.shader`.
+Editing `VectorFieldFlowAligned.cginc` alone often does **not** trigger a shader recompile — Unity only watches the `.shader`.
 Several "that change did nothing" results during this work were **stale compiles**, not failed changes. The `.shader`
 carries a `rev N` comment in the CGPROGRAM block; **bump it whenever you touch the `.cginc`** (or reimport the shader)
 to force a recompile. Also: `[Enum(...)]` labels must not be purely numeric (`0`,`90`,…) — Unity's Enum drawer throws.

@@ -5,7 +5,7 @@ using UnityEngine;
 //
 // The field texture is pushed into the renderer's material as _MainTex via a MaterialPropertyBlock, so it overrides
 // only this renderer's instance — it never edits the shared material asset, and never replaces the material you
-// assigned in the inspector (e.g. the Vector Field Flow Visualization material).
+// assigned in the inspector (e.g. the Flow-Aligned Texture material).
 [ExecuteAlways]
 [AddComponentMenu("Vector Fields/Renderers/Texture Renderer")]
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]

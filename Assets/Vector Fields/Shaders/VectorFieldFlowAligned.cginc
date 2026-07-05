@@ -19,7 +19,7 @@ uniform float _GradientSource;
 // Rotates the sampled _Tex frame by k*90 degrees: 0 = 0, 1 = 90, 2 = 180, 3 = 270.
 uniform float _TextureRotation;
 // Flow sampling mode: 0 = Cell Blend (Legacy, has the seam), 1 = Cell Blend Seam Masked (bridge/blur across the seam),
-// 2 = Cell Blend Seam Copy (replace seam pixels with the nearest good pixel — no blend). See FLOW_VISUALIZATION_NOTES.md.
+// 2 = Cell Blend Seam Copy (replace seam pixels with the nearest good pixel — no blend). See FLOW_ALIGNED_NOTES.md.
 uniform float _FlowSamplingMode;
 // Seam-mask (mode 1) band half-width, in screen pixels: how wide a strip around each cell edge gets the bridge.
 uniform float _SeamBand;
@@ -204,7 +204,7 @@ float4 CalculateFrag(float2 uv) {
 
     float3 streak;
     if (_FlowSamplingMode < 0.5) {
-        // Mode 0 — Cell Blend (Legacy). The original effect; carries the per-cell seam (see FLOW_VISUALIZATION_NOTES.md).
+        // Mode 0 — Cell Blend (Legacy). The original effect; carries the per-cell seam (see FLOW_ALIGNED_NOTES.md).
         streak = legacyStreakBlend(uv);
     } else if (_FlowSamplingMode < 1.5) {
         // Mode 1 — Cell Blend, Seam Masked. The legacy effect everywhere, but in a thin band straddling each cell edge

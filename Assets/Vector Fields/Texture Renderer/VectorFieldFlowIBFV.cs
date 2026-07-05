@@ -2,13 +2,13 @@ using UnityEngine;
 
 // PROTOTYPE — drives the Image-Based Flow Visualization (IBFV) look (van Wijk 2002) over a VectorFieldComponent.
 //
-// IBFV is a SEPARATE aesthetic from the sand-ripple flow shader: seam-free, flowing, but blurry/directional rather
+// IBFV is a SEPARATE aesthetic from the Flow-Aligned Texture shader: seam-free, flowing, but blurry/directional rather
 // than sandy. It works by a feedback loop — each frame it advects the previous accumulation buffer along the flow and
 // blends in a little fresh noise (see VectorFieldFlowIBFV.shader). That loop needs ping-pong render textures, which is
 // what this component manages. Put it on a quad (MeshRenderer + MeshFilter), point it at a field, hit play.
 //
-// Status: prototype / exploration, not a finished feature. Compare it against the sand shader's Mode 1 before deciding
-// whether it's worth productionising. See FLOW_VISUALIZATION_NOTES.md.
+// Status: prototype / exploration, not a finished feature. Compare it against the Flow-Aligned Texture Mode 1 before deciding
+// whether it's worth productionising. See FLOW_ALIGNED_NOTES.md.
 [ExecuteAlways]
 [AddComponentMenu("Vector Fields/Renderers/Flow (IBFV)")]
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]

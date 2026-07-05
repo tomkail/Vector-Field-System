@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Vector Field Flow
+  m_Name: Flow Aligned
   m_Shader: {fileID: 4800000, guid: 1221ae386a8b54665ab7def2b3f4b02d, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -53,13 +53,16 @@ Material:
     - _ContinuousAmplitude: 1
     - _ContinuousSampling: 1
     - _DebugView: 0
+    - _DstBlend: 10
     - _FlowSamplingMode: 2
     - _GradientSource: 0
     - _GridCellCount: 60
+    - _InvertBackground: 0
     - _SeamBand: 1
     - _SeamDebug: 0
     - _SeamReach: 1
     - _Speed: 93
+    - _SrcBlend: 5
     - _TextureRotation: 0
     - _TextureScale: 10
     - _UseTextureColor: 1

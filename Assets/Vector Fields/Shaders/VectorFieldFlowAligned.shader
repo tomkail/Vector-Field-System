@@ -1,6 +1,6 @@
 ﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
 
-Shader "Vector Fields/Vector Field Flow Visualization" {
+Shader "Vector Fields/Flow-Aligned Texture" {
 	Properties {
 		_MainTex ("Vector Field", 2D) = "white" {}
 		_Tex ("Texture", 2D) = "white" {}
@@ -30,9 +30,9 @@ Shader "Vector Fields/Vector Field Flow Visualization" {
 			Fog { Mode Off }
 
 			CGPROGRAM
-			// NOTE: editing VectorFieldFlow.cginc alone may not trigger a recompile in Unity — touch this file (or
+			// NOTE: editing VectorFieldFlowAligned.cginc alone may not trigger a recompile in Unity — touch this file (or
 			// reimport the shader) to force it. Bump this when the .cginc changes: rev 16
-			#include "VectorFieldFlow.cginc"
+			#include "VectorFieldFlowAligned.cginc"
 
 			#pragma fragment frag
 			#pragma vertex vert

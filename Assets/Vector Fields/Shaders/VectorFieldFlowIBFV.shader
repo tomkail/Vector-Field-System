@@ -1,9 +1,9 @@
 // PROTOTYPE — Image-Based Flow Visualization (van Wijk 2002), a *seamless* flowing-streak look.
 //
-// This is a DIFFERENT aesthetic from VectorFieldFlowVisualization (the sand-ripple shader). IBFV produces blurry,
+// This is a DIFFERENT aesthetic from VectorFieldFlowAligned (the sand-ripple look). IBFV produces blurry,
 // directional, LIC-like streaks — seam-free by construction, because it builds the image by ADVECTING a feedback
 // buffer along the flow and blending in fresh noise each frame, never by orienting an anisotropic texture (which is
-// what forces the seam there — see FLOW_VISUALIZATION_NOTES.md).
+// what forces the seam there — see FLOW_ALIGNED_NOTES.md).
 //
 // This shader is just the per-frame update pass (a fullscreen blit). It needs a ping-pong feedback loop to do anything
 // — drive it with VectorFieldFlowIBFV.cs.
@@ -42,7 +42,7 @@ Shader "Vector Fields/Vector Field Flow IBFV" {
             fixed4 frag (v2f_img i) : SV_Target {
                 float2 uv = i.uv;
 
-                // Decode the flow velocity (same sign convention as the sand shader: -(rg - 0.5)).
+                // Decode the flow velocity (same sign convention as Flow-Aligned Texture: -(rg - 0.5)).
                 float2 vel = -1.0 * (tex2D(_FieldTex, uv).rg - 0.5);
 
                 // Advect: pull this pixel's value from where the flow carried it FROM last frame. Integrating the

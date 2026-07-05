@@ -8,7 +8,7 @@ public static class VectorFieldUtils {
 	// (e.g. the group's alignment ramp).
 	public static Texture2D CreateRampTextureFromAnimationCurve(AnimationCurve curve, int textureWidth, ref Texture2D texture) {
 		if (texture == null || texture.width != textureWidth) {
-			if (texture != null) ObjectX.DestroyAutomatic(texture);
+			if (texture != null) VectorFieldObjectUtils.DestroyAutomatic(texture);
 			texture = new Texture2D(textureWidth, 1, TextureFormat.RFloat, false, true) {
 				wrapMode = TextureWrapMode.Clamp
 			};
@@ -27,7 +27,7 @@ public static class VectorFieldUtils {
 	// visualization's recolor gradient). Authored in sRGB (linear:false) so colors read as designed in the inspector.
 	public static Texture2D CreateColorRampTextureFromGradient(Gradient gradient, int textureWidth, ref Texture2D texture) {
 		if (texture == null || texture.width != textureWidth) {
-			if (texture != null) ObjectX.DestroyAutomatic(texture);
+			if (texture != null) VectorFieldObjectUtils.DestroyAutomatic(texture);
 			texture = new Texture2D(textureWidth, 1, TextureFormat.RGBA32, false, false) {
 				wrapMode = TextureWrapMode.Clamp
 			};

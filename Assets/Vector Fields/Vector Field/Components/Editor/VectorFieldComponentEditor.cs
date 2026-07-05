@@ -3,7 +3,10 @@ using UnityEngine;
 using UnityEditor;
 
 [CustomEditor(typeof(VectorFieldComponent), true), CanEditMultipleObjects]
-public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
+public class VectorFieldComponentEditor : Editor {
+	// The typed target (replaces a typed base class this used to inherit). Refreshed in OnEnable; Unity
+	// creates a fresh editor instance when the selection changes, so it stays current.
+	protected VectorFieldComponent data => target as VectorFieldComponent;
 	// Re-encodes the field's render texture for the inspector preview, applying the contrast scale on the GPU (see
 	// VectorFieldPreview.shader) rather than rebuilding a CPU Texture2D every repaint.
 	static Shader previewShader;
@@ -33,8 +36,7 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 	// which case Auto Scale falls back to 1). The drawn preview always comes from the GPU renderTexture, not this.
 	Vector2Map PreviewField => data is DrawableVectorFieldComponent drawable ? drawable.PaintField : data.vectorField;
 
-	public override void OnEnable() {
-		base.OnEnable();
+	void OnEnable() {
 		maxComponent = 1f;
 	}
 
@@ -43,9 +45,17 @@ public class VectorFieldComponentEditor : BaseEditor<VectorFieldComponent> {
 	}
 
 	public override void OnInspectorGUI() {
-		base.OnInspectorGUI();
+		DrawDefaultInspector();
+		if (GUI.changed && target != null) EditorUtility.SetDirty(target);
 		if (GUILayout.Button("Rasterize")) {
 			Rasterize();
+		}
+
+		// Drawable-specific actions (previously [EasyButtons.Button] on the component). Act on the primary target.
+		if (data is DrawableVectorFieldComponent drawable) {
+			if (GUILayout.Button("Clear")) drawable.Clear();
+			if (GUILayout.Button("Extract To Asset")) drawable.ExtractToAsset();
+			if (GUILayout.Button("Bake Into Component")) drawable.BakeIntoComponent();
 		}
 
 		DrawDiagnostics();

@@ -15,7 +15,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 				Debug.LogError("VectorFieldComponent is null");
 				return null;
 			}
-			// Nearest ancestor group (equivalent to GetComponentsX(AllAncestorsExcludingSelf).FirstOrDefault(), which
+			// Nearest ancestor group (equivalent to a nearest-matching-ancestor search, which
 			// returns the closest matching ancestor and includes inactive ones), but as a plain parent walk so it
 			// doesn't allocate a List + LINQ enumerator on every access.
 			for (var t = transform.parent; t != null; t = t.parent)
@@ -66,7 +66,10 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// fires after the readback (synchronously if any consumer requested immediate, otherwise from the async callback).
 	public event Action OnCpuDataReady;
 
-	SerializableTransform lastTransform;
+	// Cached world matrix from the last tick, to detect when this object has moved/rotated/scaled (so the field
+	// re-renders). Captures parent motion too, since it's the full localToWorldMatrix.
+	Matrix4x4 lastLocalToWorld;
+	bool haveLastLocalToWorld;
 
 	// Consumers register that they need the CPU vectorField; the readback only runs while at least one is registered,
 	// and runs synchronously (same frame) if any of them needs the data immediately. One readback per render serves
@@ -152,7 +155,8 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		// Grid size defaults to 64×64 and self-clamps to ≥1 on each axis (see GridTransform.Size), so no explicit
 		// defaulting/guarding is needed here.
 		grid.Bind(transform);
-		lastTransform = new SerializableTransform(transform);
+		lastLocalToWorld = transform.localToWorldMatrix;
+		haveLastLocalToWorld = true;
 		SetDirty();
 	}
 #endif
@@ -169,9 +173,10 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	}
 
 	bool TransformChanged() {
-		var current = new SerializableTransform(transform);
-		if (lastTransform != current) {
-			lastTransform = current;
+		var current = transform.localToWorldMatrix;
+		if (!haveLastLocalToWorld || lastLocalToWorld != current) {
+			lastLocalToWorld = current;
+			haveLastLocalToWorld = true;
 			return true;
 		}
 		return false;
@@ -356,7 +361,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		int width = src.size.x;
 		int height = src.size.y;
 		if (uploadTexture == null || uploadTexture.width != width || uploadTexture.height != height) {
-			if (uploadTexture != null) ObjectX.DestroyAutomatic(uploadTexture);
+			if (uploadTexture != null) VectorFieldObjectUtils.DestroyAutomatic(uploadTexture);
 			// linear: true — this stores encoded vector data and must not be sRGB-converted on the Blit.
 			uploadTexture = new Texture2D(width, height, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
 		}

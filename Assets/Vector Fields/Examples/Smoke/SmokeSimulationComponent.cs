@@ -139,9 +139,9 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
 
     void OnDisable() {
         ReleaseTextures();
-        if (sourcePatchTex != null) { ObjectX.DestroyAutomatic(sourcePatchTex); sourcePatchTex = null; }
-        if (renderMaterial != null) { ObjectX.DestroyAutomatic(renderMaterial); renderMaterial = null; }
-        if (quad != null) { ObjectX.DestroyAutomatic(quad); quad = null; }
+        if (sourcePatchTex != null) { VectorFieldObjectUtils.DestroyAutomatic(sourcePatchTex); sourcePatchTex = null; }
+        if (renderMaterial != null) { VectorFieldObjectUtils.DestroyAutomatic(renderMaterial); renderMaterial = null; }
+        if (quad != null) { VectorFieldObjectUtils.DestroyAutomatic(quad); quad = null; }
     }
 
     void Update() {
@@ -257,7 +257,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
         if (sourcePatchTex != null && sourcePatchTex.width >= w && sourcePatchTex.height >= h) return;
         int sw = sourcePatchTex != null ? Mathf.Max(w, sourcePatchTex.width) : w;
         int sh = sourcePatchTex != null ? Mathf.Max(h, sourcePatchTex.height) : h;
-        if (sourcePatchTex != null) ObjectX.DestroyAutomatic(sourcePatchTex);
+        if (sourcePatchTex != null) VectorFieldObjectUtils.DestroyAutomatic(sourcePatchTex);
         sourcePatchTex = new Texture2D(sw, sh, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
     }
 
@@ -346,7 +346,6 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     }
 
     // Clear all smoke (density + painted source).
-    [EasyButtons.Button]
     public void Clear() {
         if (densityA != null) { var prev = RenderTexture.active; RenderTexture.active = densityA; GL.Clear(false, true, Color.clear); RenderTexture.active = prev; }
         if (densityB != null) { var prev = RenderTexture.active; RenderTexture.active = densityB; GL.Clear(false, true, Color.clear); RenderTexture.active = prev; }

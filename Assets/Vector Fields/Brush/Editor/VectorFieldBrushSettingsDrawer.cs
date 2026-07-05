@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-// IMGUI drawer: the vector field component inspectors draw via BaseEditor.DrawDefaultInspector (IMGUI), so a
+// IMGUI drawer: the vector field component inspectors draw via DrawDefaultInspector (IMGUI), so a
 // UIElements-only drawer would render as "No GUI Implemented". Shows the force type plus only the angle that type uses
 // — directionalAngle for Directional, vortexAngle for Spot.
 [CustomPropertyDrawer(typeof(VectorFieldBrushSettings))]

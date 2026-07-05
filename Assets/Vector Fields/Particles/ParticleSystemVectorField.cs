@@ -130,7 +130,7 @@ public class ParticleSystemVectorField : MonoBehaviour
 		// Allocate a fresh Texture3D each refresh. ParticleSystemForceField only re-reads its vector field when the
 		// texture reference changes, so updating one in place (SetPixels/Apply) leaves the particles on stale data.
 		// Refresh now runs only when the field changes (not every frame), so this allocation is no longer per-frame.
-		if (texture3D != null) ObjectX.DestroyAutomatic(texture3D);
+		if (texture3D != null) VectorFieldObjectUtils.DestroyAutomatic(texture3D);
 		texture3D = VectorFieldUtils.CreateTexture3D(_vectorFieldComponent.vectorField, amplitudeLut);
 		// Derived data, regenerated here every OnEnable/Refresh. Under [ExecuteAlways] it's created at edit time and
 		// assigned to the ParticleSystemForceField (a scene component), so without this Unity would embed the whole

@@ -192,7 +192,6 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         pendingDirtyRegion = null;
     }
 
-    [EasyButtons.Button]
     public void Clear() {
         PaintField.Clear();
         SetDirty();
@@ -202,7 +201,6 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
 #if UNITY_EDITOR
     // Move the current field into a new reusable asset and link this component to it (switch to asset mode). The data
     // now lives in the .asset; the component stores only the reference.
-    [EasyButtons.Button]
     public void ExtractToAsset() {
         var current = new Vector2Map(PaintField);   // copy so the asset owns its data
         string path = UnityEditor.EditorUtility.SaveFilePanelInProject(
@@ -221,7 +219,6 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
 
     // Copy the linked asset's field onto this component and unlink (switch to on-component mode), so the data is saved
     // in the scene and no longer depends on the asset. "Saving directly on the object" is never lost.
-    [EasyButtons.Button]
     public void BakeIntoComponent() {
         if (sourceAsset == null || sourceAsset.Field == null) return;
         paintField = new Vector2Map(sourceAsset.Field);   // copy asset data onto the component

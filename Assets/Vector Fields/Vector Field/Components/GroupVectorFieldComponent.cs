@@ -35,22 +35,24 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 	}
 
 	public List<VectorFieldLayer> layers = new List<VectorFieldLayer>();
-	IEnumerable<VectorFieldComponent> childComponents => this.GetComponentsX(ComponentX.ComponentSearchParams<VectorFieldComponent>.AllDescendentsExcludingSelf(false));
+
+	// All descendant vector fields excluding self, in hierarchy order (GetComponentsInChildren is depth-first,
+	// top-to-bottom). Active objects only, matching the previous behaviour.
+	IEnumerable<VectorFieldComponent> childComponents =>
+		GetComponentsInChildren<VectorFieldComponent>(false).Where(c => c != this);
 
 	void RefreshLayers() {
 		layers.RemoveAll(x => x.component == null);
-		List<VectorFieldComponent> added = new List<VectorFieldComponent>();
-		List<VectorFieldComponent> removed = new List<VectorFieldComponent>();
-		IEnumerableX.GetChanges(childComponents, layers.Select(x => x.component), out added, out removed);
-		foreach (var component in added) {
-			layers.Add(new VectorFieldLayer() {
-				component = component
-			});
-		}
-		foreach (var component in removed) {
-			layers.RemoveAll(x => x.component == component);
-		}
-		layers = layers.OrderBy(x => x.component.transform.GetHierarchyIndex()).ToList();
+		var children = childComponents.ToList();                             // hierarchy order == blend order
+		var childSet = new HashSet<VectorFieldComponent>(children);
+		var existing = new HashSet<VectorFieldComponent>(layers.Select(x => x.component));
+		// Add a layer for each newly-appeared child; drop layers whose component is gone or no longer a descendant.
+		foreach (var component in children)
+			if (!existing.Contains(component))
+				layers.Add(new VectorFieldLayer() { component = component });
+		layers.RemoveAll(x => x.component == null || !childSet.Contains(x.component));
+		// Order layers to match the hierarchy, so blend order follows the scene hierarchy as before.
+		layers = layers.OrderBy(x => children.IndexOf(x.component)).ToList();
 	}
 
 	protected override void RenderInternal() {

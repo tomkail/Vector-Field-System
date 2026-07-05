@@ -127,8 +127,8 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 #endif
 
 	void OnDestroy() {
-		if (rampTexture != null) ObjectX.DestroyAutomatic(rampTexture);
-		if (colorGradientTexture != null) ObjectX.DestroyAutomatic(colorGradientTexture);
+		if (rampTexture != null) VectorFieldObjectUtils.DestroyAutomatic(rampTexture);
+		if (colorGradientTexture != null) VectorFieldObjectUtils.DestroyAutomatic(colorGradientTexture);
 	}
 
 	// Lay the quad over the field's world rect (a unit-quad mesh centred at the origin maps exactly onto it). Shared

@@ -15,13 +15,13 @@ public class NegativeEXRTest : MonoBehaviour {
     [ContextMenu("Do Read3D Test")]
     public void DoRead3DTest() {
         var colors = tex3DToRead.GetPixels();
-        DebugX.ListAsString(colors);
+        Debug.Log(string.Join("\n", colors));
     }
     
     [ContextMenu("Do Read Test")]
     public void DoReadTest() {
         var colors = texToRead.GetPixels();
-        DebugX.ListAsString(colors);
+        Debug.Log(string.Join("\n", colors));
     }
     [ContextMenu("Do Test")]
     public void DoTest()
@@ -40,7 +40,7 @@ public class NegativeEXRTest : MonoBehaviour {
         tex.SetPixels(colors, 0);
         tex.Apply();
         var colorsSet = tex.GetPixels();
-        Debug.Log(DebugX.ListAsString(colorsSet));
+        Debug.Log(string.Join("\n", colorsSet));
  
         // Create RenderTexture
         RenderTexture rt = new RenderTexture(resolutionX, resolutionY, 0, rtFormat, RenderTextureReadWrite.Linear);
@@ -58,7 +58,7 @@ public class NegativeEXRTest : MonoBehaviour {
         Graphics.SetRenderTarget(null);
         texReadback.Apply();
         colorsSet = texReadback.GetPixels();
-        Debug.Log(DebugX.ListAsString(colorsSet));
+        Debug.Log(string.Join("\n", colorsSet));
  
         // Save out EXR file to project's root folder (outside of assets)
         byte[] bytes = tex.EncodeToEXR(exrFlags);
@@ -75,7 +75,7 @@ public class NegativeEXRTest : MonoBehaviour {
         tex3D.SetPixels(colors, 0);
         tex3D.Apply();
         colorsSet = tex3D.GetPixels();
-        Debug.Log(DebugX.ListAsString(colorsSet));
+        Debug.Log(string.Join("\n", colorsSet));
 
         vectorFieldAffector.vectorField = tex3D;
     }

@@ -64,8 +64,8 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
     }
 
     void OnDestroy() {
-        if (ibfvMaterial != null && ibfvMaterial.hideFlags == HideFlags.HideAndDontSave) ObjectX.DestroyAutomatic(ibfvMaterial);
-        if (noiseTexture != null && noiseTexture.hideFlags == HideFlags.HideAndDontSave) ObjectX.DestroyAutomatic(noiseTexture);
+        if (ibfvMaterial != null && ibfvMaterial.hideFlags == HideFlags.HideAndDontSave) VectorFieldObjectUtils.DestroyAutomatic(ibfvMaterial);
+        if (noiseTexture != null && noiseTexture.hideFlags == HideFlags.HideAndDontSave) VectorFieldObjectUtils.DestroyAutomatic(noiseTexture);
     }
 
     void EnsureResources() {
@@ -89,7 +89,7 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
     void ReleaseBuffer(ref RenderTexture rt) {
         if (rt == null) return;
         rt.Release();
-        ObjectX.DestroyAutomatic(rt);
+        VectorFieldObjectUtils.DestroyAutomatic(rt);
         rt = null;
     }
 

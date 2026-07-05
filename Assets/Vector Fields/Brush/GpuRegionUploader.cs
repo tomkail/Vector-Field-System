@@ -35,7 +35,7 @@ public sealed class GpuRegionUploader {
         if (_staging == null || _staging.width < w || _staging.height < h || _staging.graphicsFormat != fmt) {
             int sw = _staging != null ? Mathf.Max(w, _staging.width) : w;
             int sh = _staging != null ? Mathf.Max(h, _staging.height) : h;
-            if (_staging != null) ObjectX.DestroyAutomatic(_staging);
+            if (_staging != null) VectorFieldObjectUtils.DestroyAutomatic(_staging);
             _staging = new Texture2D(sw, sh, fmt, TextureCreationFlags.None) { filterMode = FilterMode.Point };
         }
 
@@ -46,6 +46,6 @@ public sealed class GpuRegionUploader {
     }
 
     public void Dispose() {
-        if (_staging != null) { ObjectX.DestroyAutomatic(_staging); _staging = null; }
+        if (_staging != null) { VectorFieldObjectUtils.DestroyAutomatic(_staging); _staging = null; }
     }
 }

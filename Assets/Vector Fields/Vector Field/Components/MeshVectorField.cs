@@ -169,7 +169,7 @@ public class MeshVectorField : VectorFieldComponent {
 
 	protected override void OnDestroy() {
 		base.OnDestroy();
-		if (bakedMesh != null) ObjectX.DestroyAutomatic(bakedMesh);
+		if (bakedMesh != null) VectorFieldObjectUtils.DestroyAutomatic(bakedMesh);
 		bakedMesh = null;
 	}
 }

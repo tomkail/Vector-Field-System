@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-// IMGUI drawer: the vector field component inspectors draw via BaseEditor.DrawDefaultInspector (IMGUI), so a
+// IMGUI drawer: the vector field component inspectors draw via DrawDefaultInspector (IMGUI), so a
 // UIElements-only drawer would render as "No GUI Implemented". Shows the mode plus only the field that mode uses.
 [CustomPropertyDrawer(typeof(VectorFieldCookieSource))]
 public class VectorFieldCookieSourceDrawer : PropertyDrawer {

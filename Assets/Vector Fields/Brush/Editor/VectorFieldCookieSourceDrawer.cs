@@ -12,11 +12,15 @@ public class VectorFieldCookieSourceDrawer : PropertyDrawer {
 		var root = new VisualElement();
 
 		var modeProp = property.FindPropertyRelative("mode");
-		root.Add(new PropertyField(modeProp, "Mask"));
+		root.Add(Tip(new PropertyField(modeProp, "Mask"),
+			"How the output is masked: None (full strength), a soft radial Falloff, an authored radial Curve, or a Texture."));
 
-		var softness = Indented(new PropertyField(property.FindPropertyRelative("falloffSoftness"), "Softness"));
-		var curve = Indented(new PropertyField(property.FindPropertyRelative("curve"), "Profile"));
-		var texture = Indented(new PropertyField(property.FindPropertyRelative("texture"), "Texture"));
+		var softness = Indented(Tip(new PropertyField(property.FindPropertyRelative("falloffSoftness"), "Softness"),
+			"0 = hard-edged circle, higher = softer edge."));
+		var curve = Indented(Tip(new PropertyField(property.FindPropertyRelative("curve"), "Profile"),
+			"Strength as a function of normalized distance from the centre (0 at centre, 1 at the edge)."));
+		var texture = Indented(Tip(new PropertyField(property.FindPropertyRelative("texture"), "Texture"),
+			"Explicit mask texture; samples the red channel as strength."));
 		root.Add(softness);
 		root.Add(curve);
 		root.Add(texture);
@@ -32,5 +36,10 @@ public class VectorFieldCookieSourceDrawer : PropertyDrawer {
 	static VisualElement Indented(VisualElement element) {
 		element.style.marginLeft = 6;
 		return element;
+	}
+
+	static PropertyField Tip(PropertyField field, string tooltip) {
+		field.tooltip = tooltip;
+		return field;
 	}
 }

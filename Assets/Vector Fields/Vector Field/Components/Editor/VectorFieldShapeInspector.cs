@@ -11,17 +11,22 @@ public static class VectorFieldShapeInspector {
 		var section = VectorFieldInspectorUI.MakeSection("Shape", viewDataKey);
 
 		var sides = so.FindProperty("sides");
-		section.Add(new PropertyField(sides, "Sides"));
+		section.Add(VectorFieldInspectorUI.EnumFlagsSegmentedField(sides, typeof(PolygonVectorFieldGenerator.Sides), "Sides",
+			"Which side(s) of the shape get a vector. Enable both for the whole grid."));
 
-		var boundaryFlip = new PropertyField(so.FindProperty("boundaryFlip"), "Boundary Flip");
+		var boundaryFlip = VectorFieldInspectorUI.Field(so.FindProperty("boundaryFlip"), "Boundary Flip",
+			"By default both sides flow outward (continuous across the edge). Flip one side to make the field diverge from or converge on the outline.");
 		section.Add(boundaryFlip);
 
-		var inner = new PropertyField(so.FindProperty("innerFalloff"), "Inner Falloff");
-		var outer = new PropertyField(so.FindProperty("outerFalloff"), "Outer Falloff");
+		var inner = VectorFieldInspectorUI.Field(so.FindProperty("innerFalloff"), "Inner Falloff",
+			"Distance (local units) over which the inside vectors fade from full strength at the edge to zero. 0 = constant strength.");
+		var outer = VectorFieldInspectorUI.Field(so.FindProperty("outerFalloff"), "Outer Falloff",
+			"Distance (local units) over which the outside vectors fade from full strength at the edge to zero. 0 = constant strength.");
 		section.Add(inner);
 		section.Add(outer);
 
-		section.Add(new PropertyField(so.FindProperty("angle"), "Angle"));
+		section.Add(VectorFieldInspectorUI.Field(so.FindProperty("angle"), "Angle",
+			"Rotates each vector around the plane normal. 0° points toward the nearest edge; 90° circulates around the shape; 180° points away."));
 
 		bool Has(PolygonVectorFieldGenerator.Sides s) => (sides.intValue & (int)s) != 0;
 		VectorFieldInspectorUI.ShowIf(inner, sides, () => Has(PolygonVectorFieldGenerator.Sides.Inside));

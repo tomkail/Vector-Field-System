@@ -45,11 +45,22 @@ public class GroupVectorFieldComponentEditor : VectorFieldComponentEditor {
 		title.AddToClassList("vf-subsection__title");
 		card.Add(title);
 
-		card.Add(new PropertyField(layer.FindPropertyRelative("strength"), "Strength"));
-		card.Add(VectorFieldInspectorUI.EnumSegmentedField(layer.FindPropertyRelative("blendMode"), "Blend Mode"));
-		card.Add(new PropertyField(layer.FindPropertyRelative("components"), "Affects"));
-		card.Add(new PropertyField(layer.FindPropertyRelative("alignmentRamp"), "Alignment Ramp"));
-		card.Add(new PropertyField(layer.FindPropertyRelative("scaleByFieldMagnitude"), "Scale By Field Magnitude"));
+		// Read-only: layers are auto-gathered from the child hierarchy, so this isn't user-editable. Disabled like the
+		// component Script field — you can still click it to ping/highlight the source object, just not reassign it.
+		var componentField = VectorFieldInspectorUI.Field(component, "Field",
+			"The child vector field this layer blends in (read-only). Click it to highlight the source object in the hierarchy.");
+		componentField.SetEnabled(false);
+		card.Add(componentField);
+		card.Add(VectorFieldInspectorUI.Field(layer.FindPropertyRelative("strength"), "Strength",
+			"This layer's blend weight (0 = no contribution, 1 = full)."));
+		card.Add(VectorFieldInspectorUI.EnumSegmentedField(layer.FindPropertyRelative("blendMode"), "Blend Mode",
+			"How this layer combines with the result beneath it. Add sums the vectors; Blend interpolates toward this layer by its strength."));
+		card.Add(VectorFieldInspectorUI.EnumFlagsSegmentedField(layer.FindPropertyRelative("components"), typeof(VectorFieldCombiner.Component), "Affects",
+			"Which parts of the vector this layer contributes — Magnitude, Direction, or both."));
+		card.Add(VectorFieldInspectorUI.RangedCurveField(layer.FindPropertyRelative("alignmentRamp"), "Alignment Ramp", new UnityEngine.Rect(0, 0, 1, 1),
+			"Scales the layer by how aligned it is with the field beneath it (left = opposed, right = aligned). A flat curve has no effect."));
+		card.Add(VectorFieldInspectorUI.Field(layer.FindPropertyRelative("scaleByFieldMagnitude"), "Scale By Field Magnitude",
+			"Multiply this layer by the underlying field's magnitude before blending, so it only acts where there's already flow."));
 		return card;
 	}
 }

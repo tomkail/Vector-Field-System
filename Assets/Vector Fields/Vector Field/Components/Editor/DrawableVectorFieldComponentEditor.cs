@@ -8,7 +8,8 @@ public class DrawableVectorFieldComponentEditor : VectorFieldComponentEditor {
 		var storage = VectorFieldInspectorUI.MakeSection("Storage", ViewKey("storage"));
 
 		var assetProp = serializedObject.FindProperty("sourceAsset");
-		storage.Add(new PropertyField(assetProp, "Source Asset"));
+		storage.Add(VectorFieldInspectorUI.Field(assetProp, "Source Asset",
+			"Optional: store this field in a reusable asset instead of on the component. Leave empty to keep it on the component (saved in the scene)."));
 
 		var componentHelp = VectorFieldInspectorUI.Help(
 			"Stored on this component and saved in the scene. The scene format is set in Project Settings ▸ Vector Fields ▸ Storage.");

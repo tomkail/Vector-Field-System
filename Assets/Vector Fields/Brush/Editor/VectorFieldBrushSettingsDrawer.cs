@@ -11,10 +11,13 @@ public class VectorFieldBrushSettingsDrawer : PropertyDrawer {
 		var root = new VisualElement();
 
 		var typeProp = property.FindPropertyRelative("forceType");
-		root.Add(new PropertyField(typeProp, "Force Type"));
+		root.Add(Tip(new PropertyField(typeProp, "Force Type"),
+			"Directional pushes every cell the same way; Spot emits radially / as a vortex from the centre."));
 
-		var directional = Indented(new PropertyField(property.FindPropertyRelative("directionalAngle"), "Angle"));
-		var vortex = Indented(new PropertyField(property.FindPropertyRelative("vortexAngle"), "Vortex Angle"));
+		var directional = Indented(Tip(new PropertyField(property.FindPropertyRelative("directionalAngle"), "Angle"),
+			"Direction of the push, in degrees."));
+		var vortex = Indented(Tip(new PropertyField(property.FindPropertyRelative("vortexAngle"), "Vortex Angle"),
+			"Swirl angle around the centre. 0° = straight out (source), 90° = pure vortex."));
 		root.Add(directional);
 		root.Add(vortex);
 
@@ -28,5 +31,10 @@ public class VectorFieldBrushSettingsDrawer : PropertyDrawer {
 	static VisualElement Indented(VisualElement element) {
 		element.style.marginLeft = 6;
 		return element;
+	}
+
+	static PropertyField Tip(PropertyField field, string tooltip) {
+		field.tooltip = tooltip;
+		return field;
 	}
 }

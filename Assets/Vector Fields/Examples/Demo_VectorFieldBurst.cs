@@ -3,7 +3,7 @@ using UnityEngine;
 // DEMO: stamp an outward burst into a drawable field — e.g. an explosion that shoves everything away from the impact
 // point, then fades. Call Burst() from gameplay (on impact, on death, etc.).
 //
-// Setup: a DrawableVectorFieldComponent (+ GridRenderer) with a VectorFieldDecay on it; this script anywhere with
+// Setup: a DrawableVectorFieldComponent with a VectorFieldDecay on it; this script anywhere with
 // `field` pointing at it. Uses the Repel op (direction radiates from the brush centre). Swap opId to "attract" for an
 // implosion / vacuum, or "swirl" for a vortex.
 public class Demo_VectorFieldBurst : MonoBehaviour {

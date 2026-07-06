@@ -8,8 +8,8 @@ using UnityEngine;
 public class PolygonVectorField : VectorFieldComponent {
     public PolygonRenderer polygonRenderer;
 
-    // Which sides of the shape get a vector. Drawn as Inside/Outside toggle buttons; enable both for the whole grid.
-    [EnumFlagsButtonGroup] public PolygonVectorFieldGenerator.Sides sides = PolygonVectorFieldGenerator.Sides.Outside;
+    // Which sides of the shape get a vector. Drawn as Inside/Outside toggle buttons (by the custom inspector); enable both for the whole grid.
+    public PolygonVectorFieldGenerator.Sides sides = PolygonVectorFieldGenerator.Sides.Outside;
 
     // By default inside and outside flow the same way (outward, away from the shape) — continuous across the
     // boundary. Reverse one side to make the field diverge from (FlipInside) or converge on (FlipOutside) the outline.

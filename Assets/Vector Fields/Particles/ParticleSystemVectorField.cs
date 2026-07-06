@@ -30,7 +30,8 @@ public class ParticleSystemVectorField : MonoBehaviour
 	// weak regions to zero with a threshold, or ease the falloff. Baked into a LUT so the per-voxel cost is a cheap
 	// lookup rather than an AnimationCurve.Evaluate, and only re-applied on Refresh (when the field changes), never
 	// per-frame.
-	[SerializeField, CurveRange(0, 0, 1, 1)] AnimationCurve amplitudeCurve = AnimationCurve.Linear(0, 0, 1, 1);
+	// Rendered as a 0..1 ranged curve by ParticleSystemVectorFieldEditor (was [CurveRange]).
+	[SerializeField] AnimationCurve amplitudeCurve = AnimationCurve.Linear(0, 0, 1, 1);
 	const int AmplitudeResolution = 256;
 	float[] amplitudeLut;
 

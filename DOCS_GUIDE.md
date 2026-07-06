@@ -31,7 +31,7 @@ Everything lives under `Assets/Vector Fields/`, plus a few editor tools it depen
 | Cookies | `Brush/VectorFieldCookieSource.cs` |
 | Brush emitters | `Brush/VectorFieldBrushSettings.cs`, `Brush/VectorFieldBrushTextureCreator.cs` |
 | Combining fields | `Vector Field/VectorFieldCombiner.cs` |
-| Grid data | `Assets/UnityX/Scripts/Extensions/Grid/Grid 2D/Map Types/Vector2Map.cs` + `TypeMap.cs` |
+| Grid data | `Vector Field/FieldMap.cs` (`FieldMap<T>` / `VectorFieldMap` / `ColorFieldMap`) |
 | Procedural generators | `Vector Field/NoiseVectorField.cs`, `Vector Field/PolygonVectorFieldGenerator.cs` |
 | Saving as assets | `SO/VectorFieldScriptableObject.cs`, `SO/TypeMapScriptableObject.cs` |
 | Driving particles | `Particles/ParticleSystemVectorField.cs`, `KillOutOfBoundsParticles.cs`, `KillZeroSpeedParticles.cs` |
@@ -46,7 +46,7 @@ Related design docs that the reference should *link to*, not absorb:
 1. **Re‑inventory.** List `Assets/Vector Fields/**/*.cs`. Diff against the section→code table above; add sections for new subsystems, remove sections for deleted ones.
 2. **Extract the public surface** for each area. Work through three areas in turn (do it yourself; if you delegate to sub‑agents, you must still gather their results and write the final file — don't stop after delegating):
    - **Components** — for each `VectorFieldComponent` subclass: purpose, meaningful Inspector fields, public methods, and how they relate (group/blend/sampling).
-   - **Core/utilities/cookie** — `Vector2Map`/`TypeMap` read‑write API, `VectorFieldUtils`, `VectorFieldCombiner`, `VectorFieldRenderTextureUtils`, `VectorFieldCookieSource`, brush emitter (`BrushSettings`/`TextureCreator`), `NoiseVectorField`/`PolygonVectorFieldGenerator`, ScriptableObject storage.
+   - **Core/utilities/cookie** — `VectorFieldMap`/`FieldMap` read‑write API, `VectorFieldUtils`, `VectorFieldCombiner`, `VectorFieldRenderTextureUtils`, `VectorFieldCookieSource`, brush emitter (`BrushSettings`/`TextureCreator`), `NoiseVectorField`/`PolygonVectorFieldGenerator`, ScriptableObject storage.
    - **Tools/visualisation** — drawing tool + overlay, brush ops + kernel API, particles, debug/visualisation renderers, texture renderer.
    For each item capture: one‑line purpose, the Inspector fields a user sets, the public methods/signatures they'd call, and whether a snippet helps.
 3. **Write/update sections** per the house style. Prefer updating existing sections in place to preserve structure and links.

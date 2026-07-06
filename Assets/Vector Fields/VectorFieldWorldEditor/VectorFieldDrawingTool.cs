@@ -49,7 +49,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
 
     // The cookie-shaped emitter map (built in OnBrushSettingsChange), wrapped as a VectorFieldBrushShape.FromMap so the
     // tool paints through the same runtime API as gameplay.
-    Vector2Map brushMap;
+    VectorFieldMap brushMap;
 
     // The in-progress paint stroke (a drag). Null between strokes.
     VectorFieldStroke activeStroke;
@@ -172,7 +172,7 @@ public class VectorFieldDrawingTool : EditorTool, IDrawSelectedHandles {
             }
             var rawData = request.GetData<Color>();
             Vector2[] vectors = VectorFieldUtils.ColorsToVectors(rawData, 1);
-            brushMap = new Vector2Map(new Point(request.width, request.height), vectors);
+            brushMap = new VectorFieldMap(new Vector2Int(request.width, request.height), vectors);
         }
         
         settings.SaveChanges();

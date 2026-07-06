@@ -37,12 +37,12 @@ public class BrushShape {
 // VECTOR is the brush contribution — magnitude = coverage weight, direction (brush-local, +Y = "forward") = the
 // emitter/cookie direction. Only vector fields consume that direction, so this stays out of the value-neutral base.
 public sealed class VectorFieldBrushShape : BrushShape {
-    readonly Vector2Map map;
+    readonly VectorFieldMap map;
 
-    VectorFieldBrushShape(Vector2Map map) : base(0.5f) { this.map = map; }
+    VectorFieldBrushShape(VectorFieldMap map) : base(0.5f) { this.map = map; }
 
     // Wrap a prebuilt 2D brush map. Returned as the base type so any paint target can hold it uniformly.
-    public static BrushShape FromMap(Vector2Map map) => new VectorFieldBrushShape(map);
+    public static BrushShape FromMap(VectorFieldMap map) => new VectorFieldBrushShape(map);
 
     // Build a textured/directional brush from a cookie mask + emitter, on the GPU, and cache it on the CPU. This is a
     // one-time build (a synchronous GPU readback stalls briefly) — do it in setup, not per frame, and reuse the shape.
@@ -57,10 +57,10 @@ public sealed class VectorFieldBrushShape : BrushShape {
         VectorFieldRenderTextureUtils.EnsureValid(ref rt, size);
         VectorFieldBrushTextureCreator.Dispatch(rt, size, 1f, emitter, mask);   // emitter shaped by the mask, magnitude 1
 
-        Vector2Map built = null;
+        VectorFieldMap built = null;
         var req = AsyncGPUReadback.Request(rt, 0, r => {
             if (r.hasError) { Debug.LogError("VectorFieldBrushShape.FromCookie: GPU readback failed."); return; }
-            built = new Vector2Map(new Point(r.width, r.height), VectorFieldUtils.ColorsToVectors(r.GetData<Color>(), 1));
+            built = new VectorFieldMap(new Vector2Int(r.width, r.height), VectorFieldUtils.ColorsToVectors(r.GetData<Color>(), 1));
         });
         req.WaitForCompletion();
 

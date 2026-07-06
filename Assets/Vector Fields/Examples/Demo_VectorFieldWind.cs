@@ -6,7 +6,7 @@ using UnityEngine;
 //
 // Shows the directional Stamp overload: the Draw op paints `windDirection` into a soft round patch at this transform.
 //
-// Setup: a DrawableVectorFieldComponent (+ GridRenderer); this script on the wind-zone object with `field` assigned.
+// Setup: a DrawableVectorFieldComponent; this script on the wind-zone object with `field` assigned.
 public class Demo_VectorFieldWind : MonoBehaviour {
     public DrawableVectorFieldComponent field;
     [Tooltip("Wind direction, degrees CCW from +X.")] public float windDirection = 0f;

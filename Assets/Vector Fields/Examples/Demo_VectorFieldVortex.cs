@@ -4,7 +4,7 @@ using UnityEngine;
 // swept around it (a spinning hazard, a tornado, a black-hole eddy). Continuously stamps the Swirl op at the object's
 // position; pair with a VectorFieldDecay so the swirl trails and dissipates behind the mover instead of accumulating.
 //
-// Setup: a DrawableVectorFieldComponent (+ GridRenderer) with a VectorFieldDecay on it; this script on the moving
+// Setup: a DrawableVectorFieldComponent with a VectorFieldDecay on it; this script on the moving
 // vortex object with `field` assigned. Swap opId to "attract" for a pure sink, or "repel" for an outward fountain.
 public class Demo_VectorFieldVortex : MonoBehaviour {
     public DrawableVectorFieldComponent field;

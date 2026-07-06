@@ -23,12 +23,12 @@ public static class VectorFieldBrushSelfTests {
 
         // --- Ops: construct a per-cell context and assert the op's core behaviour ------------------------------------
         // Helper: brushForce/finalForce carry the weight as magnitude (ctx.Weight); strokeForce is the unit direction.
-        BrushApplyContext<Vector2> Ctx(Vector2 current, Vector2 dir, float weight, float pressure, Point gp, Vector2 center) {
+        BrushApplyContext<Vector2> Ctx(Vector2 current, Vector2 dir, float weight, float pressure, Vector2Int gp, Vector2 center) {
             Vector2 u = dir.sqrMagnitude > 0f ? dir.normalized : Vector2.zero;
             Vector2 f = u * weight;
             return new BrushApplyContext<Vector2>(current, f, f, u, pressure, gp, center, null);
         }
-        var origin = new Point(0, 0);
+        var origin = new Vector2Int(0, 0);
 
         // Draw: sets an empty cell toward the stroke direction at full pressure.
         Check(Approx(VectorFieldBrushOpRegistry.Draw.Apply(
@@ -66,7 +66,7 @@ public static class VectorFieldBrushSelfTests {
 
         // Radial ops derive direction from the offset to the brush centre (they ignore the stroke direction), so `dir`
         // here just carries weight = 1. Cell at (2,0), centre at origin:
-        var atRight = new Point(2, 0);
+        var atRight = new Vector2Int(2, 0);
         Check(Approx(VectorFieldBrushOpRegistry.Repel.Apply(
             Ctx(Vector2.zero, Vector2.right, 1f, 1f, atRight, Vector2.zero)), Vector2.right),
             "Repel should point outward (away from the centre)");

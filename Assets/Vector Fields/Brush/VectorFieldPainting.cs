@@ -86,7 +86,7 @@ public static class VectorFieldPainting {
                     strokeDir = dir;
                 }
                 _stampCells.Add(new VectorFieldBrushCell {
-                    gridPoint = new Point(x, y),
+                    gridPoint = new Vector2Int(x, y),
                     brushForce = force,
                     finalForce = force,
                     strokeForce = strokeDir,

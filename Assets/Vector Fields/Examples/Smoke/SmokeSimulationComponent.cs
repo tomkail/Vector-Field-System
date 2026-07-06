@@ -5,7 +5,7 @@ using UnityEngine;
 // coupling: the flow pushes the smoke, the smoke doesn't affect the flow.
 //
 // The emission source is painted through the SAME generic brush/stroke core the vector field uses: this component is an
-// IPaintTarget<Color>, so ColorPainting.BeginStroke paints a ColorMap of "smoke to release". Each fixed step the sim
+// IPaintTarget<Color>, so ColorPainting.BeginStroke paints a ColorFieldMap of "smoke to release". Each fixed step the sim
 // injects that source into the GPU density, advects the density along the velocity field, and dissipates it. The
 // painted source fades over time so emission is transient (a trail), not permanent.
 //
@@ -50,13 +50,13 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
 
     // GPU density ping-pong (RGBA, raw). Advected on the GPU.
     RenderTexture densityA, densityB;
-    Point allocatedSize = new Point(-1, -1);
+    Vector2Int allocatedSize = new Vector2Int(-1, -1);
 
-    // Emission source, painted by strokes (IPaintTarget<Color>.PaintField). The brush writes the CPU ColorMap (the
+    // Emission source, painted by strokes (IPaintTarget<Color>.PaintField). The brush writes the CPU ColorFieldMap (the
     // last-painted value per cell); the GPU RenderTexture is the live source the sim reads — it fades on the GPU and
     // only the freshly-painted brush region is copied CPU->GPU each frame (see Update). Keeping it GPU-side is what
     // makes painting on a large grid cheap: no full-grid CPU fade or upload, ever.
-    ColorMap injectionMap;
+    ColorFieldMap injectionMap;
     RenderTexture injectionRT;
     RectInt? pendingDirty;      // brush region painted since the last upload (grid coords); null = nothing to upload
     bool everPainted;           // once anything's been painted, keep fading/injecting the source
@@ -99,10 +99,10 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     const float ReferenceResolution = 64f;
 
     // --- IPaintTarget<Color> ---------------------------------------------------------------------------------------
-    public TypeMap<Color> PaintField {
+    public FieldMap<Color> PaintField {
         get { EnsureInjectionMap(); return injectionMap; }
     }
-    public TypeMap<Color> CreateMap(Point size) => new ColorMap(size);
+    public FieldMap<Color> CreateMap(Vector2Int size) => new ColorFieldMap(size);
 
     // The stroke reports the grid rect it just painted; accumulate the union so Update uploads exactly that (and no
     // more) to the GPU source. Only the freshly-painted footprint crosses CPU->GPU — never the whole field.
@@ -118,9 +118,9 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     }
 
     void EnsureInjectionMap() {
-        var size = new Point(grid.Size.x, grid.Size.y);
+        var size = new Vector2Int(grid.Size.x, grid.Size.y);
         if (injectionMap == null || injectionMap.size != size)
-            injectionMap = new ColorMap(size);
+            injectionMap = new ColorFieldMap(size);
     }
 
     // --- lifecycle -------------------------------------------------------------------------------------------------
@@ -219,7 +219,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     // can't re-assert stale (un-faded) values over the GPU's fading source.
     void UploadDirtyRegion() {
         if (!pendingDirty.HasValue || injectionMap == null || injectionRT == null) return;
-        var size = new Point(grid.Size.x, grid.Size.y);
+        var size = new Vector2Int(grid.Size.x, grid.Size.y);
         int x0 = Mathf.Clamp(pendingDirty.Value.xMin, 0, size.x);
         int y0 = Mathf.Clamp(pendingDirty.Value.yMin, 0, size.y);
         int x1 = Mathf.Clamp(pendingDirty.Value.xMax, 0, size.x);
@@ -292,7 +292,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
 
     // --- texture lifecycle -----------------------------------------------------------------------------------------
     void EnsureTextures() {
-        var size = new Point(grid.Size.x, grid.Size.y);
+        var size = new Vector2Int(grid.Size.x, grid.Size.y);
         if (allocatedSize == size && densityA != null) return;
         ReleaseTextures();
         densityA = NewDensityTexture(size);
@@ -309,7 +309,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
         allocatedSize = size;
     }
 
-    static RenderTexture NewDensityTexture(Point size) {
+    static RenderTexture NewDensityTexture(Vector2Int size) {
         var rt = new RenderTexture(size.x, size.y, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear) {
             enableRandomWrite = true,
             filterMode = FilterMode.Bilinear,
@@ -326,7 +326,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
             rt.Release();
         }
         densityA = densityB = injectionRT = null;
-        allocatedSize = new Point(-1, -1);
+        allocatedSize = new Vector2Int(-1, -1);
     }
 
     void ResolveKernels() {

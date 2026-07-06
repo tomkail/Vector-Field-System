@@ -23,7 +23,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		// Scales this layer's effective strength by how aligned it is with the field beneath it:
 		// x = (dot(currentDir, incomingDir) + 1) / 2, so 0 = fully opposed, 0.5 = perpendicular, 1 = fully aligned.
 		// Default is a flat 1 (no effect). E.g. a 0->1 ramp applies the layer only where it agrees with the flow.
-		[CurveRange(0, 0, 1, 1)] public AnimationCurve alignmentRamp = AnimationCurve.Constant(0, 1, 1);
+		public AnimationCurve alignmentRamp = AnimationCurve.Constant(0, 1, 1);
 		// Multiplies the incoming vector by the underlying field's magnitude before blending, so this layer only acts
 		// where there's already flow and scales with its speed. This is the turbulence coupling: an Add layer with a
 		// 0->1 alignmentRamp and this enabled reproduces the old flow-modulated turbulence.
@@ -31,7 +31,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		// Cached GPU bake of alignmentRamp, reused across renders (rebaked when the curve changes).
 		[NonSerialized] public Texture2D alignmentRampTexture;
 
-		[EnumFlagsButtonGroup] public VectorFieldCombiner.Component components = VectorFieldCombiner.Component.All;
+		public VectorFieldCombiner.Component components = VectorFieldCombiner.Component.All;
 	}
 
 	public List<VectorFieldLayer> layers = new List<VectorFieldLayer>();

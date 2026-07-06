@@ -61,7 +61,7 @@ public static class ColorPainting {
                 float w = brush.shape.Weight(offset.magnitude * invR);
                 if (w <= 0f) continue;
                 _stampCells.Add(new VectorFieldBrushCell {
-                    gridPoint = new Point(x, y),
+                    gridPoint = new Vector2Int(x, y),
                     brushForce = Vector2.up * w,   // magnitude = coverage; direction unused by scalar/colour ops
                     finalForce = Vector2.up * w,
                     strokeForce = Vector2.up,

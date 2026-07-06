@@ -13,12 +13,22 @@ via `Editor/` folders). To ship it as a proper UPM package these are required:
       rather than relying on the `Editor/` folder name, and it's required for UPM. Watch the editor→runtime references
       (e.g. `VectorFieldComponentDrawer` → `VectorFieldDebugRenderer`/`VectorFieldDebugAppearance`).
 - [ ] **Wrap public types in a `VectorFields` namespace.** The project is currently global-namespace; for distribution,
-      namespacing avoids collisions with consumer code. Do it together with the asmdefs.
+      namespacing avoids collisions with consumer code. Do it together with the asmdefs. (The map-family collision with
+      UnityX that would otherwise force this early was sidestepped by giving the vendored maps distinct names —
+      `FieldMap`/`VectorFieldMap`/`ColorFieldMap` — so this is now purely a consumer-collision concern.)
+- [x] **Removed the UnityX dependency (Phase 1 of the reorg).** Vendored + trimmed the map family into
+      `Vector Field/FieldMap.cs` (`FieldMap<T>`/`VectorFieldMap`/`ColorFieldMap`, migrated `Point`→`Vector2Int`); folded
+      `GridRenderer` into a serializable `GridTransform`; replaced the stray helpers (`ObjectX`, `DebugX`,
+      `SerializableTransform`, `IEnumerableX.GetChanges`, `ComponentX`/`GetComponentsX`, `GetHierarchyIndex`,
+      `BaseEditor<T>`, `GizmosX`, `BoundsX`, `Plane.TryGetHitPoint`, `Color.WithAlpha`) with self-contained code; and
+      swapped `[EasyButtons.Button]` for custom editors. Only remaining UnityX use is the `[CurveRange]` /
+      `[EnumFlagsButtonGroup]` inspector attributes (being removed separately).
 
 ## Architecture / component consolidation
-- [ ] **Investigate rolling the Grid component into the Vector Field component** so a user doesn't need to add two
-      separate components to get a working field. Check what the Grid actually owns (cell size / resolution / bounds)
-      and whether it's ever shared across fields — if not, fold it in so a single component is self-contained.
+- [x] **Rolled the Grid component into the Vector Field component.** The required UnityX `GridRenderer` is folded into a
+      serializable `GridTransform` owned by each `VectorFieldComponent` (and the standalone `SmokeSimulationComponent`),
+      so a single self-contained component is now a working field — grid size lives on the component (`grid.Size`).
+      Existing scenes keep their now-orphaned `GridRenderer` components (left in place by design).
 - [ ] **Investigate a single Vector Field component with multiple modes** instead of several distinct vector-field
       component types. Evaluate a mode enum (or similar) on one component vs. the current per-type components — weigh
       inspector clarity, serialization, and how much behaviour actually differs between the modes.

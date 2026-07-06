@@ -4,7 +4,7 @@ using UnityEngine;
 // outward burst at the far end — the "trace a line then explode" case from Brush/RUNTIME_PAINTING_SPEC.md. The beam
 // uses PaintLine (a smooth swept line whose painted direction follows the path), the blast uses a Repel Stamp.
 //
-// Setup: a DrawableVectorFieldComponent (+ GridRenderer) with a VectorFieldDecay on it (so the beam/blast fade); this
+// Setup: a DrawableVectorFieldComponent with a VectorFieldDecay on it (so the beam/blast fade); this
 // script anywhere with `field`, `origin`, and `target` assigned. Call Fire() from gameplay, or press F in play mode.
 public class Demo_VectorFieldBeam : MonoBehaviour {
     public DrawableVectorFieldComponent field;

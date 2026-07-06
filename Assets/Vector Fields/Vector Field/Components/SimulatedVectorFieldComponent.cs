@@ -98,7 +98,7 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	RenderTexture pressureA, pressureB;
 	RenderTexture divergence;
 	RenderTexture curl;
-	Point allocatedSize = new Point(-1, -1);
+	Vector2Int allocatedSize = new Vector2Int(-1, -1);
 	bool seeded;
 
 	// Leftover sub-frame time carried between frames so the fixed-step accumulator stays exact.
@@ -311,7 +311,7 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
 	// --- solver texture lifecycle ---------------------------------------------------------------------------------
 	void EnsureSimTextures() {
-		var size = new Point(grid.Size.x, grid.Size.y);
+		var size = new Vector2Int(grid.Size.x, grid.Size.y);
 		if (allocatedSize == size && velA != null) return;
 
 		ReleaseSimTextures();
@@ -326,7 +326,7 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		seeded = false;   // re-seed (clear) on resize
 	}
 
-	static RenderTexture NewSimTexture(Point size, RenderTextureFormat format, bool bilinear) {
+	static RenderTexture NewSimTexture(Vector2Int size, RenderTextureFormat format, bool bilinear) {
 		var rt = new RenderTexture(size.x, size.y, 0, format, RenderTextureReadWrite.Linear) {
 			enableRandomWrite = true,
 			filterMode = bilinear ? FilterMode.Bilinear : FilterMode.Point,
@@ -358,7 +358,7 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 			rt.Release();
 		}
 		velA = velB = velC = pressureA = pressureB = divergence = curl = null;
-		allocatedSize = new Point(-1, -1);
+		allocatedSize = new Vector2Int(-1, -1);
 	}
 
 	void ResolveKernels() {

@@ -23,7 +23,7 @@ A Unity toolkit for authoring, generating, simulating, blending, sampling, and v
 - [Cookies (falloff masks)](#cookies-falloff-masks)
 - [Brush emitters (code stamping)](#brush-emitters-code-stamping)
 - [Combining fields in code](#combining-fields-in-code)
-- [Grid data: Vector2Map](#grid-data-vector2map)
+- [Grid data: FieldMap](#grid-data-fieldmap)
 - [Procedural generators (code)](#procedural-generators-code)
 - [Saving fields as assets](#saving-fields-as-assets)
 - [Driving particles](#driving-particles)
@@ -34,9 +34,9 @@ A Unity toolkit for authoring, generating, simulating, blending, sampling, and v
 
 ## Concepts
 
-- A **field** is a grid of `Vector2` values laid out on a plane. The component's transform sets the plane (the field's "up" is `transform.forward` / `planeNormal`); grid size and cell layout come from a required **GridRenderer**.
+- A **field** is a grid of `Vector2` values laid out on a plane. The component's transform sets the plane (the field's "up" is `transform.forward` / `planeNormal`); grid size and world↔cell mapping come from the component's own serialized `grid` (a **`GridTransform`**), so no separate grid component is needed.
 - Every field is a **`VectorFieldComponent`** (a MonoBehaviour). Different field *types* subclass it (painted, noise, polygon, stamp, simulated, group).
-- Fields render lazily: they re‑render only when something changes (transform, parameters, the grid). The result lives in a GPU `renderTexture`; a CPU mirror (`Vector2Map vectorField`) is produced only when a consumer asks for it.
+- Fields render lazily: they re‑render only when something changes (transform, parameters, the grid). The result lives in a GPU `renderTexture`; a CPU mirror (`VectorFieldMap vectorField`) is produced only when a consumer asks for it.
 - A field's vectors are in its **local space**. Sampling helpers return either the local vector or a world‑space vector (rotated by the component's orientation).
 - Fields compose: parent several fields under a **Group** to blend them on the GPU.
 
@@ -46,7 +46,7 @@ A Unity toolkit for authoring, generating, simulating, blending, sampling, and v
 
 Author a painted field and read a force from it:
 
-1. Add a **GridRenderer** + **DrawableVectorFieldComponent** to a GameObject (the grid component is required and auto‑added).
+1. Add a **DrawableVectorFieldComponent** to a GameObject (it owns its own grid; set the grid size on the component under **Grid**).
 2. Select it, press **P** in the Scene view to activate the **Vector Field** tool, and paint (drag to draw, see [the painting tool](#the-painting-tool)).
 3. Read the force at a position from gameplay code:
 
@@ -81,7 +81,7 @@ The abstract base for every field. Owns the render/dirty cycle, the GPU `renderT
 **Common API**
 - `SetDirty()` / `EnsureUpToDate()` — request a re‑render / guarantee the field is fresh before sampling.
 - `RenderTexture renderTexture` — the encoded field on the GPU.
-- `GridRenderer gridRenderer`, `Vector3 planeNormal` — grid geometry and orientation.
+- `GridTransform grid`, `Vector3 planeNormal` — the grid (size + world↔cell conversions) and plane orientation. Convenience accessors mirror it: `Vector2Int GridSize`, `Matrix4x4 GridToWorldMatrix` / `GridToLocalMatrix`, `Vector2 WorldToGridPosition(Vector3)`. Set the grid size via `grid.Size` (default 64×64).
 
 Sampling is covered in [Reading a field from code](#reading-a-field-from-code).
 
@@ -89,10 +89,10 @@ Sampling is covered in [Reading a field from code](#reading-a-field-from-code).
 
 `DrawableVectorFieldComponent` — a field you paint by hand with the [painting tool](#the-painting-tool), or write to from code.
 
-- `Vector2Map PaintField` — the authored buffer (created at the current grid size on demand). Read/write it directly to paint from code.
+- `VectorFieldMap PaintField` — the authored buffer (created at the current grid size on demand). Read/write it directly to paint from code.
 - `MarkRegionDirty(RectInt gridRegion)` — after writing cells, report the touched rect so only that region re‑uploads.
 - `Clear()` — zero the field.
-- `LoadPaintField(Vector2Map source)` — seed the painted field from another field (e.g. bake a noise field into an editable one); resizes the grid to match.
+- `LoadPaintField(VectorFieldMap source)` — seed the painted field from another field (e.g. bake a noise field into an editable one); resizes the grid to match.
 
 ### Noise field
 
@@ -258,9 +258,9 @@ var brush = new VectorFieldBrush(
     pressure: 1f);                                   // op strength / magnitude reference
 ```
 
-Prefer the named op accessors (`VectorFieldBrushOpRegistry.Draw`, `.Repel`, …) over `ById("draw")`; `ById` is for ids that arrive as data (a serialized field), and warns if the id is unknown. The facades validate their arguments — a null field, an un‑initialised field (no `GridRenderer`), or a brush missing its shape/op throws a clear exception rather than silently doing nothing.
+Prefer the named op accessors (`VectorFieldBrushOpRegistry.Draw`, `.Repel`, …) over `ById("draw")`; `ById` is for ids that arrive as data (a serialized field), and warns if the id is unknown. The facades validate their arguments — a null field, an un‑initialised field (no grid yet), or a brush missing its shape/op throws a clear exception rather than silently doing nothing.
 
-For a textured / directional brush, use `VectorFieldBrushShape.FromCookie(cookie, emitter)` — it builds the 2D brush map on the GPU from a cookie mask + a directional/spot emitter (the same pipeline the editor uses) and caches it on the CPU; build it once in setup and reuse. (`FromMap(map)` wraps a `Vector2Map` you already have.) The brush's `directionMode` controls how a stroke orients a map brush: `FollowStroke` (default) rotates the emitter to the path tangent; `FixedAngle` keeps the map's baked direction. The in‑editor [painting tool](#the-painting-tool) runs on exactly this API, so editor and runtime strokes are the same code.
+For a textured / directional brush, use `VectorFieldBrushShape.FromCookie(cookie, emitter)` — it builds the 2D brush map on the GPU from a cookie mask + a directional/spot emitter (the same pipeline the editor uses) and caches it on the CPU; build it once in setup and reuse. (`FromMap(map)` wraps a `VectorFieldMap` you already have.) The brush's `directionMode` controls how a stroke orients a map brush: `FollowStroke` (default) rotates the emitter to the path tangent; `FixedAngle` keeps the map's baked direction. The in‑editor [painting tool](#the-painting-tool) runs on exactly this API, so editor and runtime strokes are the same code.
 
 **One‑shots** (stateless, no allocation):
 
@@ -350,25 +350,25 @@ Each layer is projected into the group's frame, so layer transforms tilt/scale t
 
 ---
 
-## Grid data: Vector2Map
+## Grid data: FieldMap
 
-`Vector2Map` (a `TypeMap<Vector2>`) is the CPU grid structure under every field.
+`VectorFieldMap` (a `FieldMap<Vector2>`) is the CPU grid structure under every field; the smoke sim uses `ColorFieldMap` (a `FieldMap<Color>`). A map is a `Vector2Int size` plus a flat `values` array with bilinear sampling.
 
 ```csharp
-var map = new Vector2Map(new Point(64, 64));
+var map = new VectorFieldMap(new Vector2Int(64, 64));
 
 Vector2 a = map.GetValueAtGridPoint(10, 5);              // direct cell (fastest)
 Vector2 b = map.GetValueAtGridPosition(new Vector2(10.4f, 5.2f)); // bilinear interpolation
 Vector2 c = map.GetValueAtNormalizedPosition(new Vector2(0.5f, 0.5f)); // [0,1] space
 
-map.SetValueAtGridPoint(10, 5, Vector2.up);
-map.ClampMagnitude(1f);                                   // whole-map op
+map.SetValueAtGridPoint(10, 5, Vector2.up);              // or SetValueAtGridPoint(new Vector2Int(10, 5), …) — bounds-checked
+map.ClampMagnitude(1f);                                   // whole-map op (VectorFieldMap only)
+map.Fill(Vector2.zero);
 map.Clear();
-
-foreach (var cell in map) { /* cell.point, cell.value */ }
+var copy = map.CloneMap();                                // deep copy, keeps the subtype
 ```
 
-Also offers whole‑map arithmetic (`Add`/`Subtract`/`Multiply`/`Divide` with a scalar, vector, or another map) for blending fields on the CPU.
+Access `map.values` directly for bulk work (encode/decode, `Array.Copy`).
 
 ---
 
@@ -391,10 +391,10 @@ These are what the [Noise](#noise-field) and [Polygon](#polygon-field) component
 
 ## Saving fields as assets
 
-`VectorFieldScriptableObject` stores a field as a `Texture2D` asset and round‑trips it to a `Vector2Map`.
+`VectorFieldScriptableObject` stores a field as a `Texture2D` asset and round‑trips it to a `VectorFieldMap`.
 
 ```csharp
-Vector2Map map = asset.CreateMap();   // load from texture
+VectorFieldMap map = asset.CreateMap();   // load from texture
 // ...edit map...
 asset.Save(map);                       // re-encode + write texture (auto-computes encoding range)
 ```

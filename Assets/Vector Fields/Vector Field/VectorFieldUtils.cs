@@ -40,7 +40,7 @@ public static class VectorFieldUtils {
 		return texture;
 	}
 
-	public static Texture2D VectorFieldToTexture(Vector2Map vectorField, float maxComponentReciprocal) {
+	public static Texture2D VectorFieldToTexture(VectorFieldMap vectorField, float maxComponentReciprocal) {
 		var colors = VectorFieldUtils.VectorsToColors(vectorField.values, maxComponentReciprocal);
         
 		Texture2D texture = new Texture2D(vectorField.size.x, vectorField.size.y, TextureFormat.RGFloat, false);
@@ -51,7 +51,7 @@ public static class VectorFieldUtils {
 		return texture;
 	}
 
-	public static Texture3D CreateTexture3D(Vector2Map vectorField, float[] amplitudeLut = null) {
+	public static Texture3D CreateTexture3D(VectorFieldMap vectorField, float[] amplitudeLut = null) {
 		Texture3D texture3D = null;
 		FillTexture3D(vectorField, ref texture3D, amplitudeLut);
 		return texture3D;
@@ -64,7 +64,7 @@ public static class VectorFieldUtils {
 	// amplitudeLut (optional): a precomputed magnitude-response curve, indexed by flow magnitude (0..1) and giving the
 	// remapped magnitude. Baking the AnimationCurve into a LUT keeps this hot loop a cheap lookup + lerp rather than a
 	// per-voxel AnimationCurve.Evaluate. Pass null (or an identity curve) for the unmodified field.
-	public static void FillTexture3D(Vector2Map vectorField, ref Texture3D texture3D, float[] amplitudeLut = null) {
+	public static void FillTexture3D(VectorFieldMap vectorField, ref Texture3D texture3D, float[] amplitudeLut = null) {
 		const int depth = 1;
 		int width = vectorField.size.x;
 		int height = vectorField.size.y;
@@ -142,7 +142,7 @@ public static class VectorFieldUtils {
 	}
 
 	// In-place variant: decodes straight into a caller-owned array so the readback can reuse its backing
-	// Vector2Map instead of allocating a fresh array + map on every frame.
+	// VectorFieldMap instead of allocating a fresh array + map on every frame.
 	public static void ColorsToVectors (NativeArray<Color> colors, float maxComponent, Vector2[] results) {
 		for(int i = 0; i < colors.Length; i++) {
 			results[i] = ColorToVector(colors[i], maxComponent);

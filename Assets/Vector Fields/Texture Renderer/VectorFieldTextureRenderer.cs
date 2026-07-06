@@ -46,7 +46,8 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 	// Maps flow magnitude (0..1 along the X axis) to an alpha multiplier (Y), baked into the _AmplitudeRamp texture the
 	// flow shader samples. Default rolls opacity in linearly with magnitude; edit it to fade still regions out, add a
 	// threshold, ease the rolloff, etc.
-	[SerializeField, CurveRange(0, 0, 1, 1)] AnimationCurve amplitudeAlphaCurve = AnimationCurve.Linear(0, 0, 1, 1);
+	// Rendered as a 0..1 ranged curve by VectorFieldTextureRendererEditor (was [CurveRange]).
+	[SerializeField] AnimationCurve amplitudeAlphaCurve = AnimationCurve.Linear(0, 0, 1, 1);
 	Texture2D rampTexture;
 
 	// Recolors the white streaks when the material's "Use Texture Color" is off, sampled by the material's gradient

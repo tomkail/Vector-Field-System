@@ -19,7 +19,7 @@ public static class VectorFieldStorage {
     // Pack the grid ONE ROW PER STRING (base64 of that row's floats). Unity serializes a string[] as one line per
     // element, so editing a cell only rewrites its row's line — compact (≈height lines, not width*height) AND
     // locally diffable/mergeable, unlike a single blob where any edit rewrites the whole thing.
-    public static string[] PackRows(Vector2[] values, Point size) {
+    public static string[] PackRows(Vector2[] values, Vector2Int size) {
         int w = size.x, h = size.y;
         if (values == null || w <= 0 || h <= 0 || values.Length < w * h) return System.Array.Empty<string>();
         var rows = new string[h];
@@ -35,7 +35,7 @@ public static class VectorFieldStorage {
     }
 
     // Inverse of PackRows. Always returns a width*height array; missing/short rows stay zero rather than throwing.
-    public static Vector2[] UnpackRows(string[] rows, Point size) {
+    public static Vector2[] UnpackRows(string[] rows, Vector2Int size) {
         int w = size.x, h = size.y;
         var values = new Vector2[Mathf.Max(0, w * h)];
         if (rows == null || w <= 0 || h <= 0) return values;

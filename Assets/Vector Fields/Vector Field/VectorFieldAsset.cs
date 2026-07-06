@@ -9,20 +9,20 @@ using UnityEngine;
 // or ByteArray (compact). The data lives in this .asset file, isolated from scenes.
 [CreateAssetMenu(fileName = "Vector Field", menuName = "Vector Field/Vector Field Asset")]
 public class VectorFieldAsset : ScriptableObject, ISerializationCallbackReceiver {
-    [System.NonSerialized] Vector2Map field;
+    [System.NonSerialized] VectorFieldMap field;
 
-    [SerializeField, HideInInspector] Point storedSize;
+    [SerializeField, HideInInspector] Vector2Int storedSize;
     [SerializeField, HideInInspector] Vector2[] storedValues;   // Vector2Array format
     [SerializeField, HideInInspector] string[] storedRows;      // ByteArray format: one base64 row per line (local diffs)
 
     // The painted grid this asset holds (may be null until a component sizes/paints it).
-    public Vector2Map Field { get => field; set => field = value; }
+    public VectorFieldMap Field { get => field; set => field = value; }
 
     // The field sized to `size`, (re)creating it if missing or a different size. Called by a component sourcing this
-    // asset so the grid matches the component's GridRenderer.
-    public Vector2Map GetField(Point size) {
+    // asset so the grid matches the component's grid.
+    public VectorFieldMap GetField(Vector2Int size) {
         if (field == null || field.values == null || field.values.Length != size.x * size.y)
-            field = new Vector2Map(size);
+            field = new VectorFieldMap(size);
         return field;
     }
 
@@ -40,9 +40,9 @@ public class VectorFieldAsset : ScriptableObject, ISerializationCallbackReceiver
 
     public void OnAfterDeserialize() {
         if (storedRows != null && storedRows.Length > 0)
-            field = new Vector2Map(storedSize, VectorFieldStorage.UnpackRows(storedRows, storedSize));
+            field = new VectorFieldMap(storedSize, VectorFieldStorage.UnpackRows(storedRows, storedSize));
         else if (storedValues != null && storedValues.Length > 0)
-            field = new Vector2Map(storedSize, storedValues);
+            field = new VectorFieldMap(storedSize, storedValues);
         else
             field = null;
     }

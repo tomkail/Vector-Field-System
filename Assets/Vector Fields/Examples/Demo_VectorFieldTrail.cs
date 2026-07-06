@@ -4,7 +4,7 @@ using UnityEngine;
 // pushes particles/agents along the path of travel. Uses the runtime stroke API, so the line is smooth and
 // frame-rate independent (no dabbing).
 //
-// Setup: a DrawableVectorFieldComponent (+ GridRenderer) with a VectorFieldDecay on it (so the trail fades), and this
+// Setup: a DrawableVectorFieldComponent with a VectorFieldDecay on it (so the trail fades), and this
 // script on the moving object with `field` pointing at it.
 public class Demo_VectorFieldTrail : MonoBehaviour {
     public DrawableVectorFieldComponent field;

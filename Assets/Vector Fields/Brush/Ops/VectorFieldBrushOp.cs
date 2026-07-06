@@ -41,7 +41,7 @@ public interface IVectorFieldBrushOp : IBrushOp<Vector2> { }
 // the brush kernel. strokeForce/brushCenter are per-cell (not per-batch) so a curved swept stroke can vary the painted
 // direction and radial centre along its length.
 public struct VectorFieldBrushCell {
-    public Point gridPoint;
+    public Vector2Int gridPoint;
     // Raw brush sample at this cell (emitter/cookie value, or radial falloff). Its magnitude is the 0..1 weight.
     public Vector2 brushForce;
     // brushForce scaled by the stroke magnitude and rotated to the stroke/path direction.
@@ -63,15 +63,15 @@ public readonly struct BrushApplyContext<T> {
     public readonly Vector2 finalForce;  // stroke-applied brush vector (see VectorFieldBrushCell)
     public readonly Vector2 strokeForce; // local stroke force (direction * magnitude), independent of the cookie
     public readonly float pressure;
-    public readonly Point gridPoint;
+    public readonly Vector2Int gridPoint;
     public readonly Vector2 brushCenter; // grid-space reference point, for radial ops (swirl/attract/repel)
-    public readonly TypeMap<T> source;   // where neighbour reads sample from; == the live field when not needed
+    public readonly FieldMap<T> source;   // where neighbour reads sample from; == the live field when not needed
 
     // The 0..1 falloff weight at this cell.
     public float Weight => brushForce.magnitude;
 
     public BrushApplyContext(T current, Vector2 brushForce, Vector2 finalForce, Vector2 strokeForce,
-                             float pressure, Point gridPoint, Vector2 brushCenter, TypeMap<T> source) {
+                             float pressure, Vector2Int gridPoint, Vector2 brushCenter, FieldMap<T> source) {
         this.current = current;
         this.brushForce = brushForce;
         this.finalForce = finalForce;

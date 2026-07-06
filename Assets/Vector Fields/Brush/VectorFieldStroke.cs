@@ -62,14 +62,14 @@ public class PaintStroke<T> {
     readonly Vector2[] _ring = new Vector2[4];
     int _head = -1, _n;
 
-    // Cells are keyed by a packed int (y * _gridWidth + x) rather than the Point struct: an int key hashes faster and,
+    // Cells are keyed by a packed int (y * _gridWidth + x) rather than a Vector2Int per cell: an int key hashes faster and,
     // more importantly, lets the active set live in a plain array we mutate in place (arr[slot].field = …, no copy) —
-    // the big Active struct was previously copied twice per cell through Dictionary<Point, Active> and once more per
+    // the big Active struct was previously copied twice per cell through Dictionary<Vector2Int, Active> and once more per
     // cell just to enumerate it, which dominated CommitSpan/EvictBehindHead on large brushes.
     int _gridWidth;
 
     struct SpanCell {
-        public Point point; public float coverage; public float maxWeight;
+        public Vector2Int point; public float coverage; public float maxWeight;
         public Vector2 brushDir; public Vector2 strokeDir; public Vector2 center;
     }
     readonly List<SpanCell> _cells = new List<SpanCell>();
@@ -89,7 +89,7 @@ public class PaintStroke<T> {
 
     // Pre-stroke field clone, for neighbour-reading ops (Smudge) so their upstream samples are stable and
     // order-independent. Only allocated when the op needs it; kept (subtyped) across strokes and refilled by copy.
-    TypeMap<T> _source;
+    FieldMap<T> _source;
     bool _sourceReady;
 
     // End point (grid space) of the span just rendered — the next span starts here, so it's the frontier eviction
@@ -123,7 +123,7 @@ public class PaintStroke<T> {
     }
 
     // Pack a grid cell into the int key used by _index / _activeIndex.
-    int Key(Point p) => p.y * _gridWidth + p.x;
+    int Key(Vector2Int p) => p.y * _gridWidth + p.x;
 
     public void To(Vector3 worldPosition) {
         if (_field == null || !IsValid) return;   // _field == null => already ended (and possibly pooled)
@@ -208,7 +208,7 @@ public class PaintStroke<T> {
 
     void CommitSpan() {
         if (_cells.Count == 0) return;
-        TypeMap<T> field = _field.PaintField;
+        FieldMap<T> field = _field.PaintField;
         var op = _op;
 
         // Neighbour-reading ops need a stable pre-stroke snapshot to sample; capture it once, before any painting.
@@ -220,12 +220,12 @@ public class PaintStroke<T> {
             System.Array.Copy(field.values, _source.values, field.values.Length);
             _sourceReady = true;
         }
-        TypeMap<T> source = op.NeedsSnapshot ? _source : field;
+        FieldMap<T> source = op.NeedsSnapshot ? _source : field;
 
         int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
         for (int i = 0; i < _cells.Count; i++) {
             var c = _cells[i];
-            Point p = c.point;
+            Vector2Int p = c.point;
             int key = Key(p);
 
             int slot;
@@ -343,19 +343,19 @@ public class PaintStroke<T> {
                                                (sample.x * ry + sample.y * fy) * invMag);   // emitter dir in world
                     // FollowStroke paints along the drag; FixedAngle paints the emitter dir.
                     Vector2 strokeDir = fixedAngle ? brushDir : tangent;
-                    Accumulate(new Point(x, y), mag * dsAcc, mag, brushDir, strokeDir, new Vector2(nx, ny));
+                    Accumulate(new Vector2Int(x, y), mag * dsAcc, mag, brushDir, strokeDir, new Vector2(nx, ny));
                 } else {
                     float distSqr = ox * ox + oy * oy;
                     if (distSqr > radiusSqr) continue;               // out of the disc — skip the sqrt + weight
                     float w = _shape.Weight(Mathf.Sqrt(distSqr) * invR);
                     if (w <= 0f) continue;
-                    Accumulate(new Point(x, y), w * dsAcc, w, tangent, tangent, new Vector2(nx, ny));
+                    Accumulate(new Vector2Int(x, y), w * dsAcc, w, tangent, tangent, new Vector2(nx, ny));
                 }
             }
         }
     }
 
-    void Accumulate(Point gridPoint, float coverage, float weight, Vector2 brushDir, Vector2 strokeDir, Vector2 center) {
+    void Accumulate(Vector2Int gridPoint, float coverage, float weight, Vector2 brushDir, Vector2 strokeDir, Vector2 center) {
         int key = Key(gridPoint);
         if (_index.TryGetValue(key, out int i)) {
             var e = _cells[i];

@@ -8,7 +8,7 @@ using UnityEngine;
 public static class VectorFieldBrushKernel {
     // Applies `op` to every cell, writing results back into `field`. Returns false (empty region) when there is
     // nothing to do. strokeForce/brushCenter live per-cell on VectorFieldBrushCell.
-    public static bool Apply<T>(TypeMap<T> field, IReadOnlyList<VectorFieldBrushCell> cells, float pressure,
+    public static bool Apply<T>(FieldMap<T> field, IReadOnlyList<VectorFieldBrushCell> cells, float pressure,
                                 IBrushOp<T> op, out RectInt dirtyRegion) {
         dirtyRegion = default;
         if (field == null || op == null || cells == null || cells.Count == 0)
@@ -17,7 +17,7 @@ public static class VectorFieldBrushKernel {
         // Neighbour-reading ops sample a pre-stroke snapshot so the result doesn't depend on cell iteration order;
         // other ops read the live field directly (no allocation). CloneMap preserves the concrete subtype so the
         // snapshot's bilinear GetValueAtGridPosition uses the right Lerp.
-        TypeMap<T> source = op.NeedsSnapshot ? field.CloneMap() : field;
+        FieldMap<T> source = op.NeedsSnapshot ? field.CloneMap() : field;
 
         int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
         for (int i = 0; i < cells.Count; i++) {

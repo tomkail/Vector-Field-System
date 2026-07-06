@@ -44,7 +44,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// renderer, EvaluateVector). Transient: GPU components fill it via readback when a consumer wants it, CPU
 	// components (polygon / group-CPU) compute into it directly. Not serialized — it's rebuilt every render, and
 	// authored data (Drawable) lives in its own paintField.
-	[NonSerialized] public Vector2Map vectorField;
+	[NonSerialized] public VectorFieldMap vectorField;
 
 	// A uniform scalar on the field's OUTPUT. Together with `cookie` it forms the field's output transform: applied to
 	// the rendered result in Render() (see ApplyOutputTransform), NOT baked into the component's internal/authored
@@ -300,7 +300,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 	// field RenderInternal computes into). Components that author their field on the CPU and keep it separate from
 	// the readback target (e.g. the painted field) override this to point at their authored buffer, so uploads come
 	// from the authored data while the cookie-masked readback lands in vectorField for consumers.
-	protected virtual Vector2Map UploadSource => vectorField;
+	protected virtual VectorFieldMap UploadSource => vectorField;
 
 	AsyncGPUReadbackRequest? pendingReadback;
 
@@ -337,7 +337,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 		var rawData = request.GetData<Color>();
 		// Reuse the existing map (and its array) when the size is unchanged; only reallocate on a resize.
 		if (vectorField == null || vectorField.size.x != request.width || vectorField.size.y != request.height)
-			vectorField = new Vector2Map(new Point(request.width, request.height));
+			vectorField = new VectorFieldMap(new Vector2Int(request.width, request.height));
 		VectorFieldUtils.ColorsToVectors(rawData, 1, vectorField.values);
 
 		// CPU copy is now current — notify consumers that read vectorField.

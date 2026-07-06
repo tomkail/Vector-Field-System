@@ -22,8 +22,7 @@ public class VectorFieldComponentEditor : Editor {
 		var root = new VisualElement();
 		VectorFieldInspectorUI.ApplyStyle(root);
 
-		root.Add(VectorFieldInspectorUI.Header(DisplayName()));
-
+		// No title header here — Unity's component title bar already shows the field type's name.
 		root.Add(BuildFieldSection());
 		BuildBody(root);
 		BuildFooter(root);
@@ -38,10 +37,14 @@ public class VectorFieldComponentEditor : Editor {
 		// grid is a [field: SerializeField] auto-property → backing field "<grid>k__BackingField"; bind straight to
 		// its serialized _size so the user sees a single "Grid Size" field, not a nested GridTransform foldout.
 		var gridSize = serializedObject.FindProperty("<grid>k__BackingField")?.FindPropertyRelative("_size");
-		if (gridSize != null) section.Add(new PropertyField(gridSize, "Grid Size"));
+		if (gridSize != null)
+			section.Add(VectorFieldInspectorUI.Field(gridSize, "Grid Size",
+				"The field's resolution in cells (X × Y). Higher is more detailed but costs more GPU/CPU."));
 
-		section.Add(new PropertyField(serializedObject.FindProperty("magnitude")));
-		section.Add(new PropertyField(serializedObject.FindProperty("cookie"), "Mask"));
+		section.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("magnitude"), "Magnitude",
+			"Uniform scalar applied to the field's output. Every consumer sees the scaled result."));
+		section.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("cookie"), "Mask",
+			"Optional falloff mask multiplied into the field's output — radial softness, an authored curve, or a texture."));
 		return section;
 	}
 
@@ -77,13 +80,6 @@ public class VectorFieldComponentEditor : Editor {
 			footer.Add(BuildDiagnostics(root));
 
 		root.Add(footer);
-	}
-
-	// A friendly title from the type name, e.g. "NoiseVectorFieldComponent" → "Noise Vector Field".
-	string DisplayName() {
-		var name = target.GetType().Name;
-		if (name.EndsWith("Component")) name = name[..^"Component".Length];
-		return ObjectNames.NicifyVariableName(name);
 	}
 
 	// viewDataKey scoped to the concrete type so section expand/collapse persists per field type.

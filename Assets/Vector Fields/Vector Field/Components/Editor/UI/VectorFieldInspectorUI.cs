@@ -27,19 +27,6 @@ public static class VectorFieldInspectorUI {
 		if (sheet != null && !root.styleSheets.Contains(sheet)) root.styleSheets.Add(sheet);
 	}
 
-	// The accent title bar at the top of every field inspector, showing the field type's friendly name.
-	public static VisualElement Header(string title) {
-		var header = new VisualElement();
-		header.AddToClassList("vf-header");
-		var mark = new VisualElement();
-		mark.AddToClassList("vf-header__mark");
-		header.Add(mark);
-		var label = new Label(title);
-		label.AddToClassList("vf-header__title");
-		header.Add(label);
-		return header;
-	}
-
 	// A collapsible card grouping related settings. Add fields straight to the returned element (its
 	// contentContainer routes into the foldout body). viewDataKey persists the expand/collapse state.
 	public static Section MakeSection(string title, string viewDataKey = null) => new Section(title, viewDataKey);
@@ -49,6 +36,15 @@ public static class VectorFieldInspectorUI {
 		var label = new Label(text);
 		label.AddToClassList("vf-help");
 		return label;
+	}
+
+	// A bound PropertyField with an explicit label and tooltip. The tooltip is set on the field root; UITK's
+	// tooltip event bubbles, so hovering the (empty-tooltip) label or control still surfaces it. Use this so every
+	// field in the inspectors carries a hint. Fields whose runtime declaration already has [Tooltip] keep that too.
+	public static PropertyField Field(SerializedProperty prop, string label, string tooltip = null) {
+		var field = new PropertyField(prop, label);
+		if (!string.IsNullOrEmpty(tooltip)) field.tooltip = tooltip;
+		return field;
 	}
 
 	// Show/hide `element` whenever `gate` changes, per `predicate`. This is the conditional-display idiom that
@@ -68,20 +64,14 @@ public static class VectorFieldInspectorUI {
 
 	// A horizontal segmented toggle for an enum serialized property (the "side by side options" look), built as a
 	// native UITK control. Unlike the IMGUI EnumButtonGroup drawer, this works inside list elements (its property
-	// path isn't resolved via reflection). Uses Unity's field USS classes so its label aligns with sibling fields.
-	public static VisualElement EnumSegmentedField(SerializedProperty enumProp, string label) {
-		var row = new VisualElement();
-		row.AddToClassList("unity-base-field");
-		row.style.flexDirection = FlexDirection.Row;
-
-		var labelEl = new Label(label);
-		labelEl.AddToClassList("unity-base-field__label");
-		row.Add(labelEl);
-
+	// path isn't resolved via reflection). Built on BaseField<int> so its label auto-aligns with the inspector's
+	// label column, exactly like a PropertyField.
+	public static VisualElement EnumSegmentedField(SerializedProperty enumProp, string label, string tooltip = null) {
 		var group = new VisualElement();
-		group.AddToClassList("unity-base-field__input");
 		group.AddToClassList("vf-seg-group");
-		row.Add(group);
+
+		var control = new EnumSegmentedControl(label, group);
+		if (!string.IsNullOrEmpty(tooltip)) control.tooltip = tooltip;
 
 		var names = enumProp.enumDisplayNames;
 		var buttons = new Button[names.Length];
@@ -107,8 +97,93 @@ public static class VectorFieldInspectorUI {
 			group.Add(button);
 		}
 		Sync();
-		row.TrackPropertyValue(enumProp, _ => Sync());
-		return row;
+		control.TrackPropertyValue(enumProp, _ => Sync());
+		return control;
+	}
+
+	// A horizontal multi-toggle for a [Flags] enum serialized property — one button per single-bit flag, value is
+	// the OR of the selected bits. Native replacement for UnityX's [EnumFlagsButtonGroup] drawer, so fields using it
+	// no longer depend on that attribute. Pass the enum type so bit values are read directly (no reflection by path).
+	public static VisualElement EnumFlagsSegmentedField(SerializedProperty flagsProp, System.Type enumType, string label, string tooltip = null) {
+		var group = new VisualElement();
+		group.AddToClassList("vf-seg-group");
+
+		var control = new EnumSegmentedControl(label, group);
+		if (!string.IsNullOrEmpty(tooltip)) control.tooltip = tooltip;
+
+		// Single-bit flags only — skip None (0) and composite values like All.
+		var bits = new System.Collections.Generic.List<(int value, string name)>();
+		foreach (var v in System.Enum.GetValues(enumType)) {
+			int iv = System.Convert.ToInt32(v);
+			if (iv != 0 && (iv & (iv - 1)) == 0)
+				bits.Add((iv, ObjectNames.NicifyVariableName(System.Enum.GetName(enumType, v))));
+		}
+
+		var buttons = new Button[bits.Count];
+		void Sync() {
+			int mask = flagsProp.enumValueFlag;
+			for (int i = 0; i < bits.Count; i++)
+				buttons[i].EnableInClassList("vf-seg--active", (mask & bits[i].value) != 0);
+		}
+		for (int i = 0; i < bits.Count; i++) {
+			int bit = bits[i].value;
+			var button = new Button(() => {
+				flagsProp.enumValueFlag ^= bit;   // toggle this flag
+				flagsProp.serializedObject.ApplyModifiedProperties();
+				Sync();
+			}) { text = bits[i].name };
+			button.AddToClassList("vf-seg");
+			if (bits.Count > 1) {
+				if (i == 0) button.AddToClassList("vf-seg--first");
+				else if (i == bits.Count - 1) button.AddToClassList("vf-seg--last");
+				else button.AddToClassList("vf-seg--mid");
+			}
+			buttons[i] = button;
+			group.Add(button);
+		}
+		Sync();
+		control.TrackPropertyValue(flagsProp, _ => Sync());
+		return control;
+	}
+
+	// A bound AnimationCurve field constrained to `ranges` — native replacement for UnityX's [CurveRange] drawer
+	// (which just calls EditorGUI.CurveField with bounds). Being a real CurveField (a BaseField), its label aligns.
+	public static VisualElement RangedCurveField(SerializedProperty curveProp, string label, Rect ranges, string tooltip = null) {
+		var field = new CurveField(label) { ranges = ranges };
+		field.BindProperty(curveProp);
+		if (!string.IsNullOrEmpty(tooltip)) field.tooltip = tooltip;
+		return field;
+	}
+
+	// A default-style inspector (one PropertyField per visible property, script field shown disabled) that renders
+	// the named AnimationCurve property as a ranged CurveField. For simple components that only used [CurveRange]
+	// and have no other custom UI, so they no longer depend on that attribute.
+	public static VisualElement DefaultInspectorWithRangedCurve(SerializedObject so, string curvePropertyName, Rect ranges, string curveTooltip = null) {
+		var root = new VisualElement();
+		var it = so.GetIterator();
+		if (it.NextVisible(true)) {
+			do {
+				if (it.propertyPath == "m_Script") {
+					var script = new PropertyField(it.Copy());
+					script.SetEnabled(false);
+					root.Add(script);
+				} else if (it.name == curvePropertyName) {
+					root.Add(RangedCurveField(it.Copy(), it.displayName, ranges, curveTooltip));
+				} else {
+					root.Add(new PropertyField(it.Copy()));
+				}
+			} while (it.NextVisible(false));
+		}
+		return root;
+	}
+
+	// Thin BaseField wrapper: we drive the value ourselves (the button callbacks write the serialized enum), but
+	// deriving from BaseField gives us the label element and the inspector's automatic label-column alignment.
+	// The "unity-base-field__aligned" class is what the alignment pass looks for.
+	class EnumSegmentedControl : BaseField<int> {
+		public EnumSegmentedControl(string label, VisualElement input) : base(label, input) {
+			AddToClassList("unity-base-field__aligned");
+		}
 	}
 
 	// A card whose children are hosted inside a collapsible Foldout. contentContainer is overridden so callers

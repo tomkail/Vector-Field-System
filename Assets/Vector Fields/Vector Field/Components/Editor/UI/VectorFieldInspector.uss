@@ -2,54 +2,49 @@
    editor USS variables so light and dark themes both read correctly; the only fixed colour is the plugin
    accent, chosen to sit well on either theme. See VectorFieldInspectorUI.cs for the elements that use these. */
 
-/* --- Header: an accent title bar naming the field type --------------------------------------------------- */
-.vf-header {
-    flex-direction: row;
-    align-items: center;
-    margin-top: 2px;
-    margin-bottom: 6px;
-    padding: 5px 7px;
-    background-color: var(--unity-colors-inspector_titlebar-background);
-    border-radius: 4px;
-    border-left-width: 3px;
-    border-left-color: #4a9db5;
-}
-
-.vf-header__mark {
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-    margin-right: 7px;
-    background-color: #4a9db5;
-}
-
-.vf-header__title {
-    -unity-font-style: bold;
-    font-size: 13px;
-}
-
-/* --- Section: a collapsible card grouping related settings ----------------------------------------------- */
+/* --- Section: a 1:1 replica of Unity's UITK header-foldout (com.unity.render-pipelines.core
+   HeaderFoldout.uss + HeaderFoldoutDark.uss), the same element the Camera inspector uses. --------------- */
 .vf-section {
-    margin-top: 3px;
-    margin-bottom: 3px;
-    padding: 2px 7px 6px 7px;
-    background-color: var(--unity-colors-helpbox-background);
-    border-width: 1px;
-    border-color: var(--unity-colors-helpbox-border);
-    border-radius: 4px;
+    margin: 0;
 }
 
-.vf-section > Toggle {
+/* The foldout element == Unity's ".header-foldout". Escape the InspectorElement's content padding so the
+   header bar is truly full-width (Unity uses exactly margin 0 -6 0 -15), and draw the separator as a 1px
+   bottom border. Covers both the wrapper sections (.vf-section > Foldout) and the Diagnostics foldout
+   (which is itself .vf-section). Colour #1f1f1f is HeaderFoldoutDark's border colour. */
+.vf-section > .unity-foldout,
+.vf-section.unity-foldout {
+    margin: 0 -6px 0 -15px;
+    border-width: 0 0 1px 0;
+    border-color: #1f1f1f;
+}
+
+/* Header row fill (#323232 = HeaderFoldoutDark's toggle background) + bold label. */
+.vf-section > .unity-foldout > .unity-foldout__toggle,
+.vf-section.unity-foldout > .unity-foldout__toggle {
     -unity-font-style: bold;
-    margin-left: 0;
-    margin-bottom: 2px;
+    background-color: #323232;
+    margin: 0;
+    padding-top: 3px;
+    padding-bottom: 3px;
 }
 
-/* Nested sub-card (e.g. one blend layer inside the Group inspector). */
+/* Content: bring it back in from the bled-out edge (+15 cancels the -15) to the normal field column, plus a
+   small indent so fields sit under the header. */
+.vf-section > .unity-foldout > .unity-foldout__content,
+.vf-section.unity-foldout > .unity-foldout__content {
+    margin-left: 15px;
+    padding-top: 3px;
+    padding-bottom: 4px;
+    padding-left: 4px;
+}
+
+/* Nested sub-card (e.g. one blend layer inside the Group inspector). No foldout arrow here, so a light
+   rounded panel is fine and helps nest each layer's fields within the flat Layers section. */
 .vf-subsection {
     margin-top: 4px;
-    padding: 2px 6px 5px 6px;
-    background-color: var(--unity-colors-window-background);
+    padding: 3px 6px 5px 6px;
+    background-color: var(--unity-colors-helpbox-background);
     border-width: 1px;
     border-color: var(--unity-colors-helpbox-border);
     border-radius: 4px;

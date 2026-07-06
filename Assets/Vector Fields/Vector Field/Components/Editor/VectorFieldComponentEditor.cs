@@ -35,15 +35,15 @@ public class VectorFieldComponentEditor : Editor {
 		var section = VectorFieldInspectorUI.MakeSection("Field", ViewKey("field"));
 
 		// grid is a [field: SerializeField] auto-property → backing field "<grid>k__BackingField"; bind straight to
-		// its serialized _size (and _lockSquare) so the user sees a single "Grid Size" field with a lock toggle,
-		// not a nested GridTransform foldout.
+		// its serialized _size (and _constrainProportions) so the user sees a single "Grid Size" field with a
+		// constrain-proportions toggle, not a nested GridTransform foldout.
 		var gridProp = serializedObject.FindProperty("<grid>k__BackingField");
 		var gridSize = gridProp?.FindPropertyRelative("_size");
-		var gridLock = gridProp?.FindPropertyRelative("_lockSquare");
+		var gridConstrain = gridProp?.FindPropertyRelative("_constrainProportions");
 		string gridTip = "The field's resolution in cells (X × Y). Higher is more detailed but costs more GPU/CPU. " +
-			"Toggle the chain-link to keep the grid square (X = Y).";
-		if (gridSize != null && gridLock != null)
-			section.Add(VectorFieldInspectorUI.GridSizeField(gridSize, gridLock, gridTip));
+			"Toggle the chain-link to constrain proportions (keep the X:Y ratio when editing an axis).";
+		if (gridSize != null && gridConstrain != null)
+			section.Add(VectorFieldInspectorUI.GridSizeField(gridSize, gridConstrain, gridTip));
 		else if (gridSize != null)
 			section.Add(VectorFieldInspectorUI.Field(gridSize, "Grid Size", gridTip));
 

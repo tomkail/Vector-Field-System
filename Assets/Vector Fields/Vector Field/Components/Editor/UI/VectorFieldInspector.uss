@@ -72,19 +72,29 @@
     height: 22px;
 }
 
-/* --- Grid-size lock (chain-link) button, sits at the end of the Grid Size field's input row --------------- */
+/* --- Grid-size lock (chain-link) button. Absolutely positioned in the label gutter just left of the X field
+   (like the Transform scale lock), so it doesn't push the X/Y fields to the right. ------------------------- */
 .vf-lock {
+    position: absolute;
+    left: -20px;
+    top: 1px;
     width: 18px;
     height: 18px;
-    margin: 1px 0 1px 3px;
     padding: 0;
     background-color: transparent;
     border-width: 0;
-    -unity-background-scale-mode: scale-to-fit;
+    align-items: center;
+    justify-content: center;
 }
 
 .vf-lock:hover {
     background-color: var(--unity-colors-button-background-hover);
+    border-radius: 2px;
+}
+
+.vf-lock__icon {
+    width: 16px;
+    height: 16px;
 }
 
 /* --- Segmented enum control (side-by-side options, like a toggle button group) --------------------------- */

@@ -51,7 +51,7 @@ public static class VectorFieldInspectorUI {
 	// either axis mirrors onto the other so the grid stays square. `lockProp` is the serialized bool that persists
 	// the lock; `sizeProp` is the Vector2Int size. The lock button is injected into the field's own input row so the
 	// label stays aligned with sibling fields.
-	public static VisualElement GridSizeField(SerializedProperty sizeProp, SerializedProperty lockProp, string tooltip = null) {
+	public static VisualElement GridSizeField(SerializedProperty sizeProp, SerializedProperty constrainProp, string tooltip = null) {
 		var field = new Vector2IntField("Grid Size");
 		field.AddToClassList("unity-base-field__aligned"); // align the label with sibling PropertyFields
 		field.BindProperty(sizeProp);
@@ -59,39 +59,55 @@ public static class VectorFieldInspectorUI {
 
 		var lockButton = new Button();
 		lockButton.AddToClassList("vf-lock");
+		// Render the icon through an Image (ScaleToFit) rather than a stretched background so it isn't distorted.
+		var lockIcon = new Image { scaleMode = ScaleMode.ScaleToFit, pickingMode = PickingMode.Ignore };
+		lockIcon.AddToClassList("vf-lock__icon");
+		lockButton.Add(lockIcon);
 
 		void UpdateIcon() {
-			var icon = EditorGUIUtility.IconContent(lockProp.boolValue ? "Linked" : "Unlinked").image as Texture2D;
-			if (icon != null) lockButton.style.backgroundImage = new StyleBackground(icon);
-			lockButton.tooltip = lockProp.boolValue
-				? "Grid size locked square (X = Y). Click to unlock."
-				: "Lock grid size square (X = Y).";
+			lockIcon.image = EditorGUIUtility.IconContent(constrainProp.boolValue ? "Linked" : "Unlinked").image;
+			lockButton.tooltip = constrainProp.boolValue ? "Disable constrained proportions" : "Enable constrained proportions";
 		}
 
 		lockButton.clicked += () => {
-			lockProp.boolValue = !lockProp.boolValue;
-			lockProp.serializedObject.ApplyModifiedProperties();
+			constrainProp.boolValue = !constrainProp.boolValue;
+			constrainProp.serializedObject.ApplyModifiedProperties();
 			UpdateIcon();
-			if (lockProp.boolValue) {
-				int v = Mathf.Max(1, field.value.x); // snap square from the X axis
-				field.value = new Vector2Int(v, v);
-			}
 		};
 
-		// While locked, mirror whichever axis the user just edited onto the other. The equality guard stops the
-		// re-entrant value change (setting field.value fires this again) from looping.
+		// While constrained, scale the OTHER axis by the same factor as the edited one, preserving the X:Y ratio
+		// (rounded to whole cells, min 1) — the Transform constrain-proportions behaviour. A re-entrancy guard stops
+		// the value write from recursing.
+		bool updating = false;
 		field.RegisterValueChangedCallback(evt => {
-			if (!lockProp.boolValue) return;
-			int primary = Mathf.Max(1, evt.newValue.x != evt.previousValue.x ? evt.newValue.x : evt.newValue.y);
-			var squared = new Vector2Int(primary, primary);
-			if (evt.newValue != squared) field.value = squared;
+			if (!constrainProp.boolValue || updating) return;
+			var nv = evt.newValue;
+			var ov = evt.previousValue;
+			Vector2Int result;
+			if (nv.x != ov.x && ov.x != 0) {
+				float factor = (float)nv.x / ov.x;
+				result = new Vector2Int(Mathf.Max(1, nv.x), Mathf.Max(1, Mathf.RoundToInt(ov.y * factor)));
+			} else if (nv.y != ov.y && ov.y != 0) {
+				float factor = (float)nv.y / ov.y;
+				result = new Vector2Int(Mathf.Max(1, Mathf.RoundToInt(ov.x * factor)), Mathf.Max(1, nv.y));
+			} else {
+				return;
+			}
+			if (nv != result) {
+				updating = true;
+				field.value = result;
+				updating = false;
+			}
 		});
 
-		field.TrackPropertyValue(lockProp, _ => UpdateIcon()); // keep the icon right on undo/redo
+		field.TrackPropertyValue(constrainProp, _ => UpdateIcon()); // keep the icon right on undo/redo
 		UpdateIcon();
 
+		// Sit the lock to the LEFT of the X/Y fields (like the Transform scale constrain-proportions lock): insert it
+		// at the front of the field's input row, before X.
 		var input = field.Q(className: "unity-base-field__input");
-		(input ?? field).Add(lockButton);
+		if (input != null) input.Insert(0, lockButton);
+		else field.Add(lockButton);
 		return field;
 	}
 

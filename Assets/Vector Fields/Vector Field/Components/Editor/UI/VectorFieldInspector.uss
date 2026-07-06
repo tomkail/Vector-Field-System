@@ -72,6 +72,21 @@
     height: 22px;
 }
 
+/* --- Grid-size lock (chain-link) button, sits at the end of the Grid Size field's input row --------------- */
+.vf-lock {
+    width: 18px;
+    height: 18px;
+    margin: 1px 0 1px 3px;
+    padding: 0;
+    background-color: transparent;
+    border-width: 0;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.vf-lock:hover {
+    background-color: var(--unity-colors-button-background-hover);
+}
+
 /* --- Segmented enum control (side-by-side options, like a toggle button group) --------------------------- */
 .vf-seg-group {
     flex-direction: row;

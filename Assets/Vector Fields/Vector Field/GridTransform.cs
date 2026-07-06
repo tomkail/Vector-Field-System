@@ -13,10 +13,22 @@ using UnityEngine;
 public class GridTransform {
 	[SerializeField] Vector2Int _size = new Vector2Int(64, 64);
 
+	// When true the grid is kept square (X == Y). Driven by the inspector's grid-size lock toggle, which mirrors one
+	// axis onto the other on edit; also enforced in the Size setter below so code-driven resizes stay square too.
+	[SerializeField] bool _lockSquare;
+
+	// Whether the grid is locked to a square (X == Y) resolution.
+	public bool LockSquare {
+		get => _lockSquare;
+		set => _lockSquare = value;
+	}
+
 	// Grid resolution in cells. Clamped to a minimum of 1 on each axis (a zero-dimension grid can't allocate a texture).
+	// When LockSquare is set, the Y axis follows X so the grid stays square.
 	public Vector2Int Size {
 		get => _size;
 		set {
+			if (_lockSquare) value.y = value.x;
 			var clamped = new Vector2Int(Mathf.Max(1, value.x), Mathf.Max(1, value.y));
 			if (_size == clamped) return;
 			_size = clamped;

@@ -47,6 +47,54 @@ public static class VectorFieldInspectorUI {
 		return field;
 	}
 
+	// A Vector2Int grid-size field with a chain-link lock (like the Transform scale lock): while locked, editing
+	// either axis mirrors onto the other so the grid stays square. `lockProp` is the serialized bool that persists
+	// the lock; `sizeProp` is the Vector2Int size. The lock button is injected into the field's own input row so the
+	// label stays aligned with sibling fields.
+	public static VisualElement GridSizeField(SerializedProperty sizeProp, SerializedProperty lockProp, string tooltip = null) {
+		var field = new Vector2IntField("Grid Size");
+		field.AddToClassList("unity-base-field__aligned"); // align the label with sibling PropertyFields
+		field.BindProperty(sizeProp);
+		if (!string.IsNullOrEmpty(tooltip)) field.tooltip = tooltip;
+
+		var lockButton = new Button();
+		lockButton.AddToClassList("vf-lock");
+
+		void UpdateIcon() {
+			var icon = EditorGUIUtility.IconContent(lockProp.boolValue ? "Linked" : "Unlinked").image as Texture2D;
+			if (icon != null) lockButton.style.backgroundImage = new StyleBackground(icon);
+			lockButton.tooltip = lockProp.boolValue
+				? "Grid size locked square (X = Y). Click to unlock."
+				: "Lock grid size square (X = Y).";
+		}
+
+		lockButton.clicked += () => {
+			lockProp.boolValue = !lockProp.boolValue;
+			lockProp.serializedObject.ApplyModifiedProperties();
+			UpdateIcon();
+			if (lockProp.boolValue) {
+				int v = Mathf.Max(1, field.value.x); // snap square from the X axis
+				field.value = new Vector2Int(v, v);
+			}
+		};
+
+		// While locked, mirror whichever axis the user just edited onto the other. The equality guard stops the
+		// re-entrant value change (setting field.value fires this again) from looping.
+		field.RegisterValueChangedCallback(evt => {
+			if (!lockProp.boolValue) return;
+			int primary = Mathf.Max(1, evt.newValue.x != evt.previousValue.x ? evt.newValue.x : evt.newValue.y);
+			var squared = new Vector2Int(primary, primary);
+			if (evt.newValue != squared) field.value = squared;
+		});
+
+		field.TrackPropertyValue(lockProp, _ => UpdateIcon()); // keep the icon right on undo/redo
+		UpdateIcon();
+
+		var input = field.Q(className: "unity-base-field__input");
+		(input ?? field).Add(lockButton);
+		return field;
+	}
+
 	// Show/hide `element` whenever `gate` changes, per `predicate`. This is the conditional-display idiom that
 	// replaces "always visible" contingent fields — e.g. hide a force mapping until a force field is assigned.
 	public static void ShowIf(VisualElement element, SerializedProperty gate, Func<bool> predicate) {

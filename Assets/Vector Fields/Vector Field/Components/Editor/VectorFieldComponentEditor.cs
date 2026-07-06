@@ -35,11 +35,17 @@ public class VectorFieldComponentEditor : Editor {
 		var section = VectorFieldInspectorUI.MakeSection("Field", ViewKey("field"));
 
 		// grid is a [field: SerializeField] auto-property → backing field "<grid>k__BackingField"; bind straight to
-		// its serialized _size so the user sees a single "Grid Size" field, not a nested GridTransform foldout.
-		var gridSize = serializedObject.FindProperty("<grid>k__BackingField")?.FindPropertyRelative("_size");
-		if (gridSize != null)
-			section.Add(VectorFieldInspectorUI.Field(gridSize, "Grid Size",
-				"The field's resolution in cells (X × Y). Higher is more detailed but costs more GPU/CPU."));
+		// its serialized _size (and _lockSquare) so the user sees a single "Grid Size" field with a lock toggle,
+		// not a nested GridTransform foldout.
+		var gridProp = serializedObject.FindProperty("<grid>k__BackingField");
+		var gridSize = gridProp?.FindPropertyRelative("_size");
+		var gridLock = gridProp?.FindPropertyRelative("_lockSquare");
+		string gridTip = "The field's resolution in cells (X × Y). Higher is more detailed but costs more GPU/CPU. " +
+			"Toggle the chain-link to keep the grid square (X = Y).";
+		if (gridSize != null && gridLock != null)
+			section.Add(VectorFieldInspectorUI.GridSizeField(gridSize, gridLock, gridTip));
+		else if (gridSize != null)
+			section.Add(VectorFieldInspectorUI.Field(gridSize, "Grid Size", gridTip));
 
 		section.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("magnitude"), "Magnitude",
 			"Uniform scalar applied to the field's output. Every consumer sees the scaled result."));

@@ -7,7 +7,12 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+// One field per GameObject: the field's placement, orientation, and grid footprint are all derived from this
+// transform, so a second component would share them and gain nothing a GroupVectorFieldComponent (composition via
+// child transforms) doesn't already provide — while breaking the singular GetComponent<VectorFieldComponent> lookups
+// that consumers rely on. Compose co-located fields with a group, not by stacking components.
 [ExecuteAlways]
+[DisallowMultipleComponent]
 public abstract class VectorFieldComponent : MonoBehaviour {
 	protected GroupVectorFieldComponent group {
 		get {

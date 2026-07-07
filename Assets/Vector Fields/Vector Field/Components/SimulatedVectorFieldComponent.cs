@@ -21,7 +21,6 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 	static ComputeShader fluidComputeShader;
 	static ComputeShader FluidComputeShader => fluidComputeShader ? fluidComputeShader : (fluidComputeShader = Resources.Load<ComputeShader>("FluidSimulation"));
 
-	[Header("Simulation")]
 	[Tooltip("Fixed solver rate. The sim steps in increments of 1/this regardless of frame rate.")]
 	public float simulationFps = 60f;
 	[Tooltip("Cap on solver steps per frame, so a hitch can't spiral into a death-loop of catch-up steps.")]
@@ -44,11 +43,9 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		// detail persist far longer. The recommended default.
 		MacCormack,
 	}
-	[Header("Advection")]
 	[Tooltip("MacCormack cancels most of the numerical diffusion that makes plain semi-Lagrangian flow decay to mush.")]
 	public AdvectionMode advectionMode = AdvectionMode.MacCormack;
 
-	[Header("Vorticity confinement")]
 	[Tooltip("Re-injects the small-scale swirl that diffusion eats, keeping the flow lively. 0 disables it; " +
 		"0.1-0.5 is a useful range. Too high looks turbulent/noisy.")]
 	public float vorticityStrength = 0.2f;
@@ -66,7 +63,6 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		// resizing the force field now affects the sim, and differing resolutions/placements just work.
 		WorldSpace,
 	}
-	[Header("Forcing")]
 	public VectorFieldComponent forceField;
 	[Tooltip("DirectTexel: 1:1 cell copy (grids must match), transform ignored. WorldSpace: transform-aware — " +
 		"move/rotate/resize the force field and it pushes the fluid accordingly. Stretched: fill the sim with the " +
@@ -82,13 +78,11 @@ public class SimulatedVectorFieldComponent : VectorFieldComponent {
 		// Outflow / absorbing: fluid flows out of the edges without reflecting back.
 		Open,
 	}
-	[Header("Boundaries")]
 	[Tooltip("What happens at the domain edges. Interior obstacle masks apply regardless of this.")]
 	public BoundaryMode boundaryMode = BoundaryMode.Wrap;
 	[Tooltip("Optional mask the fluid flows around (>0.5 = solid). Independent of the edge mode above.")]
 	public Texture2D obstacles;
 
-	[Header("Output")]
 	[Tooltip("Scales raw solver velocity into the encoded [-1,1] field range before it enters the pipeline.")]
 	public float outputScale = 1f;
 

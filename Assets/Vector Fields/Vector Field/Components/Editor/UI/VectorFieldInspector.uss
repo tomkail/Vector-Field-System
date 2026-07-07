@@ -34,7 +34,7 @@
 .vf-section > .unity-foldout > .unity-foldout__content,
 .vf-section.unity-foldout > .unity-foldout__content {
     margin-left: 15px;
-    padding-top: 3px;
+    padding-top: 5px;
     padding-bottom: 4px;
     padding-left: 4px;
 }

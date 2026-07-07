@@ -13,12 +13,10 @@ using UnityEngine;
 [ExecuteAlways]
 [AddComponentMenu("Vector Fields/Mesh Vector Field")]
 public class MeshVectorField : VectorFieldComponent {
-	[Header("3D meshes — cross-section where they cut the grid plane")]
 	public List<MeshFilter> crossSectionMeshes = new();
 	// Animated/skinned meshes: baked each render (enable continuousUpdate to re-slice as they animate).
 	public List<SkinnedMeshRenderer> crossSectionSkinnedMeshes = new();
 
-	[Header("2D sprites / colliders — silhouette outline")]
 	public List<Collider2D> silhouetteColliders = new();
 	public List<SpriteRenderer> silhouetteSprites = new();
 

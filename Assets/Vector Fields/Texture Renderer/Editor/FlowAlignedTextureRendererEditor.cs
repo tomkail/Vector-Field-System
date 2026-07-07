@@ -2,15 +2,19 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEditor;
 
-// Inherits VectorFieldQuadEditor (default inspector + depthOffset gated on matchFieldBounds) and only customises the
-// amplitude-alpha curve, drawn as a 0..1 ranged CurveField (natively, replacing the old [CurveRange] attribute so this
-// component no longer depends on UnityX's drawer).
+// FlowAlignedTextureRenderer: the Texture Renderer chrome (Field / Material / Placement) plus the Flow-Aligned shader's
+// amplitude/colour ramps — the amplitude curve drawn as a 0..1 ranged CurveField (native, no UnityX [CurveRange] dep).
 [CustomEditor(typeof(FlowAlignedTextureRenderer)), CanEditMultipleObjects]
-public class FlowAlignedTextureRendererEditor : VectorFieldQuadEditor {
-	protected override VisualElement BuildField(SerializedProperty property) {
-		if (property.name == "amplitudeAlphaCurve")
-			return VectorFieldInspectorUI.RangedCurveField(property.Copy(), property.displayName, new Rect(0, 0, 1, 1),
-				"Remaps alpha against the field's amplitude across the normalized 0..1 range.");
-		return base.BuildField(property);
+public class FlowAlignedTextureRendererEditor : VectorFieldTextureRendererEditor {
+	protected override void BuildBody(VisualElement root) {
+		base.BuildBody(root); // Material section
+
+		var section = VectorFieldInspectorUI.MakeSection("Appearance", ViewKey("appearance"));
+		section.Add(VectorFieldInspectorUI.RangedCurveField(serializedObject.FindProperty("amplitudeAlphaCurve"),
+			"Amplitude Alpha", new Rect(0, 0, 1, 1),
+			"Remaps alpha against the field's amplitude across the normalized 0..1 range."));
+		section.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("colorGradient"), "Colour Gradient",
+			"Recolours the streaks when the material's \"Use Texture Colour\" is off, sampled by flow magnitude or streak luminance."));
+		root.Add(section);
 	}
 }

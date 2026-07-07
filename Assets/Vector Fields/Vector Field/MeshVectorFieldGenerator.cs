@@ -29,7 +29,7 @@ public static class MeshVectorFieldGenerator {
 	// One instantiated copy shared by every dispatch — dispatches are serial on the main thread and every parameter is
 	// set per dispatch, so sharing is safe and avoids per-component shader instantiation.
 	static ComputeShader sharedShader;
-	static ComputeShader SharedShader => sharedShader ? sharedShader : (sharedShader = Object.Instantiate(MeshVectorFieldComputeShader));
+	static ComputeShader SharedShader => sharedShader ? sharedShader : (sharedShader = UnityEngine.Object.Instantiate(MeshVectorFieldComputeShader));
 
 	// Must match what's in the compute shader.
 	const int threadsPerGroupX = 16;

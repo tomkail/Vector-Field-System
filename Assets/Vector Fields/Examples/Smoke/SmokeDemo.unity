@@ -147,7 +147,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 3.305396, y: 3.305396, z: 3.305396}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1138885248}
@@ -164,6 +164,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7371edf8bc6c4365ba781cdcd6ca7af8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StampVectorFieldComponent
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
   magnitude: 1
   cookie:
     mode: 1
@@ -211,9 +214,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridRenderer
   modeModule: {fileID: 271848273}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 64
-    y: 64
+  _gridSize: {x: 64, y: 64}
   showGizmos: 0
 --- !u!114 &176413601
 MonoBehaviour:
@@ -560,9 +561,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridRenderer
   modeModule: {fileID: 271848273}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 64
-    y: 64
+  _gridSize: {x: 64, y: 64}
   showGizmos: 0
 --- !u!4 &549722041
 Transform:
@@ -573,7 +572,7 @@ Transform:
   m_GameObject: {fileID: 549722038}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: -0.302, y: -0.057, z: 0}
   m_LocalScale: {x: 0.31056997, y: 0.31056997, z: 0.31056997}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -591,6 +590,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7371edf8bc6c4365ba781cdcd6ca7af8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StampVectorFieldComponent
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
   magnitude: 1
   cookie:
     mode: 1
@@ -623,7 +625,7 @@ MonoBehaviour:
   brushSettingsParams:
     forceType: 1
     directionalAngle: 0
-    vortexAngle: 90
+    vortexAngle: 383.3
 --- !u!1 &693320054
 GameObject:
   m_ObjectHideFlags: 0
@@ -654,6 +656,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b20aa33103fe45579cd0c7c9ac3e1090, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::NoiseVectorFieldComponent
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
   magnitude: 1
   cookie:
     mode: 0
@@ -707,9 +712,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridRenderer
   modeModule: {fileID: 271848273}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 64
-    y: 64
+  _gridSize: {x: 64, y: 64}
   showGizmos: 0
 --- !u!4 &693320057
 Transform:
@@ -738,7 +741,7 @@ GameObject:
   - component: {fileID: 1138885250}
   - component: {fileID: 1138885249}
   m_Layer: 0
-  m_Name: Group
+  m_Name: Vector Field Group
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -774,6 +777,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0a7a670a476549348e1f45a839bb443e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GroupVectorFieldComponent
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
   magnitude: 1
   cookie:
     mode: 0
@@ -863,7 +869,7 @@ MonoBehaviour:
     scaleByFieldMagnitude: 0
     components: 3
   - component: {fileID: 693320055}
-    strength: 0.2
+    strength: 0.58
     blendMode: 0
     alignmentRamp:
       serializedVersion: 2
@@ -905,9 +911,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridRenderer
   modeModule: {fileID: 176413601}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 64
-    y: 64
+  _gridSize: {x: 64, y: 64}
   showGizmos: 0
 --- !u!114 &1191890514
 MonoBehaviour:
@@ -963,6 +967,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f2b249e2f1b114a888e26b8be4da83bc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MeshVectorField
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
   magnitude: 1
   cookie:
     mode: 0
@@ -1019,9 +1026,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridRenderer
   modeModule: {fileID: 1191890514}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 64
-    y: 64
+  _gridSize: {x: 64, y: 64}
   showGizmos: 0
 --- !u!4 &1511034273
 Transform:
@@ -1299,11 +1304,13 @@ MonoBehaviour:
   maxSubstepsPerFrame: 4
   timeScale: 1
   dissipationPerSecond: 0.7
-  injectRate: 4
   sourceRetainPerSecond: 0.1
   renderShader: {fileID: 4800000, guid: 0e61d41bd871544d0b117ff57ba89e70, type: 3}
   tint: {r: 1, g: 1, b: 1, a: 1}
   opacity: 1
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
 --- !u!114 &1879442626
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1318,9 +1325,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridRenderer
   modeModule: {fileID: 1495909025}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 1024
-    y: 1024
+  _gridSize: {x: 1024, y: 1024}
   showGizmos: 0
 --- !u!4 &1879442627
 Transform:
@@ -1348,6 +1353,7 @@ GameObject:
   - component: {fileID: 2046167929}
   - component: {fileID: 2046167928}
   - component: {fileID: 2046167927}
+  - component: {fileID: 2046167930}
   m_Layer: 0
   m_Name: Fluid Sim
   m_TagString: Untagged
@@ -1362,11 +1368,14 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2046167926}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 849913036f7c94cbb8298b7483e0347d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SimulatedVectorFieldComponent
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
   magnitude: 1
   cookie:
     mode: 0
@@ -1401,7 +1410,7 @@ MonoBehaviour:
   timeScale: 20
   pressureIterations: 30
   viscosityDamp: 0.98
-  simulateInEditMode: 0
+  simulateInEditMode: 1
   advectionMode: 1
   vorticityStrength: 0.3
   forceField: {fileID: 1138885249}
@@ -1424,9 +1433,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridRenderer
   modeModule: {fileID: 273538889}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 64
-    y: 64
+  _gridSize: {x: 64, y: 64}
   showGizmos: 0
 --- !u!4 &2046167929
 Transform:
@@ -1444,6 +1451,55 @@ Transform:
   - {fileID: 1138885248}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2046167930
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2046167926}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66e5015b7e06840708c1b3101b85cc4b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WaveVectorFieldComponent
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
+  magnitude: 1
+  cookie:
+    mode: 0
+    falloffSoftness: 0.5
+    curve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: -1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0
+        inSlope: -1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    texture: {fileID: 0}
+  sourceField: {fileID: 1138885249}
+  waveScale: 0.15
+  waveSpeed: 2
+  waveAmount: 0.7
+  animateInEditMode: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

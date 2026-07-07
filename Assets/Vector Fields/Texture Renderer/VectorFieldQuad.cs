@@ -33,4 +33,12 @@ public abstract class VectorFieldQuad : MonoBehaviour {
 		if (!matchFieldBounds) return;
 		VectorFieldRendererUtils.MatchFieldRect(transform, Field, depthOffset);
 	}
+
+	// Editor hook: snap the quad onto the field's rect right now, regardless of the matchFieldBounds flag. The inspector
+	// calls this the moment the flag is ticked on so the reposition happens synchronously (inside an Undo.RecordObject
+	// scope) rather than in the next LateUpdate — otherwise the move lands outside the undo step and undoing the toggle
+	// leaves the transform stranded where it was snapped.
+	public void SnapToFieldBounds() {
+		VectorFieldRendererUtils.MatchFieldRect(transform, Field, depthOffset);
+	}
 }

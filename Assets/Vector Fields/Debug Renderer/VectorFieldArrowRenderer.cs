@@ -34,14 +34,14 @@ public class VectorFieldArrowRenderer : MonoBehaviour {
 	// Density — serialized on the component so it travels with the scene.
 	//   Native  = one arrow per field cell.
 	//   Fixed   = a fixed number of arrows along the long axis (fixedResolution), independent of the camera.
-	//   Dynamic = decimated so on-screen spacing stays roughly constant as the camera moves.
-	[Tooltip("How the arrow density is chosen. Native = one per cell; Fixed = a set count regardless of camera; Dynamic = scales with the camera.")]
-	[SerializeField] VectorFieldArrowResolutionMode resolutionMode = VectorFieldArrowResolutionMode.Dynamic;
+	//   Adaptive = decimated so on-screen spacing stays roughly constant as the camera moves.
+	[Tooltip("How the arrow density is chosen. Native = one per cell; Fixed = a set count regardless of camera; Adaptive = scales with the camera.")]
+	[SerializeField] VectorFieldArrowResolutionMode resolutionMode = VectorFieldArrowResolutionMode.Adaptive;
 	[Tooltip("Number of arrows along the field's long axis (Fixed mode only).")]
 	[Range(2, 256)] [SerializeField] int fixedResolution = 32;
-	[Tooltip("Desired screen-space gap between arrows, in pixels (Dynamic mode only).")]
+	[Tooltip("Desired screen-space gap between arrows, in pixels (Adaptive mode only).")]
 	[Range(8f, 128f)] [SerializeField] float targetSpacingPixels = 36f;
-	[Tooltip("Upper bound on the number of arrows along the long axis (Dynamic mode only).")]
+	[Tooltip("Upper bound on the number of arrows along the long axis (Adaptive mode only).")]
 	[Range(8, 256)] [SerializeField] int maxArrows = 64;
 
 	VectorFieldDebugRenderer debugRenderer;
@@ -60,10 +60,12 @@ public class VectorFieldArrowRenderer : MonoBehaviour {
 
 	void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera) => DrawForCamera(camera);
 
-	// Issue the arrow draw for one camera. Skip everything but Game cameras: reflection/preview cameras don't need it,
-	// and the Scene view is already served by the editor overlay — drawing there too would double up.
+	// Issue the arrow draw for one camera. Draw to Game and Scene-view cameras (so the overlay is visible while
+	// authoring too); skip reflection/preview cameras. Note the editor's own debug overlay also draws in the Scene view,
+	// but only for the *selected* field — so selecting this component's field can briefly double up the arrows there.
 	void DrawForCamera(Camera camera) {
-		if (_vectorFieldComponent == null || camera == null || camera.cameraType != CameraType.Game) return;
+		if (_vectorFieldComponent == null || camera == null) return;
+		if (camera.cameraType != CameraType.Game && camera.cameraType != CameraType.SceneView) return;
 		debugRenderer ??= new VectorFieldDebugRenderer();
 		debugRenderer.Draw(_vectorFieldComponent, camera, appearance, resolutionMode, targetSpacingPixels, maxArrows, fixedResolution,
 			matchFieldTransform ? (Matrix4x4?)null : GridToThisTransform());
@@ -76,4 +78,20 @@ public class VectorFieldArrowRenderer : MonoBehaviour {
 		var gridToFieldLocal = _vectorFieldComponent.transform.worldToLocalMatrix * _vectorFieldComponent.GridToWorldMatrix;
 		return transform.localToWorldMatrix * gridToFieldLocal;
 	}
+
+#if UNITY_EDITOR
+	// RenderMeshIndirect draws aren't part of Scene-view picking, so clicking the arrows wouldn't select us. Draw a
+	// near-invisible gizmo quad over the field's rect (in the same space the arrows use) purely so the whole area is
+	// clickable. Gizmo picking is geometry-based, so the tiny alpha is imperceptible yet still selectable.
+	void OnDrawGizmos() {
+		if (_vectorFieldComponent == null) return;
+		var gridSize = _vectorFieldComponent.GridSize;
+		if (gridSize.x < 1 || gridSize.y < 1) return;
+
+		Gizmos.matrix = matchFieldTransform ? _vectorFieldComponent.GridToWorldMatrix : GridToThisTransform();
+		Gizmos.color = new Color(1f, 1f, 1f, 0.002f);
+		// Cell 0..gridSize-1 with half-cell margins spans grid space [-0.5, gridSize-0.5] — matching the arrows' extent.
+		Gizmos.DrawCube(new Vector3((gridSize.x - 1) * 0.5f, (gridSize.y - 1) * 0.5f, 0f), new Vector3(gridSize.x, gridSize.y, 0f));
+	}
+#endif
 }

@@ -75,10 +75,10 @@ public static class VectorFieldComponentDrawer
             }
             renderer.Draw(component, camera,
                 VectorFieldDebugProjectSettings.instance.appearance,
-                VectorFieldDebugSettings.VariableResolution ? VectorFieldArrowResolutionMode.Dynamic : VectorFieldArrowResolutionMode.Native,
+                VectorFieldDebugSettings.VariableResolution ? VectorFieldArrowResolutionMode.Adaptive : VectorFieldArrowResolutionMode.Native,
                 VectorFieldDebugSettings.TargetSpacingPixels,
                 VectorFieldDebugSettings.MaxArrows,
-                0); // fixedResolution unused for Native/Dynamic; the Scene-view overlay has no Fixed mode
+                0); // fixedResolution unused for Native/Adaptive; the Scene-view overlay has no Fixed mode
             drawnThisFrame.Add(component);
         }
 

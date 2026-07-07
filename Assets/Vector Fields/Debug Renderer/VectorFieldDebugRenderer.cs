@@ -5,8 +5,8 @@ using UnityEngine.Rendering;
 // How the arrow grid picks its density.
 //   Native  — one arrow per field cell (finest; count follows the field resolution).
 //   Fixed   — a fixed number of arrows along the long axis, independent of the camera (set via fixedResolution).
-//   Dynamic — decimated so on-screen spacing stays ~constant as the camera moves (uses targetSpacingPixels + maxArrows).
-public enum VectorFieldArrowResolutionMode { Native, Fixed, Dynamic }
+//   Adaptive — decimated so on-screen spacing stays ~constant as the camera moves (uses targetSpacingPixels + maxArrows).
+public enum VectorFieldArrowResolutionMode { Native, Fixed, Adaptive }
 
 public class VectorFieldDebugRenderer : System.IDisposable
 {
@@ -55,10 +55,10 @@ public class VectorFieldDebugRenderer : System.IDisposable
 
     /// <summary>
     /// Draws the field as arrows. <paramref name="resolutionMode"/> picks the arrow density: Native (one per cell),
-    /// Fixed (<paramref name="fixedResolution"/> arrows along the long axis, camera-independent), or Dynamic — decimated
+    /// Fixed (<paramref name="fixedResolution"/> arrows along the long axis, camera-independent), or Adaptive — decimated
     /// so on-screen spacing stays roughly constant as you zoom, where <paramref name="targetSpacingPixels"/> is the
     /// desired screen-space gap between arrows and <paramref name="maxArrows"/> caps how many arrows the long axis can
-    /// show. In Dynamic the grid is laid out edge-to-edge with a power-of-two number of intervals (decoupled from the
+    /// show. In Adaptive the grid is laid out edge-to-edge with a power-of-two number of intervals (decoupled from the
     /// field cells, which it samples bilinearly), so coverage stays centred and balanced at every zoom level; the finest
     /// level lands at roughly the field's native resolution.
     ///
@@ -85,7 +85,7 @@ public class VectorFieldDebugRenderer : System.IDisposable
         float arrowScale = 1f;
         int intervalsX, intervalsY;
         var detailFade = Vector2.one; // per-axis alpha for the extra (odd-index) arrows the finer level adds
-        if (resolutionMode == VectorFieldArrowResolutionMode.Dynamic && camera != null) {
+        if (resolutionMode == VectorFieldArrowResolutionMode.Adaptive && camera != null) {
             float stride = ComputeStride(gridSize, gridToWorldMatrix, camera, targetSpacingPixels, maxArrows);
             arrowScale = stride; // size grows continuously with zoom, not in steps
             AxisLod(gridSize.x - 1, stride, out intervalsX, out detailFade.x);
@@ -96,11 +96,11 @@ public class VectorFieldDebugRenderer : System.IDisposable
             int count = Mathf.Max(2, fixedResolution);
             int longSpan = Mathf.Max(1, Mathf.Max(gridSize.x, gridSize.y) - 1);
             float stride = (float)longSpan / (count - 1);   // cells per arrow
-            arrowScale = stride;                            // size arrows to their spacing, like Dynamic
+            arrowScale = stride;                            // size arrows to their spacing, like Adaptive
             intervalsX = gridSize.x > 1 ? Mathf.Max(1, Mathf.RoundToInt((gridSize.x - 1) / stride)) : 0;
             intervalsY = gridSize.y > 1 ? Mathf.Max(1, Mathf.RoundToInt((gridSize.y - 1) / stride)) : 0;
         } else {
-            // Native: one arrow per cell, spanning the whole field. (Also the fallback for Dynamic with no camera.)
+            // Native: one arrow per cell, spanning the whole field. (Also the fallback for Adaptive with no camera.)
             intervalsX = Mathf.Max(0, gridSize.x - 1);
             intervalsY = Mathf.Max(0, gridSize.y - 1);
         }

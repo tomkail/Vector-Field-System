@@ -9,6 +9,7 @@ public static class VectorFieldComponentDrawer
     // One renderer per component, reused across frames so GPU buffers aren't reallocated (and leaked) every repaint.
     static readonly Dictionary<VectorFieldComponent, VectorFieldDebugRenderer> renderers = new();
     static readonly HashSet<VectorFieldComponent> drawnThisFrame = new();
+    static readonly HashSet<VectorFieldComponent> toDraw = new();
     static readonly List<VectorFieldComponent> stale = new();
 
     static VectorFieldComponentDrawer()
@@ -49,14 +50,25 @@ public static class VectorFieldComponentDrawer
     // for components no longer selected.
     static void DrawSelected(Camera camera) {
         drawnThisFrame.Clear();
+
+        // Collect the fields to draw first (a set, so a group shared by several selected children is only drawn
+        // once). Normally each selected field is drawn. When "Show parent group" is on and a selected field has a
+        // drawable ancestor group, that group's combined output is drawn *instead* of the field — the two overlap
+        // too much to read together, and the group already shows the field's contribution in context.
+        toDraw.Clear();
+        bool showParentGroup = VectorFieldDebugSettings.ShowParentGroup;
         foreach (var obj in Selection.objects) {
             GameObject go = obj as GameObject;
             if (go == null) continue;
 
             var component = go.GetComponent<VectorFieldComponent>();
-            if (component == null || !component.isActiveAndEnabled) continue;
-            if (GizmoUtility.TryGetGizmoInfo(component.GetType(), out GizmoInfo info) && !info.gizmoEnabled) continue;
+            if (!IsDrawable(component)) continue;
 
+            var group = showParentGroup ? GetParentGroup(component) : null;
+            toDraw.Add(group != null && IsDrawable(group) ? group : component);
+        }
+
+        foreach (var component in toDraw) {
             if (!renderers.TryGetValue(component, out var renderer)) {
                 renderer = new VectorFieldDebugRenderer();
                 renderers[component] = renderer;
@@ -79,5 +91,28 @@ public static class VectorFieldComponentDrawer
                 renderers.Remove(component);
             }
         }
+    }
+
+    // A field is drawable when it's present, active, and its gizmo hasn't been switched off in the Gizmos menu.
+    static bool IsDrawable(VectorFieldComponent component) {
+        if (component == null || !component.isActiveAndEnabled) return false;
+        if (GizmoUtility.TryGetGizmoInfo(component.GetType(), out GizmoInfo info) && !info.gizmoEnabled) return false;
+        return true;
+    }
+
+    // The nearest ancestor group a field lives under (excluding the field itself), or null if it isn't inside one.
+    // Searches from the parent so a selected group returns its own container, not itself.
+    public static GroupVectorFieldComponent GetParentGroup(VectorFieldComponent component) {
+        if (component == null || component.transform.parent == null) return null;
+        return component.transform.parent.GetComponentInParent<GroupVectorFieldComponent>();
+    }
+
+    // True when any selected field sits inside a group — i.e. "Show parent group" has something to act on.
+    public static bool SelectionHasParentGroup() {
+        foreach (var obj in Selection.gameObjects) {
+            var component = obj.GetComponent<VectorFieldComponent>();
+            if (component != null && GetParentGroup(component) != null) return true;
+        }
+        return false;
     }
 }

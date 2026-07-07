@@ -8,10 +8,18 @@ public static class VectorFieldDebugSettings {
     const string kVariableResolution = "VectorField.Debug.VariableResolution";
     const string kTargetSpacingPixels = "VectorField.Debug.TargetSpacingPixels";
     const string kMaxArrows = "VectorField.Debug.MaxArrows";
+    const string kShowParentGroup = "VectorField.Debug.ShowParentGroup";
 
     public static bool VariableResolution {
         get => EditorPrefs.GetBool(kVariableResolution, true);
         set => EditorPrefs.SetBool(kVariableResolution, value);
+    }
+
+    // When a selected field lives under a group, also draw that group's combined output, so you can see the
+    // field's contribution to the group alongside the field itself. Off by default.
+    public static bool ShowParentGroup {
+        get => EditorPrefs.GetBool(kShowParentGroup, false);
+        set => EditorPrefs.SetBool(kShowParentGroup, value);
     }
 
     // Desired screen-space gap between arrows, in pixels.
@@ -27,20 +35,32 @@ public static class VectorFieldDebugSettings {
     }
 }
 
-[Overlay(typeof(SceneView), "vector-field-debug", "Vector Field Debug")]
+[Overlay(typeof(SceneView), "vector-field-debug", "Vector Field Visualization")]
 public class VectorFieldDebugOverlay : Overlay {
+    // Kept so selection changes can show/hide it without rebuilding the panel.
+    Toggle showParentGroupToggle;
+
     public override void OnCreated() {
-        Selection.selectionChanged += UpdateVisibility;
-        UpdateVisibility();
+        Selection.selectionChanged += OnSelectionChanged;
+        OnSelectionChanged();
     }
 
     public override void OnWillBeDestroyed() {
-        Selection.selectionChanged -= UpdateVisibility;
+        Selection.selectionChanged -= OnSelectionChanged;
     }
 
-    // Only surface the panel while a vector field is selected — mirroring when the arrows actually draw.
-    void UpdateVisibility() {
+    void OnSelectionChanged() {
+        // Only surface the panel while a vector field is selected — mirroring when the arrows actually draw.
         displayed = HasVectorFieldSelected();
+        RefreshParentGroupToggle();
+    }
+
+    // "Show parent group" only makes sense when a selected field is actually inside a group, so hide the row
+    // otherwise rather than offer a no-op toggle.
+    void RefreshParentGroupToggle() {
+        if (showParentGroupToggle == null) return;
+        showParentGroupToggle.style.display = VectorFieldComponentDrawer.SelectionHasParentGroup()
+            ? DisplayStyle.Flex : DisplayStyle.None;
     }
 
     static bool HasVectorFieldSelected() {
@@ -62,6 +82,11 @@ public class VectorFieldDebugOverlay : Overlay {
             value = VectorFieldDebugSettings.MaxArrows,
             showInputField = true
         };
+        var showParentGroup = new Toggle("Show parent group") {
+            value = VectorFieldDebugSettings.ShowParentGroup,
+            tooltip = "When the selected field is inside a group, draw the group's combined output instead of the " +
+                "field itself, so you can read this field's effect on the group without the two overlapping."
+        };
 
         void RefreshEnabled() {
             spacing.SetEnabled(variable.value);
@@ -81,11 +106,18 @@ public class VectorFieldDebugOverlay : Overlay {
             VectorFieldDebugSettings.MaxArrows = e.newValue;
             SceneView.RepaintAll();
         });
+        showParentGroup.RegisterValueChangedCallback(e => {
+            VectorFieldDebugSettings.ShowParentGroup = e.newValue;
+            SceneView.RepaintAll();
+        });
 
         root.Add(variable);
         root.Add(spacing);
         root.Add(maxArrows);
+        root.Add(showParentGroup);
+        showParentGroupToggle = showParentGroup;
         RefreshEnabled();
+        RefreshParentGroupToggle();
         return root;
     }
 }

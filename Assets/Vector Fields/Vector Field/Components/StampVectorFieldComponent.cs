@@ -12,6 +12,12 @@ public class StampVectorFieldComponent : VectorFieldComponent {
 
 	public VectorFieldBrushSettings brushSettingsParams = new VectorFieldBrushSettings();
 
+	// A stamped emitter reads best with a soft edge, so a new one defaults to a radial falloff mask (the base
+	// component defaults to no mask). Reset runs when the component is first added or explicitly reset.
+	void Reset() {
+		cookie.mode = VectorFieldCookieSource.Mode.Falloff;
+	}
+
 	protected override void RenderInternal() {
 		EnsureHasValidRenderTexture();
 		// Unit strength: the base applies `magnitude` (and cookie) as an output transform in Render(), so passing

@@ -165,6 +165,61 @@ public static class VectorFieldInspectorUI {
 		return control;
 	}
 
+	// As EnumSegmentedField, but each option also shows an icon drawn above/left of its label. `iconPainters[i]`
+	// strokes option i's glyph into the given rect using the supplied colour, which follows the button's text colour
+	// (so it turns white when the option is active). A null entry (or a shorter array) just omits that option's icon.
+	public static VisualElement EnumSegmentedField(SerializedProperty enumProp, string label, Action<Painter2D, Rect, Color>[] iconPainters, string tooltip = null) {
+		var group = new VisualElement();
+		group.AddToClassList("vf-seg-group");
+
+		var control = new EnumSegmentedControl(label, group);
+		if (!string.IsNullOrEmpty(tooltip)) control.tooltip = tooltip;
+
+		var names = enumProp.enumDisplayNames;
+		var buttons = new Button[names.Length];
+		var icons = new VisualElement[names.Length];
+		void Sync() {
+			int idx = enumProp.enumValueIndex;
+			for (int i = 0; i < buttons.Length; i++) {
+				buttons[i].EnableInClassList("vf-seg--active", i == idx);
+				icons[i]?.MarkDirtyRepaint(); // re-stroke with the new (inherited) colour
+			}
+		}
+		for (int i = 0; i < names.Length; i++) {
+			int captured = i;
+			var button = new Button(() => {
+				enumProp.enumValueIndex = captured;
+				enumProp.serializedObject.ApplyModifiedProperties();
+				Sync();
+			});
+			button.AddToClassList("vf-seg");
+			if (names.Length > 1) {
+				if (i == 0) button.AddToClassList("vf-seg--first");
+				else if (i == names.Length - 1) button.AddToClassList("vf-seg--last");
+				else button.AddToClassList("vf-seg--mid");
+			}
+
+			var content = new VisualElement();
+			content.AddToClassList("vf-seg__content");
+			var painter = iconPainters != null && i < iconPainters.Length ? iconPainters[i] : null;
+			if (painter != null) {
+				var icon = new VisualElement { pickingMode = PickingMode.Ignore };
+				icon.AddToClassList("vf-seg__icon");
+				icon.generateVisualContent += mgc => painter(mgc.painter2D, icon.contentRect, icon.resolvedStyle.color);
+				icons[i] = icon;
+				content.Add(icon);
+			}
+			content.Add(new Label(names[i]));
+			button.Add(content);
+
+			buttons[i] = button;
+			group.Add(button);
+		}
+		Sync();
+		control.TrackPropertyValue(enumProp, _ => Sync());
+		return control;
+	}
+
 	// A horizontal multi-toggle for a [Flags] enum serialized property — one button per single-bit flag, value is
 	// the OR of the selected bits. Native replacement for UnityX's [EnumFlagsButtonGroup] drawer, so fields using it
 	// no longer depend on that attribute. Pass the enum type so bit values are read directly (no reflection by path).

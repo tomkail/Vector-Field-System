@@ -132,6 +132,20 @@
     -unity-font-style: bold;
 }
 
+/* Icon + label laid out together, centred within the segmented button. */
+.vf-seg__content {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
+
+.vf-seg__icon {
+    width: 14px;
+    height: 14px;
+    margin-right: 5px;
+    flex-shrink: 0;
+}
+
 /* --- Diagnostics rows ------------------------------------------------------------------------------------ */
 .vf-diag-row {
     flex-direction: row;

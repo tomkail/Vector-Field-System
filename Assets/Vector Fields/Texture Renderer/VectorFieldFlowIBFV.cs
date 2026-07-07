@@ -42,7 +42,13 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
         "coherence that lets advection draw them into streaks. Too slow = streaks wrap; too fast = static noise.")]
     [SerializeField] float noiseRate = 1.5f;
 
+    // When on (the default) the quad is pinned over the field's world rect every tick — position, rotation, and size all
+    // driven by the field. Turn it off to place and size the quad yourself (the script then never touches the transform);
+    // the mesh is a unit quad, so size it to cover the field or the texture won't line up.
+    [SerializeField] bool matchFieldBounds = true;
+
     // Shifts the display quad along the field plane normal (draw-order control), like VectorFieldTextureRenderer.
+    // Ignored when matchFieldBounds is off.
     [SerializeField] float depthOffset;
 
     RenderTexture bufferA, bufferB;
@@ -126,6 +132,7 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
 
     // Lay the quad over the field's world rect — shared with the other field renderers.
     void MatchFieldBounds() {
+        if (!matchFieldBounds) return;
         VectorFieldRendererUtils.MatchFieldRect(transform, vectorFieldComponent, depthOffset);
     }
 

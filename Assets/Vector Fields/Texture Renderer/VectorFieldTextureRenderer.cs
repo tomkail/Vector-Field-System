@@ -39,8 +39,14 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 	// script drive the renderer's material too.
 	[SerializeField] Material materialPrefab;
 
+	// When on (the default) the quad is pinned over the field's world rect every tick — position, rotation, and size all
+	// driven by the field. Turn it off to place and size the quad yourself (the script then never touches the transform);
+	// note the mesh is a unit quad, so you'll want to size it to cover the field or the texture won't line up.
+	[SerializeField] bool matchFieldBounds = true;
+
 	// Shifts the quad along the field's plane normal (forward = positive). MatchFieldBounds otherwise pins us to the
 	// field centre every tick; this lets you push the quad in front of / behind other geometry to control draw order.
+	// Ignored when matchFieldBounds is off.
 	[SerializeField] float depthOffset;
 
 	// Maps flow magnitude (0..1 along the X axis) to an alpha multiplier (Y), baked into the _AmplitudeRamp texture the
@@ -135,6 +141,7 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 	// Lay the quad over the field's world rect (a unit-quad mesh centred at the origin maps exactly onto it). Shared
 	// with the other field renderers — see VectorFieldRendererUtils.MatchFieldRect.
 	void MatchFieldBounds() {
+		if (!matchFieldBounds) return;
 		VectorFieldRendererUtils.MatchFieldRect(transform, _vectorFieldComponent, depthOffset);
 	}
 }

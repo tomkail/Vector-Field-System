@@ -2,6 +2,12 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 
+// How the arrow grid picks its density.
+//   Native  — one arrow per field cell (finest; count follows the field resolution).
+//   Fixed   — a fixed number of arrows along the long axis, independent of the camera (set via fixedResolution).
+//   Dynamic — decimated so on-screen spacing stays ~constant as the camera moves (uses targetSpacingPixels + maxArrows).
+public enum VectorFieldArrowResolutionMode { Native, Fixed, Dynamic }
+
 public class VectorFieldDebugRenderer : System.IDisposable
 {
     static Mesh _quad;
@@ -48,18 +54,19 @@ public class VectorFieldDebugRenderer : System.IDisposable
     }
 
     /// <summary>
-    /// Draws the field as arrows. When <paramref name="variableResolution"/> is set, the arrow grid is decimated so
-    /// on-screen spacing stays roughly constant as you zoom: <paramref name="targetSpacingPixels"/> is the desired
-    /// screen-space gap between arrows, and <paramref name="maxArrows"/> caps how many arrows the long axis can show.
-    /// The grid is laid out edge-to-edge with a power-of-two number of intervals (decoupled from the field cells, which
-    /// it samples bilinearly), so coverage stays centred and balanced at every zoom level; the finest level lands at
-    /// roughly the field's native resolution.
+    /// Draws the field as arrows. <paramref name="resolutionMode"/> picks the arrow density: Native (one per cell),
+    /// Fixed (<paramref name="fixedResolution"/> arrows along the long axis, camera-independent), or Dynamic — decimated
+    /// so on-screen spacing stays roughly constant as you zoom, where <paramref name="targetSpacingPixels"/> is the
+    /// desired screen-space gap between arrows and <paramref name="maxArrows"/> caps how many arrows the long axis can
+    /// show. In Dynamic the grid is laid out edge-to-edge with a power-of-two number of intervals (decoupled from the
+    /// field cells, which it samples bilinearly), so coverage stays centred and balanced at every zoom level; the finest
+    /// level lands at roughly the field's native resolution.
     ///
     /// <paramref name="gridToWorldOverride"/> replaces the field's own grid->world matrix — pass one to draw the arrows
     /// somewhere other than the field's placement (e.g. relative to a different transform). Leave null to follow the
     /// field. It drives both the arrow positions and the on-screen spacing (LOD), so the two stay consistent.
     /// </summary>
-    public void Draw(VectorFieldComponent vectorFieldComponent, Camera camera, VectorFieldDebugAppearance appearance, bool variableResolution, float targetSpacingPixels, int maxArrows, Matrix4x4? gridToWorldOverride = null) {
+    public void Draw(VectorFieldComponent vectorFieldComponent, Camera camera, VectorFieldDebugAppearance appearance, VectorFieldArrowResolutionMode resolutionMode, float targetSpacingPixels, int maxArrows, int fixedResolution, Matrix4x4? gridToWorldOverride = null) {
         appearance ??= new VectorFieldDebugAppearance();
         // Sample the field straight off the GPU. No CPU readback / value buffer is needed, so the arrows always
         // reflect the live render texture without any CPU consumer registered.
@@ -78,13 +85,22 @@ public class VectorFieldDebugRenderer : System.IDisposable
         float arrowScale = 1f;
         int intervalsX, intervalsY;
         var detailFade = Vector2.one; // per-axis alpha for the extra (odd-index) arrows the finer level adds
-        if (variableResolution && camera != null) {
+        if (resolutionMode == VectorFieldArrowResolutionMode.Dynamic && camera != null) {
             float stride = ComputeStride(gridSize, gridToWorldMatrix, camera, targetSpacingPixels, maxArrows);
             arrowScale = stride; // size grows continuously with zoom, not in steps
             AxisLod(gridSize.x - 1, stride, out intervalsX, out detailFade.x);
             AxisLod(gridSize.y - 1, stride, out intervalsY, out detailFade.y);
+        } else if (resolutionMode == VectorFieldArrowResolutionMode.Fixed) {
+            // Fixed count along the long axis, camera-independent. The short axis uses the same cells-per-arrow stride so
+            // arrows stay evenly spaced (square) regardless of field aspect. No LOD cross-fade (detailFade stays 1).
+            int count = Mathf.Max(2, fixedResolution);
+            int longSpan = Mathf.Max(1, Mathf.Max(gridSize.x, gridSize.y) - 1);
+            float stride = (float)longSpan / (count - 1);   // cells per arrow
+            arrowScale = stride;                            // size arrows to their spacing, like Dynamic
+            intervalsX = gridSize.x > 1 ? Mathf.Max(1, Mathf.RoundToInt((gridSize.x - 1) / stride)) : 0;
+            intervalsY = gridSize.y > 1 ? Mathf.Max(1, Mathf.RoundToInt((gridSize.y - 1) / stride)) : 0;
         } else {
-            // Variable resolution off: one arrow per cell (native), spanning the whole field.
+            // Native: one arrow per cell, spanning the whole field. (Also the fallback for Dynamic with no camera.)
             intervalsX = Mathf.Max(0, gridSize.x - 1);
             intervalsY = Mathf.Max(0, gridSize.y - 1);
         }

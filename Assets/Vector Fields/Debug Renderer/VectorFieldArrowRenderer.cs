@@ -31,13 +31,17 @@ public class VectorFieldArrowRenderer : MonoBehaviour {
 	// folder, so at runtime you'll want to assign your own arrow texture here (see the renderer's Resources.Load note).
 	[SerializeField] VectorFieldDebugAppearance appearance = new VectorFieldDebugAppearance();
 
-	// Density — the same controls the Scene-view debug overlay exposes (there they're per-user EditorPrefs; here they're
-	// serialized on the component so they travel with the scene).
-	[Tooltip("Decimate the arrow grid so on-screen spacing stays roughly constant as the camera moves. Off = one arrow per field cell.")]
-	[SerializeField] bool variableResolution = true;
-	[Tooltip("Desired screen-space gap between arrows, in pixels (variable resolution only).")]
+	// Density — serialized on the component so it travels with the scene.
+	//   Native  = one arrow per field cell.
+	//   Fixed   = a fixed number of arrows along the long axis (fixedResolution), independent of the camera.
+	//   Dynamic = decimated so on-screen spacing stays roughly constant as the camera moves.
+	[Tooltip("How the arrow density is chosen. Native = one per cell; Fixed = a set count regardless of camera; Dynamic = scales with the camera.")]
+	[SerializeField] VectorFieldArrowResolutionMode resolutionMode = VectorFieldArrowResolutionMode.Dynamic;
+	[Tooltip("Number of arrows along the field's long axis (Fixed mode only).")]
+	[Range(2, 256)] [SerializeField] int fixedResolution = 32;
+	[Tooltip("Desired screen-space gap between arrows, in pixels (Dynamic mode only).")]
 	[Range(8f, 128f)] [SerializeField] float targetSpacingPixels = 36f;
-	[Tooltip("Upper bound on the number of arrows along the long axis (variable resolution only).")]
+	[Tooltip("Upper bound on the number of arrows along the long axis (Dynamic mode only).")]
 	[Range(8, 256)] [SerializeField] int maxArrows = 64;
 
 	VectorFieldDebugRenderer debugRenderer;
@@ -61,7 +65,7 @@ public class VectorFieldArrowRenderer : MonoBehaviour {
 	void DrawForCamera(Camera camera) {
 		if (_vectorFieldComponent == null || camera == null || camera.cameraType != CameraType.Game) return;
 		debugRenderer ??= new VectorFieldDebugRenderer();
-		debugRenderer.Draw(_vectorFieldComponent, camera, appearance, variableResolution, targetSpacingPixels, maxArrows,
+		debugRenderer.Draw(_vectorFieldComponent, camera, appearance, resolutionMode, targetSpacingPixels, maxArrows, fixedResolution,
 			matchFieldTransform ? (Matrix4x4?)null : GridToThisTransform());
 	}
 

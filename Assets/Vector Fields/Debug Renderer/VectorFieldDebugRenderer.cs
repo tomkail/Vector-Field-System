@@ -54,8 +54,12 @@ public class VectorFieldDebugRenderer : System.IDisposable
     /// The grid is laid out edge-to-edge with a power-of-two number of intervals (decoupled from the field cells, which
     /// it samples bilinearly), so coverage stays centred and balanced at every zoom level; the finest level lands at
     /// roughly the field's native resolution.
+    ///
+    /// <paramref name="gridToWorldOverride"/> replaces the field's own grid->world matrix — pass one to draw the arrows
+    /// somewhere other than the field's placement (e.g. relative to a different transform). Leave null to follow the
+    /// field. It drives both the arrow positions and the on-screen spacing (LOD), so the two stay consistent.
     /// </summary>
-    public void Draw(VectorFieldComponent vectorFieldComponent, Camera camera, VectorFieldDebugAppearance appearance, bool variableResolution, float targetSpacingPixels, int maxArrows) {
+    public void Draw(VectorFieldComponent vectorFieldComponent, Camera camera, VectorFieldDebugAppearance appearance, bool variableResolution, float targetSpacingPixels, int maxArrows, Matrix4x4? gridToWorldOverride = null) {
         appearance ??= new VectorFieldDebugAppearance();
         // Sample the field straight off the GPU. No CPU readback / value buffer is needed, so the arrows always
         // reflect the live render texture without any CPU consumer registered.
@@ -63,7 +67,7 @@ public class VectorFieldDebugRenderer : System.IDisposable
         if (fieldTexture == null) return; // nothing has been rendered yet
 
         var gridSize = vectorFieldComponent.GridSize;
-        var gridToWorldMatrix = vectorFieldComponent.GridToWorldMatrix;
+        var gridToWorldMatrix = gridToWorldOverride ?? vectorFieldComponent.GridToWorldMatrix;
 
         // The arrow grid is laid out edge-to-edge and decoupled from the field cells: per axis we draw a power-of-two
         // number of *intervals* spanning cell 0 to the far-edge cell, sampling the field (bilinearly) at each arrow.

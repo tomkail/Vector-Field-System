@@ -10,7 +10,7 @@ public class NoiseVectorFieldComponent : VectorFieldComponent {
         World
     }
     public Space space = Space.Local;
-    public NoiseSampler noiseSampler;
+    public NoiseSampler noiseSampler = new NoiseSampler();
     public float vortexAngle = 90;
 
     protected override void RenderInternal() {

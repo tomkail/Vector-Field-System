@@ -9,10 +9,13 @@ using UnityEngine;
 //
 // Status: prototype / exploration, not a finished feature. Compare it against the Flow-Aligned Texture Mode 1 before deciding
 // whether it's worth productionising. See FLOW_ALIGNED_NOTES.md.
+// Quad-follows-field alignment (matchFieldBounds / depthOffset) is inherited from VectorFieldQuad. This does NOT extend
+// VectorFieldTextureRenderer: that binds the field texture to the quad, whereas IBFV shows its own accumulation buffer
+// and feeds the field into the blit material instead — so it shares only the alignment base, not the texture binding.
 [ExecuteAlways]
 [AddComponentMenu("Vector Fields/Renderers/Flow (IBFV)")]
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
-public class VectorFieldFlowIBFV : MonoBehaviour {
+public class VectorFieldFlowIBFV : VectorFieldQuad {
     static readonly int MainTex = Shader.PropertyToID("_MainTex");
     static readonly int FieldTex = Shader.PropertyToID("_FieldTex");
     static readonly int NoiseTex = Shader.PropertyToID("_NoiseTex");
@@ -23,6 +26,7 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
     static readonly int NoiseRate = Shader.PropertyToID("_NoiseRate");
 
     [SerializeField] VectorFieldComponent vectorFieldComponent;
+    protected override VectorFieldComponent Field => vectorFieldComponent;
 
     // Material using "Vector Fields/Vector Field Flow IBFV". Auto-created if left empty.
     [SerializeField] Material ibfvMaterial;
@@ -42,21 +46,11 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
         "coherence that lets advection draw them into streaks. Too slow = streaks wrap; too fast = static noise.")]
     [SerializeField] float noiseRate = 1.5f;
 
-    // When on (the default) the quad is pinned over the field's world rect every tick — position, rotation, and size all
-    // driven by the field. Turn it off to place and size the quad yourself (the script then never touches the transform);
-    // the mesh is a unit quad, so size it to cover the field or the texture won't line up.
-    [SerializeField] bool matchFieldBounds = true;
-
-    // Shifts the display quad along the field plane normal (draw-order control), like VectorFieldTextureRenderer.
-    // Ignored when matchFieldBounds is off.
-    [SerializeField] float depthOffset;
-
     RenderTexture bufferA, bufferB;
     bool readFromA = true;
     float elapsed;   // drives the noise twinkle (passed to the shader as _NoisePhase.x)
     float lastTime;
 
-    MeshRenderer meshRenderer => GetComponent<MeshRenderer>();
     MaterialPropertyBlock propertyBlock;
 
     void OnEnable() {
@@ -99,7 +93,7 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
         rt = null;
     }
 
-    void LateUpdate() {
+    protected override void LateUpdate() {
         if (vectorFieldComponent == null || ibfvMaterial == null) return;
         var field = vectorFieldComponent.renderTexture;
         if (field == null) return; // nothing rendered yet
@@ -128,12 +122,6 @@ public class VectorFieldFlowIBFV : MonoBehaviour {
         // Show the new accumulation on the mesh. The renderer's material should be an unlit textured material; we only
         // override its _MainTex per-instance via the property block.
         VectorFieldRendererUtils.SetRendererTexture(meshRenderer, ref propertyBlock, MainTex, dst);
-    }
-
-    // Lay the quad over the field's world rect — shared with the other field renderers.
-    void MatchFieldBounds() {
-        if (!matchFieldBounds) return;
-        VectorFieldRendererUtils.MatchFieldRect(transform, vectorFieldComponent, depthOffset);
     }
 
     static Texture2D CreateWhiteNoise(int size) {

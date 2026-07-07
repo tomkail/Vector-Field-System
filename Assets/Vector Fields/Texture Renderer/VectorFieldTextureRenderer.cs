@@ -1,28 +1,20 @@
 using UnityEngine;
 
-// Displays a vector field's render texture on a mesh (the raw encoded field, color = vector * 0.5 + 0.5), sized to
-// overlay the field in world space. Reads the GPU renderTexture directly, so it stays live without a CPU readback.
+// Binds a vector field's live GPU render texture onto a mesh quad. This is the generic adapter every flow shader uses:
+// it reads the field's renderTexture directly (no CPU readback) and pushes it into the renderer's material as _MainTex
+// (+ _MainTex_TexelSize) via a MaterialPropertyBlock, so it overrides only this renderer's instance — never the shared
+// material asset, and never the material you assigned in the inspector.
 //
-// The field texture is pushed into the renderer's material as _MainTex via a MaterialPropertyBlock, so it overrides
-// only this renderer's instance — it never edits the shared material asset, and never replaces the material you
-// assigned in the inspector (e.g. the Flow-Aligned Texture material).
+// It sets ONLY _MainTex / _MainTex_TexelSize. Shader-specific inputs live on dedicated subclasses — e.g.
+// FlowAlignedTextureRenderer adds the amplitude/colour ramps the Flow-Aligned Texture shader samples. Use this plain
+// component for the Water Flow Map, Water Flow Lit, LIC, or your own shaders, which only need the field texture.
+// Quad-follows-field alignment (matchFieldBounds / depthOffset) is inherited from VectorFieldQuad.
 [ExecuteAlways]
 [AddComponentMenu("Vector Fields/Renderers/Texture Renderer")]
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
-public class VectorFieldTextureRenderer : MonoBehaviour {
+public class VectorFieldTextureRenderer : VectorFieldQuad {
 	static readonly int MainTex = Shader.PropertyToID("_MainTex");
 	static readonly int MainTexTexelSize = Shader.PropertyToID("_MainTex_TexelSize");
-	static readonly int AmplitudeRamp = Shader.PropertyToID("_AmplitudeRamp");
-	static readonly int ColorGradient = Shader.PropertyToID("_ColorGradient");
-	const int RampResolution = 256;
-
-	static Gradient WhiteGradient() {
-		var g = new Gradient();
-		g.SetKeys(
-			new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
-			new[] { new GradientAlphaKey(1, 0), new GradientAlphaKey(1, 1) });
-		return g;
-	}
 
 	[SerializeField] VectorFieldComponent _vectorFieldComponent;
 	public VectorFieldComponent vectorFieldComponent {
@@ -35,42 +27,19 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 		}
 	}
 
+	protected override VectorFieldComponent Field => _vectorFieldComponent;
+
 	// Optional. Leave empty to use the material already on the MeshRenderer (the common case); assign one to have the
 	// script drive the renderer's material too.
 	[SerializeField] Material materialPrefab;
 
-	// When on (the default) the quad is pinned over the field's world rect every tick — position, rotation, and size all
-	// driven by the field. Turn it off to place and size the quad yourself (the script then never touches the transform);
-	// note the mesh is a unit quad, so you'll want to size it to cover the field or the texture won't line up.
-	[SerializeField] bool matchFieldBounds = true;
-
-	// Shifts the quad along the field's plane normal (forward = positive). MatchFieldBounds otherwise pins us to the
-	// field centre every tick; this lets you push the quad in front of / behind other geometry to control draw order.
-	// Ignored when matchFieldBounds is off.
-	[SerializeField] float depthOffset;
-
-	// Maps flow magnitude (0..1 along the X axis) to an alpha multiplier (Y), baked into the _AmplitudeRamp texture the
-	// flow shader samples. Default rolls opacity in linearly with magnitude; edit it to fade still regions out, add a
-	// threshold, ease the rolloff, etc.
-	// Rendered as a 0..1 ranged curve by VectorFieldTextureRendererEditor (was [CurveRange]).
-	[SerializeField] AnimationCurve amplitudeAlphaCurve = AnimationCurve.Linear(0, 0, 1, 1);
-	Texture2D rampTexture;
-
-	// Recolors the white streaks when the material's "Use Texture Color" is off, sampled by the material's gradient
-	// source (flow magnitude or streak luminance). Baked into the _ColorGradient ramp the shader samples. Defaults to
-	// solid white, which reproduces the plain white-streak look.
-	[SerializeField] Gradient colorGradient = WhiteGradient();
-	Texture2D colorGradientTexture;
-
-	MeshRenderer meshRenderer => GetComponent<MeshRenderer>();
 	MaterialPropertyBlock propertyBlock;
 
-	void OnEnable() {
-		BakeRamp();
+	protected virtual void OnEnable() {
 		Subscribe();
 	}
 
-	void OnDisable() {
+	protected virtual void OnDisable() {
 		Unsubscribe();
 	}
 
@@ -85,15 +54,10 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 		_vectorFieldComponent.OnRendered -= BindTexture;
 	}
 
-	// Re-align every tick (not just on the field's OnRendered) so the quad tracks moves of our own parent — which
-	// don't re-render the field. [ExecuteAlways] runs this in edit mode too, on every scene repaint.
-	void LateUpdate() {
-		MatchFieldBounds();
-	}
-
 	// Point the material at the field's live render texture. Driven by OnRendered, since that's when the texture (and
-	// its reference, after a resize/recreate) can change.
-	void BindTexture() {
+	// its reference, after a resize/recreate) can change. Marked protected so subclasses can force a re-bind after
+	// changing their own shader inputs.
+	protected void BindTexture() {
 		if (_vectorFieldComponent == null) return;
 
 		if (materialPrefab != null && meshRenderer.sharedMaterial != materialPrefab)
@@ -102,46 +66,25 @@ public class VectorFieldTextureRenderer : MonoBehaviour {
 		var fieldTexture = _vectorFieldComponent.renderTexture;
 		if (fieldTexture == null) return; // nothing rendered yet; OnRendered will call us again once it has
 
-		if (rampTexture == null || colorGradientTexture == null) BakeRamp();
-
 		VectorFieldRendererUtils.EditPropertyBlock(meshRenderer, ref propertyBlock, pb => {
 			pb.SetTexture(MainTex, fieldTexture);
 			// Bicubic field sampling in the shader needs the field dimensions; set explicitly so we don't rely on Unity
 			// auto-populating _MainTex_TexelSize for a property-block-bound texture.
 			pb.SetVector(MainTexTexelSize, new Vector4(
 				1f / fieldTexture.width, 1f / fieldTexture.height, fieldTexture.width, fieldTexture.height));
-			pb.SetTexture(AmplitudeRamp, rampTexture);
-			pb.SetTexture(ColorGradient, colorGradientTexture);
+			ConfigurePropertyBlock(pb);
 		});
 
 		MatchFieldBounds();
 	}
 
-	// Bake the amplitude->alpha curve into the ramp texture the shader samples. Reuses the existing texture in place
-	// (only reallocates if missing), so re-baking on a curve edit is cheap.
-	void BakeRamp() {
-		if (amplitudeAlphaCurve != null)
-			VectorFieldUtils.CreateRampTextureFromAnimationCurve(amplitudeAlphaCurve, RampResolution, ref rampTexture);
-		if (colorGradient != null)
-			VectorFieldUtils.CreateColorRampTextureFromGradient(colorGradient, RampResolution, ref colorGradientTexture);
-	}
+	// Hook for subclasses to add their shader-specific inputs to the same property block (baked in the same get/set
+	// round-trip as _MainTex). The base binder sets nothing here.
+	protected virtual void ConfigurePropertyBlock(MaterialPropertyBlock block) { }
 
 #if UNITY_EDITOR
-	void OnValidate() {
-		BakeRamp();
+	protected virtual void OnValidate() {
 		if (isActiveAndEnabled) BindTexture();
 	}
 #endif
-
-	void OnDestroy() {
-		if (rampTexture != null) VectorFieldObjectUtils.DestroyAutomatic(rampTexture);
-		if (colorGradientTexture != null) VectorFieldObjectUtils.DestroyAutomatic(colorGradientTexture);
-	}
-
-	// Lay the quad over the field's world rect (a unit-quad mesh centred at the origin maps exactly onto it). Shared
-	// with the other field renderers — see VectorFieldRendererUtils.MatchFieldRect.
-	void MatchFieldBounds() {
-		if (!matchFieldBounds) return;
-		VectorFieldRendererUtils.MatchFieldRect(transform, _vectorFieldComponent, depthOffset);
-	}
 }

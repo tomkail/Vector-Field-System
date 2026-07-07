@@ -13,7 +13,7 @@ using UnityEngine;
 // Inputs that compose with the existing toolset:
 //   forceField  — another VectorFieldComponent whose output is injected as a continuous force each step. Point a
 //                 NoiseVectorFieldComponent at it for gusty wind, or a StampVectorFieldComponent for a fan/emitter.
-//   obstacles   — a mask texture (e.g. rasterized from a PolygonVectorField) the fluid flows around.
+//   obstacles   — a mask texture (e.g. rasterized from a MeshVectorField) the fluid flows around.
 [ExecuteAlways]
 [AddComponentMenu("Vector Fields/Simulated Vector Field")]
 public class SimulatedVectorFieldComponent : VectorFieldComponent {

@@ -4,8 +4,7 @@ using UnityEngine;
 
 // Editor-facing wrapper around the code-callable MeshVectorFieldGenerator: every cell points toward (or away from) the
 // nearest boundary contributed by its sources, restricted to the chosen side(s) and shaped by a distance falloff.
-// The mesh counterpart to PolygonVectorField — but where PolygonVectorField takes one closed ring, this aggregates many
-// sources into one segment soup:
+// Aggregates any number of boundary sources into one segment soup:
 //   - 3D meshes contribute their *cross-section* where they intersect the grid plane.
 //   - 2D sprites / colliders contribute their *silhouette* outline.
 // Both reduce to 2D segments in this field's local plane, so they share MeshVectorField.compute. Assign any mix of
@@ -22,11 +21,11 @@ public class MeshVectorField : VectorFieldComponent {
 
 	[Space]
 	// Which sides of the shape get a vector. Drawn as Inside/Outside toggle buttons (by the custom inspector); enable both for the whole grid.
-	public PolygonVectorFieldGenerator.Sides sides = PolygonVectorFieldGenerator.Sides.Outside;
+	public MeshVectorFieldGenerator.Sides sides = MeshVectorFieldGenerator.Sides.Outside;
 
 	// By default inside and outside flow the same way (outward, away from the shape) — continuous across the boundary.
 	// Reverse one side to make the field diverge from (FlipInside) or converge on (FlipOutside) the outline.
-	public PolygonVectorFieldGenerator.BoundaryFlip boundaryFlip = PolygonVectorFieldGenerator.BoundaryFlip.None;
+	public MeshVectorFieldGenerator.BoundaryFlip boundaryFlip = MeshVectorFieldGenerator.BoundaryFlip.None;
 
 	// Distance from the edge (in this field's local units) over which the vector fades from full strength (at the edge)
 	// to zero. Inner controls the inside region, outer the outside. 0 = no falloff, constant strength throughout.

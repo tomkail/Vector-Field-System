@@ -1,14 +1,27 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-// Code-callable mesh/silhouette vector field generator (GPU). The counterpart to PolygonVectorFieldGenerator, but its
-// geometry is a flat list of 2D line segments instead of one closed polygon ring — so 3D mesh cross-sections and 2D
-// sprite/collider silhouettes (extracted by MeshVectorFieldExtractors) both feed the same dispatch. Segments are given
-// in the destination field's local plane space (endpoint pairs: seg i = endpoints[2i], endpoints[2i+1]); gridToPlane
-// maps a grid cell into that same space. MonoBehaviour-free: the caller owns the segment ComputeBuffer (passed by ref)
-// so its lifetime is explicit, like the render-texture ref the rest of the system uses.
+// Code-callable mesh/silhouette vector field generator (GPU). Its geometry is a flat list of 2D line segments — so 3D
+// mesh cross-sections and 2D sprite/collider silhouettes (extracted by MeshVectorFieldExtractors) both feed the same
+// dispatch. Segments are given in the destination field's local plane space (endpoint pairs: seg i = endpoints[2i],
+// endpoints[2i+1]); gridToPlane maps a grid cell into that same space. MonoBehaviour-free: the caller owns the segment
+// ComputeBuffer (passed by ref) so its lifetime is explicit, like the render-texture ref the rest of the system uses.
 public static class MeshVectorFieldGenerator {
-	// Reuse the polygon field's Sides / BoundaryFlip so the component API stays consistent between the two.
+	// Which side(s) of the boundary get a vector. Enable both for the whole grid. (Owned here as the generator for
+	// boundary-distance fields; the component API exposes these directly.)
+	[Flags]
+	public enum Sides {
+		None = 0,
+		Inside = 1 << 0,
+		Outside = 1 << 1,
+	}
+
+	public enum BoundaryFlip {
+		None,
+		FlipInside,
+		FlipOutside,
+	}
 
 	static ComputeShader meshVectorFieldComputeShader;
 	public static ComputeShader MeshVectorFieldComputeShader => meshVectorFieldComputeShader ? meshVectorFieldComputeShader : (meshVectorFieldComputeShader = Resources.Load<ComputeShader>("MeshVectorField"));
@@ -30,7 +43,7 @@ public static class MeshVectorFieldGenerator {
 	// (non-closed) contours, where the crossing parity is meaningless. Fewer than one segment writes a defined zero field.
 	public static void Dispatch(RenderTexture target, ref ComputeBuffer segmentBuffer, Vector2Int gridSize,
 		List<Vector2> endpoints, Matrix4x4 gridToPlane,
-		PolygonVectorFieldGenerator.Sides sides, PolygonVectorFieldGenerator.BoundaryFlip boundaryFlip,
+		Sides sides, BoundaryFlip boundaryFlip,
 		float innerFalloff, float outerFalloff, float angle, float magnitude, bool hasInsideTest) {
 		if (target == null || gridSize.x <= 0 || gridSize.y <= 0) return;
 
@@ -60,8 +73,8 @@ public static class MeshVectorFieldGenerator {
 		segmentBuffer.SetData(endpoints, 0, 0, endpointCount);
 		shader.SetInt("segmentCount", segmentCount);
 		shader.SetMatrix("gridToPlane", gridToPlane);
-		shader.SetInt("wantInside", (sides & PolygonVectorFieldGenerator.Sides.Inside) != 0 ? 1 : 0);
-		shader.SetInt("wantOutside", (sides & PolygonVectorFieldGenerator.Sides.Outside) != 0 ? 1 : 0);
+		shader.SetInt("wantInside", (sides & Sides.Inside) != 0 ? 1 : 0);
+		shader.SetInt("wantOutside", (sides & Sides.Outside) != 0 ? 1 : 0);
 		shader.SetInt("boundaryFlip", (int)boundaryFlip);
 		shader.SetInt("hasInsideTest", hasInsideTest ? 1 : 0);
 		shader.SetFloat("innerFalloff", innerFalloff);

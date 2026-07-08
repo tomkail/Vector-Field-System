@@ -30,9 +30,8 @@ public class SmokeMousePainter : MonoBehaviour {
 
         if (Input.GetMouseButtonDown(0) && TryGetPoint(out Vector3 downPoint)) {
             var paintColor = randomHuePerStroke ? RandomHue(color.a) : color;
-            // Leading (zero lag): the head follows the cursor with no one-sample delay. The earlier "stepping" wasn't a
-            // tip-mode issue — it was the additive injection; the max deposit fixed it — so there's no reason to trade
-            // away responsiveness here.
+            // Leading (zero lag): the head follows the cursor with no one-sample delay. The max deposit (not the tip
+            // mode) controls injection "stepping", so there's no reason to trade away responsiveness here.
             _brush = new PaintBrush<Color>(BrushShape.Radial(softness),
                                            new SmokeDrawOp(paintColor), worldRadius, strength, TipMode.Leading);
             _stroke = _smoke.BeginStroke(_brush);

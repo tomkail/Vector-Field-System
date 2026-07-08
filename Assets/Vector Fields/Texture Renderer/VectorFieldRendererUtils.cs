@@ -2,8 +2,8 @@ using System;
 using UnityEngine;
 
 // Shared helper for renderers that lay a unit quad (1x1 in local space, +Z = its normal) exactly over a vector field's
-// rendered rect — same position, plane orientation, and world size as the field. Both VectorFieldTextureRenderer and
-// VectorFieldFlowIBFV used to carry their own near-identical copy of this; keep it here so they can't drift apart.
+// rendered rect — same position, plane orientation, and world size as the field. Shared by VectorFieldTextureRenderer
+// and VectorFieldFlowIBFV so their placement logic can't drift apart.
 public static class VectorFieldRendererUtils {
 
     // Position, orient, and scale `target` so a unit quad overlays `field`. Works whether or not `target` is a child of
@@ -21,7 +21,7 @@ public static class VectorFieldRendererUtils {
         target.position = field.GetBounds().center + field.planeNormal * depthOffset;
 
         // World size from the grid->world mapping, not the AABB: this is exactly what the field renders, and it's
-        // plane-agnostic. Reading two hard-coded axes off the world-space AABB (the old approach) collapsed to zero on
+        // plane-agnostic. Reading two hard-coded axes off the world-space AABB would collapse to zero on
         // any plane other than XY.
         var m = field.GridToWorldMatrix;
         float worldW = ((Vector3)m.GetColumn(0)).magnitude * grid.x;
@@ -64,8 +64,8 @@ public static class VectorFieldRendererUtils {
         => GetOrCreateMaterial(ref material, Shader.Find(shaderName), hideAndDontSave);
 
     // Set `target`'s effective (lossy) scale, compensating for whatever the parent chain contributes. Reading lossyScale
-    // at localScale = 1 folds in the parent, so this is correct for a child of the field (the case the old per-renderer
-    // code got subtly wrong) as well as for an unparented quad.
+    // at localScale = 1 folds in the parent, so this is correct for a child of the field as well as for an
+    // unparented quad.
     static void SetWorldScale(Transform target, Vector3 worldScale) {
         if (target.parent == null) {
             target.localScale = worldScale;

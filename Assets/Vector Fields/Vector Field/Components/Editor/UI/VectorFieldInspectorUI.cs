@@ -31,7 +31,7 @@ public static class VectorFieldInspectorUI {
 	// contentContainer routes into the foldout body). viewDataKey persists the expand/collapse state.
 	public static Section MakeSection(string title, string viewDataKey = null) => new Section(title, viewDataKey);
 
-	// Muted, wrapping help line — use for the "what this means" context that used to live in HelpBoxes.
+	// Muted, wrapping help line — use for the "what this means" context.
 	public static Label Help(string text) {
 		var label = new Label(text);
 		label.AddToClassList("vf-help");
@@ -221,8 +221,8 @@ public static class VectorFieldInspectorUI {
 	}
 
 	// A horizontal multi-toggle for a [Flags] enum serialized property — one button per single-bit flag, value is
-	// the OR of the selected bits. Native replacement for UnityX's [EnumFlagsButtonGroup] drawer, so fields using it
-	// no longer depend on that attribute. Pass the enum type so bit values are read directly (no reflection by path).
+	// the OR of the selected bits. A native control, with no dependency on UnityX's [EnumFlagsButtonGroup] drawer.
+	// Pass the enum type so bit values are read directly (no reflection by path).
 	public static VisualElement EnumFlagsSegmentedField(SerializedProperty flagsProp, System.Type enumType, string label, string tooltip = null) {
 		var group = new VisualElement();
 		group.AddToClassList("vf-seg-group");
@@ -275,8 +275,8 @@ public static class VectorFieldInspectorUI {
 	}
 
 	// A default-style inspector (one PropertyField per visible property, script field shown disabled) that renders
-	// the named AnimationCurve property as a ranged CurveField. For simple components that only used [CurveRange]
-	// and have no other custom UI, so they no longer depend on that attribute.
+	// the named AnimationCurve property as a ranged CurveField. For simple components that need a ranged curve and
+	// have no other custom UI, without depending on the [CurveRange] attribute.
 	public static VisualElement DefaultInspectorWithRangedCurve(SerializedObject so, string curvePropertyName, Rect ranges, string curveTooltip = null) {
 		var root = new VisualElement();
 		var it = so.GetIterator();

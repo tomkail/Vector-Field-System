@@ -4,11 +4,11 @@ using UnityEditor.ShortcutManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// BrushDirectionMode (FollowStroke / FixedAngle) now lives with the runtime brush in Brush/VectorFieldBrush.cs,
+// BrushDirectionMode (FollowStroke / FixedAngle) lives with the runtime brush in Brush/VectorFieldBrush.cs,
 // so the tool and the runtime painting API share it.
 
 // Per-user editor tool prefs (brush shape/size/mode). Stored in the editor's PreferencesFolder — personal and not
-// versioned, matching the old EditorPrefs-backed behaviour (and unlike the team-shared ProjectFolder settings).
+// versioned (unlike the team-shared ProjectFolder settings).
 // Fully qualified: UnityX puts a FilePathAttribute and a ScriptableSingleton<T> in the global namespace, so the
 // unqualified names would bind to those instead of Unity's (same reason VectorFieldStorageSettings qualifies them).
 [UnityEditor.FilePath("VectorFieldDrawingToolSettings.asset", UnityEditor.FilePathAttribute.Location.PreferencesFolder)]

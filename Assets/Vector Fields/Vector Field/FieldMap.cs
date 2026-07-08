@@ -1,10 +1,8 @@
 using UnityEngine;
 
 // A 2D grid of values with bilinear sampling — the container the vector-field system authors, samples, and paints.
-// Vendored and trimmed from UnityX's grid/map family (which this plugin no longer depends on), reshaped down to
-// exactly what's used: a size, a flat values array, point get/set, and bilinear sampling. The old separate grid base
-// class, integer-rect helpers, arithmetic operators, enumerators, resize/trim, and normalized-rect math were all
-// unused and dropped, and the integer point type is now Vector2Int.
+// Trimmed to exactly what the system uses: a size, a flat values array, point get/set, and bilinear sampling.
+// Self-contained, so the plugin carries no external grid/map dependency. The integer point type is Vector2Int.
 //
 // FieldMap<T> is the generic base the brush core operates on; VectorFieldMap (Vector2) and ColorFieldMap (Color) add
 // the type-specific Lerp used by bilinear sampling. Not a MonoBehaviour and never Unity-serialized directly —
@@ -48,7 +46,7 @@ public abstract class FieldMap<T> {
 
 	// Direct write (caller guarantees in-bounds).
 	public void SetValueAtGridPoint(int x, int y, T value) => values[Index(x, y)] = value;
-	// Bounds-checked write; a no-op when the point is off the grid (matches the old point-typed setter).
+	// Bounds-checked write; a no-op when the point is off the grid.
 	public void SetValueAtGridPoint(Vector2Int gridPoint, T value) {
 		if (IsOnGrid(gridPoint.x, gridPoint.y)) values[Index(gridPoint.x, gridPoint.y)] = value;
 	}

@@ -18,7 +18,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		public VectorFieldCombiner.BlendMode blendMode = VectorFieldCombiner.BlendMode.Add;
 
 		// The two fields below are per-layer modulators that apply in EVERY blend mode (they're orthogonal to the
-		// mode itself). Their defaults are no-ops, so a plain Add / Blend layer behaves exactly as before.
+		// mode itself). Their defaults are no-ops, so they leave a plain Add / Blend layer unaffected.
 
 		// Scales this layer's effective strength by how aligned it is with the field beneath it:
 		// x = (dot(currentDir, incomingDir) + 1) / 2, so 0 = fully opposed, 0.5 = perpendicular, 1 = fully aligned.
@@ -26,7 +26,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 		public AnimationCurve alignmentRamp = AnimationCurve.Constant(0, 1, 1);
 		// Multiplies the incoming vector by the underlying field's magnitude before blending, so this layer only acts
 		// where there's already flow and scales with its speed. This is the turbulence coupling: an Add layer with a
-		// 0->1 alignmentRamp and this enabled reproduces the old flow-modulated turbulence.
+		// 0->1 alignmentRamp and this enabled produces flow-modulated turbulence.
 		public bool scaleByFieldMagnitude = false;
 		// Cached GPU bake of alignmentRamp, reused across renders (rebaked when the curve changes).
 		[NonSerialized] public Texture2D alignmentRampTexture;
@@ -37,7 +37,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 	public List<VectorFieldLayer> layers = new List<VectorFieldLayer>();
 
 	// All descendant vector fields excluding self, in hierarchy order (GetComponentsInChildren is depth-first,
-	// top-to-bottom). Active objects only, matching the previous behaviour.
+	// top-to-bottom). Active objects only.
 	IEnumerable<VectorFieldComponent> childComponents =>
 		GetComponentsInChildren<VectorFieldComponent>(false).Where(c => c != this);
 
@@ -51,7 +51,7 @@ public class GroupVectorFieldComponent : VectorFieldComponent {
 			if (!existing.Contains(component))
 				layers.Add(new VectorFieldLayer() { component = component });
 		layers.RemoveAll(x => x.component == null || !childSet.Contains(x.component));
-		// Order layers to match the hierarchy, so blend order follows the scene hierarchy as before.
+		// Order layers to match the hierarchy, so blend order follows the scene hierarchy.
 		layers = layers.OrderBy(x => children.IndexOf(x.component)).ToList();
 	}
 

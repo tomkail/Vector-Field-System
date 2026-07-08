@@ -1,8 +1,8 @@
 using UnityEngine;
 using UnityEditor;
 
-// Adds the "Clear" button that used to come from [EasyButtons.Button] on SmokeSimulationComponent, so the plugin
-// doesn't depend on the EasyButtons package.
+// Adds a "Clear" button to the SmokeSimulationComponent inspector, so the plugin doesn't depend on the
+// EasyButtons package.
 [CustomEditor(typeof(SmokeSimulationComponent)), CanEditMultipleObjects]
 public class SmokeSimulationComponentEditor : Editor {
 	public override void OnInspectorGUI() {

@@ -42,7 +42,7 @@ public static class VectorFieldComponentDrawer
     // the instanced draw so it lands in that exact render (no one-frame lag, no flicker).
     static void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera) {
         if (GraphicsSettings.currentRenderPipeline == null) return;   // built-in RP — OnSceneGui handles it
-        if (camera.cameraType != CameraType.SceneView) return;        // scene-view arrows only, as before
+        if (camera.cameraType != CameraType.SceneView) return;        // scene-view arrows only
         DrawSelected(camera);
     }
 

@@ -112,7 +112,7 @@ public static class VectorFieldCombiner {
 	// Affine map group-UV -> layer-UV, applied in the shader as mul(M, float4(uv, 0, 1)).xy. Each group cell is
 	// orthographically projected onto the layer's plane ALONG THE GROUP'S NORMAL (not read as oblique coordinates),
 	// so a layer tilted out of plane covers the foreshortened projection of its bounds — it shrinks as it tilts,
-	// matching what you see, instead of growing. (The earlier brush.inverse * canvas read stretched it by 1/cos θ.)
+	// matching what you see, instead of growing.
 	static Matrix4x4 GetRelativeTransform(Matrix4x4 brushMatrix4x4, Matrix4x4 canvasMatrix4x4) {
 		// Work entirely in the GROUP's local space (coordinates ~[-0.5, 0.5]) so the projection stays well-conditioned
 		// regardless of how large the fields are, how they're scaled, or where they sit in the world. relLayer maps

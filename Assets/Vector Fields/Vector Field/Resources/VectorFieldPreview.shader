@@ -3,8 +3,7 @@ Shader "Hidden/VectorFieldPreview"
     // Editor-only: draws a vector field render texture in the inspector preview, applying the auto/manual contrast
     // scale on the GPU instead of round-tripping the field through a CPU Texture2D. The render texture stores the
     // field as rg = vector*0.5 + 0.5 (fixed scale, see VectorFieldComponent.WriteVectorFieldToRenderTexture), so this
-    // re-encodes for display as (rg - 0.5)/scale + 0.5 — equivalent to the old CPU path's
-    // VectorsToColors(values, 1/scale).
+    // re-encodes for display as (rg - 0.5)/scale + 0.5.
     Properties
     {
         _MainTex ("Texture", 2D) = "black" {}

@@ -126,7 +126,7 @@ Shader "VectorField/InstanceDebugRenderer" {
         uint iy = v.instanceID / w;
         float2 cell = float2(ix, iy) * arrowSpacing;
 
-        // Sample the field (bilinearly) at the arrow position; the arrow no longer sits exactly on a cell centre.
+        // Sample the field (bilinearly) at the arrow position, which need not sit exactly on a cell centre.
         float2 uv = (cell + 0.5) / fieldSize;
         float2 value = (tex2Dlod(_FieldTex, float4(uv, 0, 0)).rg - 0.5) * 2.0;
 

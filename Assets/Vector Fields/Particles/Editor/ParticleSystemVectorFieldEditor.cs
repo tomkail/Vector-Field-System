@@ -2,8 +2,8 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEditor;
 
-// Default inspector, but the amplitude curve is drawn as a 0..1 ranged CurveField (natively, replacing the old
-// [CurveRange] attribute so this component no longer depends on UnityX's drawer).
+// Default inspector, but the amplitude curve is drawn as a 0..1 ranged CurveField natively, so this component
+// doesn't depend on UnityX's drawer.
 [CustomEditor(typeof(ParticleSystemVectorField)), CanEditMultipleObjects]
 public class ParticleSystemVectorFieldEditor : Editor {
 	public override VisualElement CreateInspectorGUI() =>

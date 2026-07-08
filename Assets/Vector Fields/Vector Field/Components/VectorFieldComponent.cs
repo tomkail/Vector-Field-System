@@ -416,7 +416,7 @@ public abstract class VectorFieldComponent : MonoBehaviour {
 			return;
 		}
 
-		// Encode just this sub-rect (brush-sized, so tiny next to the old full-grid encode). Array length must equal the
+		// Encode just this sub-rect (brush-sized, so tiny next to a full-grid encode). Array length must equal the
 		// block exactly for both the region copy and the SetPixels fallback below.
 		int count = w * h;
 		if (regionColors == null || regionColors.Length != count) regionColors = new Color[count];

@@ -12,8 +12,7 @@ using UnityEditor.UIElements;
 // still covers any subclass that doesn't ship its own editor.
 [CustomEditor(typeof(VectorFieldComponent), true), CanEditMultipleObjects]
 public class VectorFieldComponentEditor : Editor {
-	// The typed target (replaces a typed base class this used to inherit). Unity creates a fresh editor instance
-	// when the selection changes, so it stays current.
+	// The typed target. Unity creates a fresh editor instance when the selection changes, so it stays current.
 	protected VectorFieldComponent data => target as VectorFieldComponent;
 
 	// --- Inspector UI ------------------------------------------------------------------------------------------
@@ -92,7 +91,7 @@ public class VectorFieldComponentEditor : Editor {
 	protected string ViewKey(string suffix) => $"VF.{target.GetType().Name}.{suffix}";
 
 	// --- Diagnostics (live, read-only) -------------------------------------------------------------------------
-	// Mirrors the old IMGUI foldout: how the field is backed, whether a CPU copy exists and is fresh, the readback
+	// Shows how the field is backed, whether a CPU copy exists and is fresh, the readback
 	// mode, and who's consuming the CPU copy (clickable to ping). Rebuilt on a timer while expanded.
 
 	Foldout BuildDiagnostics(VisualElement root) {

@@ -20,8 +20,7 @@ public class DrawableVectorFieldComponentEditor : VectorFieldComponentEditor {
 		VectorFieldInspectorUI.ShowIf(componentHelp, assetProp, () => assetProp.objectReferenceValue == null);
 		VectorFieldInspectorUI.ShowIf(assetHelp, assetProp, () => assetProp.objectReferenceValue != null);
 
-		// Actions (previously [EasyButtons.Button] on the component — they no longer auto-draw without
-		// DrawDefaultInspector, so wire them explicitly). Clear acts on every selected field; Extract/Bake are
+		// Action buttons, wired explicitly. Clear acts on every selected field; Extract/Bake are
 		// single-object mode switches, so they act on the primary target and swap by which mode you're in.
 		var clear = new Button(() => {
 			foreach (var t in targets)

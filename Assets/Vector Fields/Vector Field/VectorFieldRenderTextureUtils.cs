@@ -2,9 +2,8 @@ using UnityEngine;
 
 // Shared, code-callable render-texture lifecycle for vector field textures. Vector fields are stored in an
 // ARGBFloat render texture with random write enabled (compute shaders write into it) and bilinear filtering
-// (sampling between cells). This logic used to be copy-pasted across the component and the texture-creator
-// classes; it now lives here so there is one definition to reason about — and so the core can manage these
-// textures without a MonoBehaviour.
+// (sampling between cells). Centralising this logic here gives one definition to reason about — and lets the
+// core manage these textures without a MonoBehaviour.
 public static class VectorFieldRenderTextureUtils {
 	// The descriptor every vector field render texture uses.
 	public static RenderTextureDescriptor Descriptor(int width, int height) {

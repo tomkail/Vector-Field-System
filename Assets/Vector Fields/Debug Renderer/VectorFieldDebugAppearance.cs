@@ -15,7 +15,7 @@ public enum VectorFieldDebugColorMode {
 
 // Appearance settings for the vector field debug arrows. This is plain runtime data so the renderer can consume it
 // directly; the editor-side project settings (see VectorFieldDebugProjectSettings) hold and serialize an instance of
-// it. Defaults reproduce the original look (Direction colouring, full opacity, unit magnitude scale).
+// it. Defaults give the standard look (Direction colouring, full opacity, unit magnitude scale).
 [System.Serializable]
 public class VectorFieldDebugAppearance {
     [Tooltip("Glyph drawn for each arrow. Leave empty to use the built-in arrow texture.")]

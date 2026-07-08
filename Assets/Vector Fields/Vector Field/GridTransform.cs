@@ -2,9 +2,8 @@ using UnityEngine;
 
 // A serializable spatial grid: owns a grid size and, given an owner Transform, maps between world space and grid
 // (cell) space. Cell-center convention; the field always occupies a 1×1 quad in the owner's local space regardless of
-// grid resolution (so resolution is a purely visual knob). Folded out of the old UnityX GridRenderer — it keeps only
-// the slice the vector-field system actually used (Manhattan mode, scaleWithGridSize = false, cell-center conversion),
-// as a plain serializable class rather than a required MonoBehaviour.
+// grid resolution (so resolution is a purely visual knob). A plain serializable class (not a MonoBehaviour) covering
+// just the slice the vector-field system needs: Manhattan mode, scaleWithGridSize = false, cell-center conversion.
 //
 // This is a generic spatial grid, not vector-field-specific (the smoke sim uses it too) — hence GridTransform, not
 // VectorFieldGrid. Not to be confused with the data-map base class (a 2D array with bilinear sampling), which is a
@@ -69,7 +68,7 @@ public class GridTransform {
 		_cachedSize = _size;
 		_cachedOwnerMatrix = ownerMatrix;
 
-		// Cell-center conversion, Manhattan mode, scaleWithGridSize = false (exactly the old GridRenderer path):
+		// Cell-center conversion, Manhattan mode, scaleWithGridSize = false:
 		//   cellSize    = (1/sx, 1/sy, 1/sy)
 		//   gridToLocal = TRS(0, id, cellSize) · TRS((-sx/2, -sy/2, 0), id, 1) · TRS((0.5, 0.5, 0), id, 1)
 		// Clamp defensively so an inspector-typed 0 (which bypasses the Size setter's clamp) can't divide by zero.
@@ -98,12 +97,11 @@ public class GridTransform {
 	// Grid-space vector → world direction/vector (no translation).
 	public Vector3 GridToWorldVector(Vector2 gridVector) { EnsureUpToDate(); return _gridToWorld.MultiplyVector(gridVector); }
 
-	// The plane the grid lies in, in world space (normal = -owner.forward, origin = owner.position). Matches the old
-	// GridRenderer.floorPlane, used for screen-ray hit-testing while painting.
+	// The plane the grid lies in, in world space (normal = -owner.forward, origin = owner.position). Used for
+	// screen-ray hit-testing while painting.
 	public Plane FloorPlane => _owner != null ? new Plane(-_owner.forward, _owner.position) : new Plane(Vector3.back, Vector3.zero);
 
-	// World-space bounds of the field's 1×1 local quad. Independent of grid resolution. Replaces the old
-	// edge.NormalizedToWorldRect(0,0,1,1) + BoundsX.CreateEncapsulating path.
+	// World-space bounds of the field's 1×1 local quad. Independent of grid resolution.
 	public Bounds GetWorldBounds() {
 		var ltw = OwnerLocalToWorld;
 		var bounds = new Bounds(ltw.MultiplyPoint3x4(new Vector3(-0.5f, -0.5f, 0f)), Vector3.zero);

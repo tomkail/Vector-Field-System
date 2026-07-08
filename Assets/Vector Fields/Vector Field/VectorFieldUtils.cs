@@ -58,8 +58,7 @@ public static class VectorFieldUtils {
 	}
 
 	// Writes the field into a depth-1 Texture3D, reusing the existing texture when its dimensions already match.
-	// This avoids destroying + reallocating the Texture3D (and its GPU storage) every time the field updates,
-	// which previously happened on every render.
+	// This avoids destroying + reallocating the Texture3D (and its GPU storage) every time the field updates.
 	//
 	// amplitudeLut (optional): a precomputed magnitude-response curve, indexed by flow magnitude (0..1) and giving the
 	// remapped magnitude. Baking the AnimationCurve into a LUT keeps this hot loop a cheap lookup + lerp rather than a

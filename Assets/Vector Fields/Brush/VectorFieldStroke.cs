@@ -62,10 +62,10 @@ public class PaintStroke<T> {
     readonly Vector2[] _ring = new Vector2[4];
     int _head = -1, _n;
 
-    // Cells are keyed by a packed int (y * _gridWidth + x) rather than a Vector2Int per cell: an int key hashes faster and,
-    // more importantly, lets the active set live in a plain array we mutate in place (arr[slot].field = …, no copy) —
-    // the big Active struct was previously copied twice per cell through Dictionary<Vector2Int, Active> and once more per
-    // cell just to enumerate it, which dominated CommitSpan/EvictBehindHead on large brushes.
+    // Cells are keyed by a packed int (y * _gridWidth + x) rather than a Vector2Int per cell: an int key hashes faster
+    // and, more importantly, lets the active set live in a plain array we mutate in place (arr[slot].field = …, no copy).
+    // A Dictionary<Vector2Int, Active> would instead copy the big Active struct twice per cell on access and once more to
+    // enumerate it, which would dominate CommitSpan/EvictBehindHead on large brushes.
     int _gridWidth;
 
     struct SpanCell {
@@ -268,8 +268,8 @@ public class PaintStroke<T> {
         float er = _gridRadius + 1f;   // one cell of margin so a cell isn't dropped right as the next span reaches it
         float erSqr = er * er;
         _evict.Clear();
-        // Walk the slot array reading only the int key (no Active-struct copy per cell — the old dictionary enumeration
-        // copied the whole value struct every iteration).
+        // Walk the slot array reading only the int key (no Active-struct copy per cell — a dictionary enumeration
+        // would copy the whole value struct every iteration).
         for (int slot = 0; slot < _activeCount; slot++) {
             int key = _activeKey[slot];
             if (_index.ContainsKey(key)) continue;   // touched this span — still under the head

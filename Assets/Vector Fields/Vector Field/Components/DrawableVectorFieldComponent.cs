@@ -85,8 +85,8 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
             paintField = null;   // built lazily by PaintField
         }
         // Restore the grid size from the serialized paint-field size (component mode), so a resized field survives a
-        // reload without depending on the legacy GridRenderer — and so EnsurePaintField never shrinks the painted data
-        // to a stale default. No-op when there's no stored field; asset mode syncs when the asset's field loads.
+        // reload — and so EnsurePaintField never shrinks the painted data to a stale default. No-op when there's no
+        // stored field; asset mode syncs when the asset's field loads.
         if (paintField != null) grid.Size = new Vector2Int(storedSize.x, storedSize.y);
     }
 
@@ -179,7 +179,7 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         // whole field (first render, resize, Clear, or any non-paint change).
         //
         // The base applies the output transform (magnitude + cookie) per-region right after this, so an active cookie
-        // no longer forces a full upload every render — a region upload re-transforms only its own texels. But a
+        // doesn't force a full upload every render — a region upload re-transforms only its own texels. But a
         // *change* to the transform (magnitude or cookie) must re-derive the WHOLE texture from the raw paint field,
         // since a region upload would leave the rest baked with the old transform; OutputTransformChangedSinceLastRender
         // catches that (call it exactly once per render).

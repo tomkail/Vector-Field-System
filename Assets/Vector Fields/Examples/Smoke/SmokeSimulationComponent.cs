@@ -131,7 +131,7 @@ public class SmokeSimulationComponent : MonoBehaviour, IPaintTarget<Color> {
     }
 
     // Bind the grid to this transform so its world<->cell conversions are live. GridTransform defaults to 64×64 and
-    // self-clamps to ≥1, so (unlike the old required GridRenderer) there's nothing to default or guard here. Runs at
+    // self-clamps to ≥1, so there's nothing to default or guard here. Runs at
     // runtime too, so a built player (no OnValidate) is covered.
     void ConfigureGrid() {
         grid.Bind(transform);

@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Replace: set the cell toward the stroke force, capping magnitude by a falloff-weighted blend between the cell's
-// current magnitude and the pressure. (Ported verbatim from the tool's old Draw.)
+// current magnitude and the pressure.
 public sealed class DrawBrushOp : IVectorFieldBrushOp {
     public string Id => "draw";
     public string DisplayName => "Draw";
@@ -22,7 +22,7 @@ public sealed class DrawBrushOp : IVectorFieldBrushOp {
     }
 }
 
-// Accumulate the stroke-applied brush vector onto the cell. (Ported verbatim from the tool's old DrawAdditive.)
+// Accumulate the stroke-applied brush vector onto the cell.
 public sealed class AdditiveBrushOp : IVectorFieldBrushOp {
     public string Id => "additive";
     public string DisplayName => "Add";
@@ -79,7 +79,7 @@ public sealed class EraseBrushOp : IVectorFieldBrushOp {
     }
 }
 
-// Grow magnitude along the cell's existing direction (intensify). Ported from the legacy Burn tool. A zero cell has no
+// Grow magnitude along the cell's existing direction (intensify). A zero cell has no
 // direction to grow along, so it stays zero. Pressure acts as the strength.
 public sealed class BurnBrushOp : IVectorFieldBrushOp {
     public string Id => "burn";
@@ -112,8 +112,7 @@ public sealed class DodgeBrushOp : IVectorFieldBrushOp {
 }
 
 // Pull magnitude down toward a ceiling (keeps direction), weighted by the brush falloff. Pressure is the ceiling — it
-// doubles as the field's magnitude reference throughout these ops (Draw caps painted magnitude at pressure). Ported
-// from the legacy Clamp tool.
+// doubles as the field's magnitude reference throughout these ops (Draw caps painted magnitude at pressure).
 public sealed class ClampBrushOp : IVectorFieldBrushOp {
     public string Id => "clamp";
     public string DisplayName => "Clamp";

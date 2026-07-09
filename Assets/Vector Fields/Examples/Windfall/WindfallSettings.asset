@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44b7dcf2dcfbe4ca4ae9e585a7f280be, type: 3}
+  m_Name: WindfallSettings
+  m_EditorClassIdentifier: Assembly-CSharp::Windfall.WindfallSettings
+  aimCentreDeg: 90
+  aimHalfRangeDeg: 180
+  aimSweepHz: 0.5
+  powerHz: 0.9
+  minLaunchSpeed: 4
+  maxLaunchSpeed: 11
+  windScale: 13
+  response: 9
+  pressKick: 0.1
+  coastDrag: 0.7
+  maxSpeed: 18
+  stopThreshold: 0.4
+  settleTime: 0.6
+  radius: 0.5
+  restitution: 0.85
+  mass: 1

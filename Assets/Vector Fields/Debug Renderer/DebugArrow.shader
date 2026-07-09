@@ -60,12 +60,13 @@ Shader "VectorField/InstanceDebugRenderer" {
         );
     }
 
-    // Builds a rotation from a direction vector. Because `direction` is not normalised, the arrow's
-    // length ends up proportional to the vector's magnitude.
+    // Builds a rotation from a direction vector. The arrow glyphs point along +X, so this maps the quad's local +X
+    // onto `direction`: local +X -> (c, s) = direction, local +Y -> (-s, c) = direction rotated +90 (a proper
+    // rotation). Because `direction` is not normalised, the arrow's length ends up proportional to the magnitude.
     float4x4 RotateAroundAxis(float3 axis, float2 direction)
     {
-        float c = direction.y;
-        float s = -direction.x;
+        float c = direction.x;
+        float s = direction.y;
         float t = 1.0f - c;
 
         float x = axis.x;

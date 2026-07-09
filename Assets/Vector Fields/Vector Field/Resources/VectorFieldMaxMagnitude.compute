@@ -1,0 +1,46 @@
+#pragma kernel CSMain
+
+// First-stage max-magnitude reduction over an encoded vector field texture: each 16x16 thread group reduces its
+// texel block to one value in groupshared memory and writes it to GroupMaxes, so the CPU only reads back one float
+// per group (a few KB at most) instead of the whole field. Values are SQUARED lengths — max(length) is recovered
+// with a single sqrt on the CPU, saving a sqrt per texel here.
+
+// Must match VectorFieldMaxMagnitude.cs
+#define THREADS_X 16
+#define THREADS_Y 16
+#define GROUP_SIZE (THREADS_X * THREADS_Y)
+
+// The field texture, encoded as color = vector * 0.5 + 0.5 (the convention shared by every generator and
+// WriteVectorFieldToRenderTexture / HandleReadback).
+Texture2D<float4> Source;
+int width;
+int height;
+// Groups along X, for flattening the 2D group id into a buffer index.
+int groupsX;
+
+// One squared max per thread group.
+RWStructuredBuffer<float> GroupMaxes;
+
+groupshared float sharedMax[GROUP_SIZE];
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex, uint3 groupId : SV_GroupID) {
+    // Out-of-bounds threads contribute 0, which never wins the max.
+    float squaredLength = 0.0;
+    if (id.x < (uint)width && id.y < (uint)height) {
+        float2 v = (Source[id.xy].xy - 0.5) * 2.0;
+        squaredLength = dot(v, v);
+    }
+    sharedMax[groupIndex] = squaredLength;
+    GroupMemoryBarrierWithGroupSync();
+
+    // Standard tree reduction across the group.
+    for (uint stride = GROUP_SIZE / 2; stride > 0; stride >>= 1) {
+        if (groupIndex < stride)
+            sharedMax[groupIndex] = max(sharedMax[groupIndex], sharedMax[groupIndex + stride]);
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (groupIndex == 0)
+        GroupMaxes[groupId.y * (uint)groupsX + groupId.x] = sharedMax[0];
+}

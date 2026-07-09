@@ -103,6 +103,7 @@ Sampling is covered in [Reading a field from code](#reading-a-field-from-code).
 - **Noise sampler** — frequency/scale, octaves, persistence, lacunarity, offset.
 - **Space** — `Local` (field fixed to the grid) or `World` (field flows past a moving grid).
 - **Vortex angle** — rotates each vector around the plane normal (0 = toward the noise gradient, 90 = circulate, 180 = away).
+- **Normalize** — auto-sets **Magnitude** so the field's strongest vector has length 1, recomputed (via a GPU reduction, no stall) whenever the noise changes. While on, the Magnitude field shows the computed value but is disabled.
 
 ### Polygon field
 
@@ -461,3 +462,4 @@ A field is published as a live GPU texture — `VectorFieldComponent.renderTextu
 
 - **VectorFieldRenderTextureUtils** — lifecycle for the `ARGBFloat` render textures fields use. Call `EnsureValid(ref rt, size)` before rendering (cheap if already valid) and `Destroy(ref rt)` on teardown to avoid GPU leaks.
 - **VectorFieldUtils** — encode/decode between `Vector2[]` and `Color[]` (`VectorsToColors` / `ColorsToVectors`, scaled by a max component), build ramp textures from an `AnimationCurve` or `Gradient`, and convert a field to a `Texture2D` / `Texture3D`. In‑place overloads avoid allocation in hot loops.
+- **VectorFieldMaxMagnitude** — `Request(renderTexture, gridSize, onComplete)` measures the longest vector in an encoded field texture with a GPU group reduction (only a few‑KB per‑group buffer crosses back to the CPU, asynchronously where supported). Powers the noise field's **Normalize** toggle; call it directly for custom auto‑scaling.

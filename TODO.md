@@ -5,13 +5,17 @@ A living checklist for the Vector Field System. For full context see `HANDOVER.m
 public API changes.
 
 ## Packaging / distribution
-The plugin is currently laid out as an Assets-folder plugin (everything in `Assembly-CSharp` / `Assembly-CSharp-Editor`
-via `Editor/` folders). To ship it as a proper UPM package these are required:
+To ship as a proper UPM package these are required:
 
-- [ ] **Add asmdefs.** A runtime asmdef plus an **editor-only** asmdef (editor platform only) for the `Editor/` code
-      (settings provider, drawing tool, debug-renderer editor glue). This is what *enforces* the editor/runtime split
-      rather than relying on the `Editor/` folder name, and it's required for UPM. Watch the editor→runtime references
-      (e.g. `VectorFieldComponentDrawer` → `VectorFieldDebugRenderer`/`VectorFieldDebugAppearance`).
+- [x] **Added asmdefs.** `VectorFields` (runtime, asmdef at the plugin root; references `UnityX.NoiseSampler` +
+      `UnityX.Noises`, `Unity.InputSystem`, `Unity.Mathematics`, and `Unity.Splines` — the splines reference is by
+      GUID with a `versionDefines` entry setting `VECTOR_FIELDS_SPLINES`, so that package stays optional). All editor
+      code was consolidated from the scattered `<X>/Editor/` subfolders into one `Editor/` tree mirroring the runtime
+      layout (including `VectorFieldWorldEditor/`, which previously sat unguarded in the runtime assembly and would
+      have broken player builds), compiled as `VectorFields.Editor`. `Tests/Editor/` compiles as
+      `VectorFields.Tests.Editor`.
+- [ ] **Convert the brush self-tests to NUnit.** They were a menu item only because the project had no asmdefs; now
+      that `VectorFields.Tests.Editor` exists the conversion is mechanical (menu item kept for now).
 - [ ] **Wrap public types in a `VectorFields` namespace.** The project is currently global-namespace; for distribution,
       namespacing avoids collisions with consumer code. Do it together with the asmdefs. (The map-family collision with
       UnityX that would otherwise force this early was sidestepped by giving the vendored maps distinct names —

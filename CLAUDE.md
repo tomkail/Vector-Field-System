@@ -22,7 +22,7 @@ A Unity plugin for authoring and rendering 2D vector fields, with a brush/painti
 - `Examples/` — demo scenes.
 - `Tests/` — edit-mode tests (`Tests/Editor/`).
 
-Editor-only code lives in `Editor/` subfolders (no asmdefs yet — the editor/runtime split is by folder convention only; see TODO.md packaging section).
+The plugin has assembly definitions: `VectorFields` (runtime, asmdef at the folder root), `VectorFields.Editor` (all editor code, consolidated under `Editor/` mirroring the runtime layout), and `VectorFields.Tests.Editor` (`Tests/Editor/`). The optional `com.unity.splines` dependency is wired through the runtime asmdef: a GUID reference to `Unity.Splines` plus a `versionDefines` entry that sets `VECTOR_FIELDS_SPLINES` only while the package is installed (guards `SplineVectorFieldComponent`).
 
 ## Key docs (keep in sync)
 

@@ -1,0 +1,96 @@
+#pragma kernel CSMain
+
+// Per grid cell, find the nearest point on a polyline traced from a spline and emit a vector there: either the path's
+// flow direction (the tangent at the nearest point) or a fixed direction, rotated by a per-point angle and faded by a
+// per-point distance falloff. The polyline arrives as segment *pairs* of attribute-carrying samples (segment i =
+// Samples[2i] -> Samples[2i+1]); consecutive segments of one spline share endpoint samples so interpolated attributes
+// are continuous along the path, while separate splines simply contribute disjoint pairs to the same soup. Encoding
+// matches the other generators ((v * 0.5) + 0.5) so it round-trips through the readback decode.
+
+#define THREADS_X 16
+#define THREADS_Y 16
+
+static const float PI = 3.14159265358979323846;
+static const float Deg2Rad = PI / 180.0;
+
+RWTexture2D<float4> Result;
+int width;
+int height;
+
+// A point sampled along a spline, in the field's local plane space, carrying the attributes the field needs at that
+// point. rotation is in degrees; falloff is the distance (field-local units) over which strength fades to zero at
+// this point (<= 0 = no falloff, constant strength).
+struct SplineSample {
+    float2 position;
+    float2 tangent;
+    float rotation;
+    float falloff;
+};
+
+// Segment pairs: segment i = (Samples[2i], Samples[2i+1]).
+StructuredBuffer<SplineSample> Samples;
+int segmentCount;
+
+// gridToPlane: grid cell (x, y, 0, 1) -> field-local plane point (use .xy). Samples are already in this space, so the
+// per-cell point and the geometry share one frame; the resulting vector is field-local and encodes directly.
+float4x4 gridToPlane;
+
+// 0 = Flow (use the interpolated tangent at the nearest point), 1 = Fixed (use fixedDirection everywhere).
+int directionMode;
+float2 fixedDirection;
+
+float magnitude;
+
+// Encoded zero field (vector 0 -> colour (0.5, 0.5, 0, 1)).
+static const float4 ZeroField = float4(0.5, 0.5, 0.0, 1.0);
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= (uint)width || id.y >= (uint)height) return;
+    uint2 texPos = uint2(id.x, id.y);
+
+    if (segmentCount < 1) { Result[texPos] = ZeroField; return; }
+
+    float2 p = mul(gridToPlane, float4((float)texPos.x, (float)texPos.y, 0.0, 1.0)).xy;
+
+    // Nearest point on any segment, remembering which segment and where along it so attributes can be interpolated.
+    float bestSqr = 1e30;
+    int bestSegment = 0;
+    float bestT = 0.0;
+    for (int i = 0; i < segmentCount; i++) {
+        float2 a = Samples[2 * i].position;
+        float2 b = Samples[2 * i + 1].position;
+        float2 ab = b - a;
+        float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-20));
+        float2 c = a + ab * t;
+        float d = dot(p - c, p - c);
+        if (d < bestSqr) { bestSqr = d; bestSegment = i; bestT = t; }
+    }
+
+    SplineSample sa = Samples[2 * bestSegment];
+    SplineSample sb = Samples[2 * bestSegment + 1];
+
+    float2 dir;
+    if (directionMode == 0) {
+        float2 tangent = lerp(sa.tangent, sb.tangent, bestT);
+        float len = length(tangent);
+        dir = len > 1e-5 ? tangent / len : float2(0, 0);
+    } else {
+        dir = fixedDirection;
+    }
+
+    // Rotate around the plane normal by the interpolated per-point angle (2D rotation in field-local plane space).
+    float rotation = lerp(sa.rotation, sb.rotation, bestT);
+    if (rotation != 0.0) {
+        float r = rotation * Deg2Rad;
+        float cs = cos(r), sn = sin(r);
+        dir = float2(dir.x * cs - dir.y * sn, dir.x * sn + dir.y * cs);
+    }
+
+    // Full strength on the path, fading to zero `falloff` units (field-local) away; <= 0 = constant strength.
+    float falloff = lerp(sa.falloff, sb.falloff, bestT);
+    float strength = falloff > 0.0 ? saturate(1.0 - sqrt(bestSqr) / falloff) : 1.0;
+
+    float2 v = dir * (strength * magnitude);
+    Result[texPos] = float4(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, 0.0, 1.0);
+}

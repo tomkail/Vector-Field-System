@@ -13,6 +13,7 @@ A Unity toolkit for authoring, generating, simulating, blending, sampling, and v
   - [Drawable (painted) field](#drawable-painted-field)
   - [Noise field](#noise-field)
   - [Polygon field](#polygon-field)
+  - [Spline field](#spline-field)
   - [Stamp field](#stamp-field)
   - [Simulated (fluid) field](#simulated-fluid-field)
   - [Group (blended) field](#group-blended-field)
@@ -113,6 +114,21 @@ Sampling is covered in [Reading a field from code](#reading-a-field-from-code).
 - **Boundary flip** — reverse direction on one side (converge vs diverge).
 - **Angle** — rotate vectors around the normal (0 = toward edge, 90 = circulate, 180 = away).
 - **Inner / Outer falloff** — distance over which strength fades inside / outside the shape.
+
+### Spline field
+
+`SplineVectorFieldComponent` — traces a Unity spline: every cell takes its vector from the nearest point on the path. Good for rivers, roads, and guided flows.
+
+The `com.unity.splines` package is an **optional** dependency: the VectorFields asmdef's `versionDefines` set the `VECTOR_FIELDS_SPLINES` scripting define while the package is installed, and this component only compiles under that define — install or remove the package and the component follows automatically. The underlying `SplineVectorFieldGenerator` is polyline-generic (it takes pre-flattened samples) and is always available.
+
+**Inspector**
+- **Spline container** — the spline(s) to trace (falls back to a `SplineContainer` on the same GameObject).
+- **Direction mode** — `Flow` (vectors follow the path's tangent) or `Fixed` (every cell uses **Fixed direction**, in field‑local plane space).
+- **Rotation** — rotates every vector around the plane normal (degrees). **Rotation along spline** (`SplineData<float>`) adds extra rotation authored at points along the spline, interpolated between them.
+- **Falloff** — distance from the path over which strength fades to zero (0 = constant strength). **Falloff along spline** (`SplineData<float>`) multiplies it at points along the spline.
+- **Samples per spline** — how finely each spline is flattened; raise it for tight curves.
+
+Knot edits re‑render automatically (the component listens to `Spline.Changed`).
 
 ### Stamp field
 

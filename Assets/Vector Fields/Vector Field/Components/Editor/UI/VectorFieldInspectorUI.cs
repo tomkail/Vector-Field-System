@@ -25,6 +25,33 @@ public static class VectorFieldInspectorUI {
 	public static void ApplyStyle(VisualElement root) {
 		var sheet = StyleSheet;
 		if (sheet != null && !root.styleSheets.Contains(sheet)) root.styleSheets.Add(sheet);
+		// USS can't detect the editor theme, so scope the sheet's theme-specific colours with a root class.
+		root.EnableInClassList("vf-theme-dark", EditorGUIUtility.isProSkin);
+		root.EnableInClassList("vf-theme-light", !EditorGUIUtility.isProSkin);
+		ScheduleOverrideBarsFix(root);
+	}
+
+	// Unity 6000.5 workaround: for inspectors with a UITK custom editor, the default editor stylesheet gives the
+	// InspectorElement's absolute prefab-override / live-property bar containers margin-left:-15px (aimed at the
+	// window's gutter, but it overshoots the InspectorElement's left edge), which widens the inspector ScrollView's
+	// scroll range by 15px and shows a phantom horizontal scrollbar on every vector field inspector. An inline
+	// margin-left:0 beats the sheet and pins them flush to the InspectorElement, exactly like IMGUI inspectors.
+	// Applied only when geometry shows the container out of place, so if Unity fixes the sheet this never triggers.
+	static readonly string[] _barContainerNames = { "unity-prefab-override-bars-container", "unity-live-property-bars-container" };
+	const string _barsFixMarkerClass = "vf-bars-fix-watched";
+	static void ScheduleOverrideBarsFix(VisualElement root) {
+		root.RegisterCallback<AttachToPanelEvent>(_ => {
+			var inspectorElement = root.GetFirstAncestorOfType<InspectorElement>();
+			if (inspectorElement == null) return;
+			foreach (var name in _barContainerNames) {
+				var bars = inspectorElement.Q(name);
+				if (bars == null || bars.ClassListContains(_barsFixMarkerClass)) continue;
+				bars.AddToClassList(_barsFixMarkerClass);
+				bars.RegisterCallback<GeometryChangedEvent>(_2 => {
+					if (bars.worldBound.x < inspectorElement.worldBound.x - 0.5f) bars.style.marginLeft = 0f;
+				});
+			}
+		});
 	}
 
 	// A collapsible card grouping related settings. Add fields straight to the returned element (its
@@ -45,6 +72,20 @@ public static class VectorFieldInspectorUI {
 		var field = new PropertyField(prop, label);
 		if (!string.IsNullOrEmpty(tooltip)) field.tooltip = tooltip;
 		return field;
+	}
+
+	// Add each direct child of a serialized (nested [Serializable] class) property straight into `container`, so its
+	// fields appear inline — without the extra foldout Unity draws for the parent. Use when the block already sits in a
+	// titled Section (the section is the grouping, so the parent's own foldout is redundant). Per-field [Tooltip]s carry.
+	public static void AddChildrenInline(VisualElement container, SerializedProperty parent) {
+		if (parent == null) return;
+		var it = parent.Copy();
+		var end = parent.GetEndProperty();
+		bool enterChildren = true;
+		while (it.NextVisible(enterChildren) && !SerializedProperty.EqualContents(it, end)) {
+			enterChildren = false;
+			container.Add(new PropertyField(it.Copy()));
+		}
 	}
 
 	// A Vector2Int grid-size field with a chain-link lock (like the Transform scale lock): while locked, editing
@@ -221,7 +262,7 @@ public static class VectorFieldInspectorUI {
 	}
 
 	// A horizontal multi-toggle for a [Flags] enum serialized property — one button per single-bit flag, value is
-	// the OR of the selected bits. A native control, with no dependency on UnityX's [EnumFlagsButtonGroup] drawer.
+	// the OR of the selected bits. A native control, with no dependency on UnityX's [EnumFlagsButtons] drawer.
 	// Pass the enum type so bit values are read directly (no reflection by path).
 	public static VisualElement EnumFlagsSegmentedField(SerializedProperty flagsProp, System.Type enumType, string label, string tooltip = null) {
 		var group = new VisualElement();
@@ -305,17 +346,18 @@ public static class VectorFieldInspectorUI {
 		}
 	}
 
-	// A card whose children are hosted inside a collapsible Foldout. contentContainer is overridden so callers
-	// can Add() fields directly and have them land in the foldout body, while the card border wraps both.
-	public class Section : VisualElement {
-		readonly Foldout foldout;
-		public override VisualElement contentContainer => foldout != null ? foldout.contentContainer : base.contentContainer;
-
+	// A collapsible section header, styled to match the Camera inspector's sections (full-width header bar, content
+	// one indent deeper; colours from RP-core's HeaderFoldout theme sheets — see VectorFieldInspector.uss).
+	// It IS a Foldout (not a wrapper around one) so it sits as a direct child of the inspector
+	// — an extra wrapper made the full-width bleed report an over-wide extent and pushed the content column off. Callers
+	// Add() fields straight in (Foldout routes them to its content body). Same shape as the Diagnostics foldout, which
+	// also just tags a Foldout with the vf-section class.
+	public class Section : Foldout {
 		public Section(string title, string viewDataKey = null) {
 			AddToClassList("vf-section");
-			foldout = new Foldout { text = title, value = true };
-			if (!string.IsNullOrEmpty(viewDataKey)) foldout.viewDataKey = viewDataKey;
-			hierarchy.Add(foldout);
+			text = title;
+			value = true;
+			if (!string.IsNullOrEmpty(viewDataKey)) this.viewDataKey = viewDataKey;
 		}
 	}
 }

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Temporary harness for comparing Unity's built-in enum/flags drawers against the UnityX attribute
-// drawers (EnumButtons, EnumButtonGroup, EnumFlagsButtonGroup) before deleting the latter.
+// drawers (EnumButtons, EnumButtonGroup, EnumFlagsButtons) before deleting the latter.
 // Each section shows the same field drawn by the default drawer and by the UnityX drawers.
 // Things to poke at while comparing:
 //  - Flags: does the default mask dropdown handle None / Everything / composite values the same way?
@@ -57,15 +57,15 @@ public class EnumDrawerComparisonTest : MonoBehaviour {
 
     [Header("Flags — simple power-of-two")]
     public SimpleFlags flagsDefault = SimpleFlags.A | SimpleFlags.C;
-    [EnumFlagsButtonGroup] public SimpleFlags flagsButtonGroup = SimpleFlags.A | SimpleFlags.C;
+    [EnumFlagsButtons] public SimpleFlags flagsButtonGroup = SimpleFlags.A | SimpleFlags.C;
 
     [Header("Flags — with composite members")]
     public CompositeFlags compositeDefault = CompositeFlags.Horizontal | CompositeFlags.Up;
-    [EnumFlagsButtonGroup] public CompositeFlags compositeButtonGroup = CompositeFlags.Horizontal | CompositeFlags.Up;
+    [EnumFlagsButtons] public CompositeFlags compositeButtonGroup = CompositeFlags.Horizontal | CompositeFlags.Up;
 
     [Header("Flags — byte-backed")]
     public ByteFlags byteDefault = ByteFlags.A | ByteFlags.HighBit;
-    [EnumFlagsButtonGroup] public ByteFlags byteButtonGroup = ByteFlags.A | ByteFlags.HighBit;
+    [EnumFlagsButtons] public ByteFlags byteButtonGroup = ByteFlags.A | ByteFlags.HighBit;
 
     // Long-backed flags enums were tried here: Unity rejects them outright at the serialization layer
     // ("Unsupported enum type"), so they never reach ANY drawer — not a point of comparison.
@@ -74,9 +74,9 @@ public class EnumDrawerComparisonTest : MonoBehaviour {
     public Simple undefinedSimple = (Simple)7;
     [EnumButtons] public Simple undefinedSimpleButtons = (Simple)7;
     public SimpleFlags undefinedFlags = (SimpleFlags)(1 << 6);
-    [EnumFlagsButtonGroup] public SimpleFlags undefinedFlagsButtonGroup = (SimpleFlags)(1 << 6);
+    [EnumFlagsButtons] public SimpleFlags undefinedFlagsButtonGroup = (SimpleFlags)(1 << 6);
 
     [Header("Lists (drawer-instance reuse across elements)")]
     public List<SimpleFlags> flagsListDefault = new List<SimpleFlags> { SimpleFlags.A, SimpleFlags.B | SimpleFlags.C, SimpleFlags.None };
-    [EnumFlagsButtonGroup] public List<SimpleFlags> flagsListButtonGroup = new List<SimpleFlags> { SimpleFlags.A, SimpleFlags.B | SimpleFlags.C, SimpleFlags.None };
+    [EnumFlagsButtons] public List<SimpleFlags> flagsListButtonGroup = new List<SimpleFlags> { SimpleFlags.A, SimpleFlags.B | SimpleFlags.C, SimpleFlags.None };
 }

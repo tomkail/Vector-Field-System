@@ -69,27 +69,25 @@ public class VectorFieldCookieSource : IDisposable {
 		var shader = SharedShader;
 		int kernel = shader.FindKernel("CSMain");
 
-		if (mode == Mode.Falloff) {
-			shader.EnableKeyword("FalloffSoftness");
-			shader.DisableKeyword("CurvePoints");
-			shader.SetFloat("falloffSoftness", falloffSoftness);
-		} else { // Curve
-			shader.EnableKeyword("CurvePoints");
-			shader.DisableKeyword("FalloffSoftness");
-
-			int resolution = Mathf.Max(size.x, size.y);
-			if (curveBuffer == null || curveBuffer.count != resolution) {
-				curveBuffer?.Release();
-				curveBuffer = new ComputeBuffer(resolution, sizeof(float));
-			}
+		// The kernel branches on maskMode rather than keyword variants (variant switching on the shared shader was
+		// unreliable). CurvePoints is referenced unconditionally, so it must always be bound — the Falloff branch just
+		// never reads it. Keep the buffer sized to the mask so Curve mode has enough sample points.
+		int resolution = Mathf.Max(size.x, size.y, 2);
+		if (curveBuffer == null || curveBuffer.count != resolution) {
+			curveBuffer?.Release();
+			curveBuffer = new ComputeBuffer(resolution, sizeof(float));
+		}
+		if (mode == Mode.Curve) {
 			float[] curveData = new float[resolution];
 			for (int i = 0; i < resolution; i++)
 				curveData[i] = curve.Evaluate(i / (resolution - 1f));
 			curveBuffer.SetData(curveData);
-
-			shader.SetBuffer(kernel, "CurvePoints", curveBuffer);
-			shader.SetInt("CurvePointCount", resolution);
 		}
+
+		shader.SetInt("maskMode", mode == Mode.Curve ? 1 : 0);
+		shader.SetFloat("falloffSoftness", falloffSoftness);
+		shader.SetBuffer(kernel, "CurvePoints", curveBuffer);
+		shader.SetInt("CurvePointCount", resolution);
 
 		shader.SetInt("textureWidth", size.x);
 		shader.SetInt("textureHeight", size.y);

@@ -46,8 +46,11 @@ public class VectorFieldComponentEditor : Editor {
 		else if (gridSize != null)
 			section.Add(VectorFieldInspectorUI.Field(gridSize, "Grid Size", gridTip));
 
-		section.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("magnitude"), "Magnitude",
-			"Uniform scalar applied to the field's output. Every consumer sees the scaled result."));
+		// Named so subclass editors can find it (e.g. the noise editor disables it while Normalize is on).
+		var magnitudeField = VectorFieldInspectorUI.Field(serializedObject.FindProperty("magnitude"), "Magnitude",
+			"Uniform scalar applied to the field's output. Every consumer sees the scaled result.");
+		magnitudeField.name = "vf-magnitude";
+		section.Add(magnitudeField);
 		section.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("cookie"), "Mask",
 			"Optional falloff mask multiplied into the field's output — radial softness, an authored curve, or a texture."));
 		return section;
@@ -278,6 +281,22 @@ public class VectorFieldComponentEditor : Editor {
 	[DrawGizmo(GizmoType.Selected)]
 	static void DrawGizmoForField(VectorFieldComponent vectorFieldComponent, GizmoType gizmoType) {
 		Gizmos.color = Color.white;
+		DrawBoundsOutline(vectorFieldComponent);
+	}
+
+	// Unselected fields draw a faint footprint + a center icon so invisible field volumes stay discoverable in the
+	// scene view. The icon doubles as the selection affordance: wire gizmo lines aren't click-pickable, icons are
+	// (Pickable makes clicking it select the field). Both respect the per-type toggle in the Gizmos dropdown.
+	const string unselectedIconPath = "Assets/Vector Fields/Debug Renderer/Editor/Arrows/Debug Arrow 1.png";
+	[DrawGizmo(GizmoType.NonSelected | GizmoType.Pickable)]
+	static void DrawGizmoForUnselectedField(VectorFieldComponent vectorFieldComponent, GizmoType gizmoType) {
+		if (!vectorFieldComponent.isActiveAndEnabled) return;   // a disabled field has no output — don't advertise it
+		Gizmos.color = new Color(1f, 1f, 1f, 0.2f);
+		DrawBoundsOutline(vectorFieldComponent);
+		Gizmos.DrawIcon(vectorFieldComponent.GetBounds().center, unselectedIconPath, true, new Color(1f, 1f, 1f, 0.5f));
+	}
+
+	static void DrawBoundsOutline(VectorFieldComponent vectorFieldComponent) {
 		vectorFieldComponent.grid.GetWorldCorners(ref s_gizmoCorners);
 		for (int i = 0; i < 4; i++)
 			Gizmos.DrawLine(s_gizmoCorners[i], s_gizmoCorners[(i + 1) % 4]);

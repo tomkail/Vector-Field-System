@@ -5,9 +5,9 @@ using UnityEngine;
 // (an op-level check like this would have caught the inverted Erase). Run via Tools > Vector Field > Run Brush
 // Self-Tests; results are logged, failures as errors.
 //
-// Why a menu item and not a proper NUnit test: the project has no assembly definitions, so the code lives in the
-// predefined Assembly-CSharp, which Unity's Test Runner assemblies can't reference. This Editor-folder class CAN
-// reference it, so it's the pragmatic way to get runnable checks without migrating the whole project to asmdefs.
+// Historically a menu item rather than a proper NUnit test because the project had no assembly definitions; the
+// VectorFields asmdefs now exist (this file lives in VectorFields.Tests.Editor), so these could be converted to
+// [Test] methods runnable from the Test Runner — kept as a menu item for now since the conversion is mechanical.
 // (The stroke geometry — coverage accumulation, frame-rate independence — needs an in-scene/play test; not covered here.)
 public static class VectorFieldBrushSelfTests {
     const float Eps = 1e-3f;

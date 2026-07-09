@@ -1,3 +1,4 @@
+using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -17,7 +18,12 @@ public class VectorFieldCookieSourceDrawer : PropertyDrawer {
 
 		var softness = Indented(Tip(new PropertyField(property.FindPropertyRelative("falloffSoftness"), "Softness"),
 			"0 = hard-edged circle, higher = softer edge."));
-		var curve = Indented(Tip(new PropertyField(property.FindPropertyRelative("curve"), "Profile"),
+		// A CurveField (not a PropertyField) so we can constrain editing to the unit rect: both distance-from-centre (x)
+		// and strength (y) are normalized 0..1, so the curve editor is clamped to [0,1]×[0,1]. Preset shapes (incl. a
+		// donut) are added via the native curve editor's own preset bar (the ⚙ gear at its bottom-left).
+		var curveField = new CurveField("Profile") { ranges = new Rect(0f, 0f, 1f, 1f) };
+		curveField.bindingPath = property.FindPropertyRelative("curve").propertyPath;
+		var curve = Indented(Tip(curveField,
 			"Strength as a function of normalized distance from the centre (0 at centre, 1 at the edge)."));
 		var texture = Indented(Tip(new PropertyField(property.FindPropertyRelative("texture"), "Texture"),
 			"Explicit mask texture; samples the red channel as strength."));
@@ -38,7 +44,7 @@ public class VectorFieldCookieSourceDrawer : PropertyDrawer {
 		return element;
 	}
 
-	static PropertyField Tip(PropertyField field, string tooltip) {
+	static T Tip<T>(T field, string tooltip) where T : VisualElement {
 		field.tooltip = tooltip;
 		return field;
 	}

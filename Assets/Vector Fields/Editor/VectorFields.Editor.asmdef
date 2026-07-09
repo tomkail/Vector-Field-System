@@ -1,0 +1,18 @@
+{
+    "name": "VectorFields.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:4c8303856b11407a9b8a317ee44f22c9"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,42 +1,44 @@
-/* Shared design system for the Vector Field component inspectors. All colours reference Unity's built-in
-   editor USS variables so light and dark themes both read correctly; the only fixed colour is the plugin
-   accent, chosen to sit well on either theme. See VectorFieldInspectorUI.cs for the elements that use these. */
+/* Shared design system for the Vector Field component inspectors. Colours reference Unity's built-in editor
+   USS variables where one exists; the exceptions are the plugin accent and the section-header palette, which
+   is lifted verbatim from RP-core's HeaderFoldoutDark/Light sheets and scoped by the vf-theme-* class that
+   ApplyStyle puts on the editor root (USS itself has no theme awareness). See VectorFieldInspectorUI.cs. */
 
-/* --- Section: a 1:1 replica of Unity's UITK header-foldout (com.unity.render-pipelines.core
-   HeaderFoldout.uss + HeaderFoldoutDark.uss), the same element the Camera inspector uses. --------------- */
+/* --- Section: the Camera-inspector section look — a full-width header bar with the arrow/title at the content
+   column, and fields one indent level deeper. Built as a plain Foldout tagged .vf-section (MakeSection and the
+   Diagnostics foldout); colours match RP-core's HeaderFoldout, geometry matches the Camera inspector. */
+
+/* Escape the InspectorElement's content padding (15 left / 6 right) so the header bar is truly full-width,
+   and draw the separator as a 1px bottom border. */
 .vf-section {
-    margin: 0;
-}
-
-/* The foldout element == Unity's ".header-foldout". Escape the InspectorElement's content padding so the
-   header bar is truly full-width (Unity uses exactly margin 0 -6 0 -15), and draw the separator as a 1px
-   bottom border. Covers both the wrapper sections (.vf-section > Foldout) and the Diagnostics foldout
-   (which is itself .vf-section). Colour #1f1f1f is HeaderFoldoutDark's border colour. */
-.vf-section > .unity-foldout,
-.vf-section.unity-foldout {
     margin: 0 -6px 0 -15px;
     border-width: 0 0 1px 0;
-    border-color: #1f1f1f;
 }
 
-/* Header row fill (#323232 = HeaderFoldoutDark's toggle background) + bold label. */
-.vf-section > .unity-foldout > .unity-foldout__toggle,
-.vf-section.unity-foldout > .unity-foldout__toggle {
+.vf-theme-dark .vf-section { border-color: #1f1f1f; }   /* HeaderFoldoutDark */
+.vf-theme-light .vf-section { border-color: #999999; }  /* HeaderFoldoutLight */
+
+/* Header row: bold title; arrow + title inset one indent level so they sit at the inspector's content column,
+   where the Camera inspector's section headers put theirs. */
+.vf-section > .unity-foldout__toggle {
     -unity-font-style: bold;
-    background-color: #323232;
     margin: 0;
     padding-top: 3px;
     padding-bottom: 3px;
+    padding-left: 15px;
 }
 
-/* Content: bring it back in from the bled-out edge (+15 cancels the -15) to the normal field column, plus a
-   small indent so fields sit under the header. */
-.vf-section > .unity-foldout > .unity-foldout__content,
-.vf-section.unity-foldout > .unity-foldout__content {
-    margin-left: 15px;
+.vf-theme-dark .vf-section > .unity-foldout__toggle { background-color: #323232; }
+.vf-theme-light .vf-section > .unity-foldout__toggle { background-color: #d3d3d3; }
+
+/* Content: cancel the -15 left bleed AND go one indent level deeper — the Camera inspector's sections indent
+   their fields 15px past the top-level label column, so ours do too (30 = 15 bleed cancel + 15 indent).
+   margin-right 6 cancels the -6 right bleed — without it the content column ends 6px past every other field
+   and the inner fields overhang the scroll viewport by 2px, summoning a horizontal scrollbar. */
+.vf-section > .unity-foldout__content {
+    margin-left: 30px;
+    margin-right: 6px;
     padding-top: 5px;
     padding-bottom: 4px;
-    padding-left: 4px;
 }
 
 /* Nested sub-card (e.g. one blend layer inside the Group inspector). No foldout arrow here, so a light

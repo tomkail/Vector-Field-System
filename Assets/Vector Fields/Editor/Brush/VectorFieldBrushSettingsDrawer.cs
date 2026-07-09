@@ -68,29 +68,41 @@ public class VectorFieldBrushSettingsDrawer : PropertyDrawer {
 		p.Stroke();
 	}
 
-	// A swirl — radial / vortex emission around the centre. An almost-closed circular arc with an arrowhead at its
-	// leading end reads as rotation, approximated with line segments so it's independent of the Painter2D Arc API.
+	// A radial burst — four arrows fanning outward from a centre dot, i.e. the field emitted radially from a point.
+	// Reads as "emit from here" (distinct from Directional's single parallel arrow) without implying rotation the way a
+	// swirl does; the vortexAngle still tips it toward a vortex, but the base concept is point emission.
 	static void DrawSpotIcon(Painter2D p, Rect r, Color color) {
 		BeginStroke(p, color);
 		Vector2 c = r.center;
-		float radius = Mathf.Min(r.width, r.height) * 0.34f;
-		const float startDeg = 40f, endDeg = 320f; // leave a gap so the arrowhead sits at an open end
-		const int segments = 20;
+		float size = Mathf.Min(r.width, r.height);
+		float outer = size * 0.42f;   // arrow tip radius
+		float inner = size * 0.16f;   // ray start radius (gap around the centre dot)
+		float head = size * 0.13f;
+
+		// Four arrows along the diagonals — diagonals keep it from reading as a 4-way "move" icon.
 		p.BeginPath();
-		Vector2 last = default;
-		for (int i = 0; i <= segments; i++) {
-			float a = Mathf.Deg2Rad * Mathf.Lerp(startDeg, endDeg, i / (float)segments);
-			last = c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius;
-			if (i == 0) p.MoveTo(last); else p.LineTo(last);
+		foreach (float deg in new[] { 45f, 135f, 225f, 315f }) {
+			float a = Mathf.Deg2Rad * deg;
+			var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+			var perp = new Vector2(-dir.y, dir.x);
+			var tip = c + dir * outer;
+			p.MoveTo(c + dir * inner);
+			p.LineTo(tip);
+			p.MoveTo(tip - dir * head + perp * head);
+			p.LineTo(tip);
+			p.LineTo(tip - dir * head - perp * head);
 		}
-		// Arrowhead tangent to the arc at its leading end (endDeg), swept clockwise in screen space.
-		float end = Mathf.Deg2Rad * endDeg;
-		var tangent = new Vector2(-Mathf.Sin(end), Mathf.Cos(end));
-		var normal = new Vector2(Mathf.Cos(end), Mathf.Sin(end));
-		float head = radius * 0.7f;
-		p.MoveTo(last - tangent * head + normal * head * 0.5f);
-		p.LineTo(last);
-		p.LineTo(last - tangent * head - normal * head * 0.5f);
 		p.Stroke();
+
+		// Centre dot (small filled diamond) — the point the field emits from.
+		float d = size * 0.09f;
+		p.fillColor = color;
+		p.BeginPath();
+		p.MoveTo(c + new Vector2(0f, -d));
+		p.LineTo(c + new Vector2(d, 0f));
+		p.LineTo(c + new Vector2(0f, d));
+		p.LineTo(c + new Vector2(-d, 0f));
+		p.ClosePath();
+		p.Fill();
 	}
 }

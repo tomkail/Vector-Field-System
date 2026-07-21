@@ -11,12 +11,14 @@ namespace Windfall {
     /// </summary>
     [System.Serializable]
     public class WindfallInput {
-        public enum Source { KeyboardSpace, KeyboardEnter, GamepadSouth }
+        public enum Source { KeyboardSpace, KeyboardEnter, GamepadSouth, KeyboardKey }
 
         [Tooltip("Which device/button drives this player's single button.")]
         public Source source = Source.KeyboardSpace;
         [Tooltip("Which connected gamepad (only used when source is GamepadSouth).")]
         public int gamepadIndex = 0;
+        [Tooltip("The keyboard key, when source is KeyboardKey (lets each player pick any key).")]
+        public Key key = Key.Space;
 
         bool _prev;
 
@@ -39,6 +41,7 @@ namespace Windfall {
             switch (source) {
                 case Source.KeyboardSpace: return Keyboard.current != null && Keyboard.current.spaceKey.isPressed;
                 case Source.KeyboardEnter: return Keyboard.current != null && Keyboard.current.enterKey.isPressed;
+                case Source.KeyboardKey: return Keyboard.current != null && Keyboard.current[key].isPressed;
                 case Source.GamepadSouth:
                     var pads = Gamepad.all;
                     if (gamepadIndex < 0 || gamepadIndex >= pads.Count) return false;

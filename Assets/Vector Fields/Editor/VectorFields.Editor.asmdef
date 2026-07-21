@@ -2,7 +2,10 @@
     "name": "VectorFields.Editor",
     "rootNamespace": "",
     "references": [
-        "GUID:4c8303856b11407a9b8a317ee44f22c9"
+        "GUID:4c8303856b11407a9b8a317ee44f22c9",
+        "GUID:21d1eb854b91ade49bc69a263d12bee2",
+        "GUID:e43142fc3fec6554980dde6126631f1d",
+        "GUID:d8b63aba1907145bea998dd612889d6b"
     ],
     "includePlatforms": [
         "Editor"
@@ -13,6 +16,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.splines",
+            "expression": "",
+            "define": "VECTOR_FIELDS_SPLINES"
+        }
+    ],
     "noEngineReferences": false
 }

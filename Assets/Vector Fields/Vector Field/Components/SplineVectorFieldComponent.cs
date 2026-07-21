@@ -6,19 +6,24 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.Splines;
 using UnityEngine.Splines.Interpolators;
 
 // Editor-facing wrapper around the code-callable SplineVectorFieldGenerator: traces a Unity spline (every spline in
 // the referenced SplineContainer) and makes each cell's vector from its nearest point on the path — either following
-// the path's flow (the tangent there) or a fixed direction — rotated around the plane normal and faded by a distance
-// falloff. Rotation and falloff each have a per-component value plus optional SplineData authored at points along the
-// spline (interpolated between points): rotationAlongSpline adds to `rotation`, falloffAlongSpline multiplies
-// `falloff`. The spline is flattened to samplesPerSpline attribute-carrying samples per spline each render.
+// the path's flow (the tangent there) or a fixed direction. The field has a *width*: each cell's distance from the
+// path, normalized against the width at its nearest point (base `width` × the optional per-point `widthAlongSpline`
+// multiplier), drives everything across the path — strength comes from `falloffCurve` sampled at that normalized
+// distance, and `rotationAlongSpline` adds a rotation offset that scales with SIGNED normalized distance (0 on the
+// path, ±value at the edges), fanning the flow out from or into the centreline. The per-point SplineData channels are
+// authored at points along the spline and interpolated between them; both have scene-view editor tools (see
+// SplineVectorFieldWidthTool / SplineVectorFieldRotationTool). The spline is flattened to samplesPerSpline
+// attribute-carrying samples per spline each render.
 [ExecuteAlways]
 [AddComponentMenu("Vector Fields/Spline Vector Field")]
 public class SplineVectorFieldComponent : VectorFieldComponent {
-	// The spline(s) to trace. Falls back to a SplineContainer on this GameObject when unset.
+	// The spline(s) to trace. Falls back to a SplineContainer on this GameObject when unset (Reset assigns it).
 	public SplineContainer splineContainer;
 
 	[Space]
@@ -30,31 +35,68 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 	[Space]
 	// Rotates every vector around the plane normal, in degrees. Applied in both direction modes.
 	public float rotation = 0f;
-	// Extra rotation (degrees) authored at points along the spline and interpolated between them; each cell uses the
-	// value at its nearest point on the path, added to `rotation`. Empty = no contribution.
+	// Rotation offset (degrees) at the field's *edge*, authored at points along the spline and interpolated between
+	// them. Each cell scales the value at its nearest point by its signed normalized distance from the path (0 on the
+	// path, +1 at the width edge on the path's left, -1 on its right), so positive values fan the flow outward from
+	// the centreline and negative values pull it inward. Empty = no contribution. Requires a width to normalize
+	// against — with width 0 it does nothing.
 	public SplineData<float> rotationAlongSpline = new SplineData<float>();
 
 	[Space]
-	// Distance from the path (in this field's local units) over which the vector fades from full strength (on the
-	// path) to zero. 0 = no falloff, constant strength everywhere.
-	[Min(0)] public float falloff = 1f;
-	// Multiplier on `falloff` authored at points along the spline and interpolated between them; each cell uses the
+	// Half-extent of the field either side of the path, in this field's local units: the distance from the path over
+	// which falloffCurve is evaluated (and rotationAlongSpline reaches full effect). 0 = no width — constant
+	// falloffCurve(0) strength everywhere and no edge rotation.
+	[FormerlySerializedAs("falloff")]
+	[Min(0)] public float width = 1f;
+	// Multiplier on `width` authored at points along the spline and interpolated between them; each cell uses the
 	// value at its nearest point on the path. Empty = 1 everywhere.
-	public SplineData<float> falloffAlongSpline = new SplineData<float>();
+	[FormerlySerializedAs("falloffAlongSpline")]
+	public SplineData<float> widthAlongSpline = new SplineData<float>();
+	// Strength across the width: sampled at each cell's normalized distance from the path (0 = on the path, 1 = at
+	// the width edge; clamped, so the curve's end value holds beyond the edge). The default linear 1→0 fade
+	// reproduces the classic distance falloff.
+	public AnimationCurve falloffCurve = AnimationCurve.Linear(0f, 1f, 1f, 0f);
 
 	[Space]
 	// How many samples each spline is flattened into (per render). More samples follow tight curves more closely.
 	[Min(2)] public int samplesPerSpline = 64;
 
-	// GPU buffer holding the flattened segment-pair samples. Owned here (created/grown by the generator, released on
-	// disable) so its lifetime is explicit, like the base render texture.
+	// GPU buffers holding the flattened segment-pair samples and the baked falloff curve. Owned here (created/grown
+	// by the generator, released on disable) so their lifetime is explicit, like the base render texture.
 	ComputeBuffer sampleBuffer;
+	ComputeBuffer falloffCurveBuffer;
+
+	// falloffCurve baked to evenly-spaced samples for the GPU; rebaked each render (cheap for this resolution).
+	const int falloffCurveResolution = 64;
+	readonly float[] falloffCurveSamples = new float[falloffCurveResolution];
 
 	// Reused scratch so a steady-state re-render allocates nothing.
 	readonly List<SplineVectorFieldGenerator.Sample> samples = new();
 	readonly List<SplineVectorFieldGenerator.Sample> splineScratch = new();
 
-	SplineContainer Container => splineContainer != null ? splineContainer : GetComponent<SplineContainer>();
+	public SplineContainer Container => splineContainer != null ? splineContainer : GetComponent<SplineContainer>();
+
+	// The width the field spans at `t` (normalized) along the given spline: base width × the interpolated per-point
+	// multiplier. Used by the renderer and by the scene tools' envelope drawing.
+	public float WidthAt(Spline spline, float t) {
+		float w = width;
+		if (widthAlongSpline != null && widthAlongSpline.Count > 0)
+			w *= widthAlongSpline.Evaluate(spline, t, PathIndexUnit.Normalized, new LerpFloat());
+		return w;
+	}
+
+	// Editor-only, runs when the component is first added: pick up the SplineContainer the create-menu (or the user)
+	// put on the same GameObject so the reference is visible in the inspector rather than an invisible fallback.
+	void Reset() {
+		if (splineContainer == null) splineContainer = GetComponent<SplineContainer>();
+	}
+
+	protected override void OnValidate() {
+		// A width multiplier's neutral value is 1; SplineData's serialized default is 0, which would collapse the
+		// field at any point added via the scene handles. 0 is never a useful default here, so migrate it.
+		if (widthAlongSpline != null && widthAlongSpline.DefaultValue == 0f) widthAlongSpline.DefaultValue = 1f;
+		base.OnValidate();
+	}
 
 	protected override void OnEnable() {
 		// Knot edits (scene tools, code) mutate the Spline object without touching any field this component's
@@ -69,6 +111,8 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 		// Render textures aren't GC'd and ComputeBuffers must be released explicitly; rebuilt on the next dispatch.
 		sampleBuffer?.Release();
 		sampleBuffer = null;
+		falloffCurveBuffer?.Release();
+		falloffCurveBuffer = null;
 	}
 
 	void OnSplineChanged(Spline spline, int knotIndex, SplineModification modification) {
@@ -87,14 +131,15 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 		hash.Add((int)directionMode);
 		hash.Add(fixedDirection);
 		hash.Add(rotation);
-		hash.Add(falloff);
+		hash.Add(width);
 		hash.Add(samplesPerSpline);
+		HashCurve(ref hash, falloffCurve);
 
 		var container = Container;
 		hash.Add(container != null ? container.transform.localToWorldMatrix : Matrix4x4.identity);
 		hash.Add(container != null ? container.Splines.Count : 0);
 		HashSplineData(ref hash, rotationAlongSpline);
-		HashSplineData(ref hash, falloffAlongSpline);
+		HashSplineData(ref hash, widthAlongSpline);
 	}
 
 	static void HashSplineData(ref HashCode hash, SplineData<float> data) {
@@ -104,6 +149,20 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 			var point = data[i];
 			hash.Add(point.Index);
 			hash.Add(point.Value);
+		}
+	}
+
+	// Curve edits through scene/curve-editor windows still route through OnValidate, but hash the keys anyway so any
+	// programmatic edit is caught by the same polling that covers the SplineData channels.
+	static void HashCurve(ref HashCode hash, AnimationCurve curve) {
+		if (curve == null) { hash.Add(0); return; }
+		hash.Add(curve.length);
+		for (int i = 0; i < curve.length; i++) {
+			var key = curve[i];
+			hash.Add(key.time);
+			hash.Add(key.value);
+			hash.Add(key.inTangent);
+			hash.Add(key.outTangent);
 		}
 	}
 
@@ -119,11 +178,14 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 			for (int i = 0; i < container.Splines.Count; i++)
 				AppendSpline(container, i);
 
+		for (int i = 0; i < falloffCurveResolution; i++)
+			falloffCurveSamples[i] = falloffCurve != null ? falloffCurve.Evaluate(i / (float)(falloffCurveResolution - 1)) : 1f;
+
 		// Unit strength: the base applies `magnitude` (and cookie) as an output transform in Render(), so passing
 		// `magnitude` here would double-apply it.
 		var direction = fixedDirection.sqrMagnitude > 1e-10f ? fixedDirection.normalized : Vector2.zero;
-		SplineVectorFieldGenerator.Dispatch(renderTexture, ref sampleBuffer, gridSize, samples, GridToLocalMatrix,
-			directionMode, direction, 1f);
+		SplineVectorFieldGenerator.Dispatch(renderTexture, ref sampleBuffer, ref falloffCurveBuffer, gridSize,
+			samples, falloffCurveSamples, GridToLocalMatrix, directionMode, direction, 1f);
 	}
 
 	// Flattens one spline into attribute-carrying samples in this field's local plane space, then emits them as the
@@ -136,7 +198,6 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 		int count = Mathf.Max(2, samplesPerSpline);
 		var worldToFieldLocal = transform.worldToLocalMatrix;
 		bool hasRotationData = rotationAlongSpline != null && rotationAlongSpline.Count > 0;
-		bool hasFalloffData = falloffAlongSpline != null && falloffAlongSpline.Count > 0;
 
 		splineScratch.Clear();
 		for (int i = 0; i < count; i++) {
@@ -149,16 +210,12 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 			var tangent = new Vector2(localTangent.x, localTangent.y);
 			if (tangent.sqrMagnitude > 1e-10f) tangent.Normalize();
 
-			float pointRotation = rotation;
-			if (hasRotationData) pointRotation += rotationAlongSpline.Evaluate(spline, t, PathIndexUnit.Normalized, new LerpFloat());
-			float pointFalloff = falloff;
-			if (hasFalloffData) pointFalloff *= falloffAlongSpline.Evaluate(spline, t, PathIndexUnit.Normalized, new LerpFloat());
-
 			splineScratch.Add(new SplineVectorFieldGenerator.Sample {
 				position = new Vector2(localPosition.x, localPosition.y),
 				tangent = tangent,
-				rotation = pointRotation,
-				falloff = pointFalloff,
+				rotation = rotation,
+				edgeRotation = hasRotationData ? rotationAlongSpline.Evaluate(spline, t, PathIndexUnit.Normalized, new LerpFloat()) : 0f,
+				width = WidthAt(spline, t),
 			});
 		}
 

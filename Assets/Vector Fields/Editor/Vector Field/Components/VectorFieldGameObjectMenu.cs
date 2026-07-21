@@ -24,18 +24,36 @@ static class VectorFieldGameObjectMenu {
 	[MenuItem(Root + "Simulated Vector Field", false, Priority)]
 	static void CreateSimulated(MenuCommand cmd) => Create<SimulatedVectorFieldComponent>("Simulated Vector Field", cmd);
 
+#if VECTOR_FIELDS_SPLINES
+	// Only exists while the optional com.unity.splines package is installed (same define the component compiles
+	// under). Also adds the SplineContainer the field traces — assigned into the inspector reference (the component's
+	// GetComponent fallback would find it anyway, but an explicit reference is visible) and seeded with a straight
+	// two-knot segment so the created field renders something out of the box.
+	[MenuItem(Root + "Spline Vector Field", false, Priority)]
+	static void CreateSpline(MenuCommand cmd) {
+		var go = Create("Spline Vector Field", cmd, typeof(UnityEngine.Splines.SplineContainer), typeof(SplineVectorFieldComponent));
+		var container = go.GetComponent<UnityEngine.Splines.SplineContainer>();
+		go.GetComponent<SplineVectorFieldComponent>().splineContainer = container;
+		container.Spline.Add(new UnityEngine.Splines.BezierKnot(new Unity.Mathematics.float3(-2f, 0f, 0f)), UnityEngine.Splines.TangentMode.AutoSmooth);
+		container.Spline.Add(new UnityEngine.Splines.BezierKnot(new Unity.Mathematics.float3(2f, 0f, 0f)), UnityEngine.Splines.TangentMode.AutoSmooth);
+	}
+#endif
+
 	[MenuItem(Root + "Stamp Vector Field", false, Priority)]
 	static void CreateStamp(MenuCommand cmd) => Create<StampVectorFieldComponent>("Stamp Vector Field", cmd);
 
 	[MenuItem(Root + "Wave Vector Field", false, Priority)]
 	static void CreateWave(MenuCommand cmd) => Create<WaveVectorFieldComponent>("Wave Vector Field", cmd);
 
-	static void Create<T>(string name, MenuCommand cmd) where T : VectorFieldComponent {
+	static void Create<T>(string name, MenuCommand cmd) where T : VectorFieldComponent => Create(name, cmd, typeof(T));
+
+	static GameObject Create(string name, MenuCommand cmd, params System.Type[] componentTypes) {
 		// ObjectFactory places the object in the active stage/scene and registers the creation undo.
-		var go = ObjectFactory.CreateGameObject(name, typeof(T));
+		var go = ObjectFactory.CreateGameObject(name, componentTypes);
 		GameObjectUtility.SetParentAndAlign(go, cmd.context as GameObject);
 		Undo.SetCurrentGroupName("Create " + name);
 		Selection.activeGameObject = go;
 		EditorGUIUtility.PingObject(go);
+		return go;
 	}
 }

@@ -1,11 +1,15 @@
 #pragma kernel CSMain
 
 // Per grid cell, find the nearest point on a polyline traced from a spline and emit a vector there: either the path's
-// flow direction (the tangent at the nearest point) or a fixed direction, rotated by a per-point angle and faded by a
-// per-point distance falloff. The polyline arrives as segment *pairs* of attribute-carrying samples (segment i =
-// Samples[2i] -> Samples[2i+1]); consecutive segments of one spline share endpoint samples so interpolated attributes
-// are continuous along the path, while separate splines simply contribute disjoint pairs to the same soup. Encoding
-// matches the other generators ((v * 0.5) + 0.5) so it round-trips through the readback decode.
+// flow direction (the tangent at the nearest point) or a fixed direction. The cell's distance from the path,
+// normalized against the interpolated per-point width, drives everything across the path — strength comes from the
+// baked falloff curve sampled at that normalized distance, and the interpolated per-point edge rotation is scaled by
+// the *signed* normalized distance (0 on the path, +1 at the width edge on the tangent's left, -1 on its right) and
+// added to the per-point base rotation, fanning the flow out from / into the centreline. The polyline arrives as
+// segment *pairs* of attribute-carrying samples (segment i = Samples[2i] -> Samples[2i+1]); consecutive segments of
+// one spline share endpoint samples so interpolated attributes are continuous along the path, while separate splines
+// simply contribute disjoint pairs to the same soup. Encoding matches the other generators ((v * 0.5) + 0.5) so it
+// round-trips through the readback decode.
 
 #define THREADS_X 16
 #define THREADS_Y 16
@@ -18,18 +22,24 @@ int width;
 int height;
 
 // A point sampled along a spline, in the field's local plane space, carrying the attributes the field needs at that
-// point. rotation is in degrees; falloff is the distance (field-local units) over which strength fades to zero at
-// this point (<= 0 = no falloff, constant strength).
+// point. rotation/edgeRotation are in degrees; width is the distance (field-local units) the field spans either side
+// of the path at this point (<= 0 = no width: constant curve-start strength, no edge rotation).
 struct SplineSample {
     float2 position;
     float2 tangent;
     float rotation;
-    float falloff;
+    float edgeRotation;
+    float width;
 };
 
 // Segment pairs: segment i = (Samples[2i], Samples[2i+1]).
 StructuredBuffer<SplineSample> Samples;
 int segmentCount;
+
+// The strength curve over normalized distance from the path, baked to evenly-spaced samples (0 = on the path,
+// 1 = at the width edge). Sampled with linear filtering below; count < 1 means constant 1.
+StructuredBuffer<float> FalloffCurve;
+int falloffCurveCount;
 
 // gridToPlane: grid cell (x, y, 0, 1) -> field-local plane point (use .xy). Samples are already in this space, so the
 // per-cell point and the geometry share one frame; the resulting vector is field-local and encodes directly.
@@ -44,6 +54,18 @@ float magnitude;
 // Encoded zero field (vector 0 -> colour (0.5, 0.5, 0, 1)).
 static const float4 ZeroField = float4(0.5, 0.5, 0.0, 1.0);
 
+float SampleFalloffCurve(float u) {
+    float result = 1.0;
+    if (falloffCurveCount == 1) {
+        result = FalloffCurve[0];
+    } else if (falloffCurveCount > 1) {
+        float x = saturate(u) * (falloffCurveCount - 1);
+        int i = min((int)floor(x), falloffCurveCount - 2);
+        result = lerp(FalloffCurve[i], FalloffCurve[i + 1], x - (float)i);
+    }
+    return result;
+}
+
 [numthreads(THREADS_X, THREADS_Y, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID) {
     if (id.x >= (uint)width || id.y >= (uint)height) return;
@@ -57,6 +79,7 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
     float bestSqr = 1e30;
     int bestSegment = 0;
     float bestT = 0.0;
+    float2 bestPoint = float2(0, 0);
     for (int i = 0; i < segmentCount; i++) {
         float2 a = Samples[2 * i].position;
         float2 b = Samples[2 * i + 1].position;
@@ -64,32 +87,37 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
         float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-20));
         float2 c = a + ab * t;
         float d = dot(p - c, p - c);
-        if (d < bestSqr) { bestSqr = d; bestSegment = i; bestT = t; }
+        if (d < bestSqr) { bestSqr = d; bestSegment = i; bestT = t; bestPoint = c; }
     }
 
     SplineSample sa = Samples[2 * bestSegment];
     SplineSample sb = Samples[2 * bestSegment + 1];
 
-    float2 dir;
-    if (directionMode == 0) {
-        float2 tangent = lerp(sa.tangent, sb.tangent, bestT);
-        float len = length(tangent);
-        dir = len > 1e-5 ? tangent / len : float2(0, 0);
-    } else {
-        dir = fixedDirection;
-    }
+    float2 tangent = lerp(sa.tangent, sb.tangent, bestT);
+    float tangentLen = length(tangent);
+    float2 flowDir = tangentLen > 1e-5 ? tangent / tangentLen : float2(0, 0);
 
-    // Rotate around the plane normal by the interpolated per-point angle (2D rotation in field-local plane space).
-    float rotation = lerp(sa.rotation, sb.rotation, bestT);
+    float2 dir = directionMode == 0 ? flowDir : fixedDirection;
+
+    // Normalized distance from the path against the interpolated width (0 on the path, 1 at the edge, clamped
+    // beyond), and its signed variant (+ on the tangent's left, - on its right) for the edge rotation.
+    float dist = sqrt(bestSqr);
+    float pointWidth = lerp(sa.width, sb.width, bestT);
+    float normalizedDist = pointWidth > 0.0 ? saturate(dist / pointWidth) : 0.0;
+    float2 toCell = p - bestPoint;
+    float side = sign(flowDir.x * toCell.y - flowDir.y * toCell.x);
+
+    // Rotate around the plane normal: the base rotation plus the edge rotation scaled by signed normalized distance
+    // (2D rotation in field-local plane space).
+    float rotation = lerp(sa.rotation, sb.rotation, bestT)
+        + lerp(sa.edgeRotation, sb.edgeRotation, bestT) * normalizedDist * side;
     if (rotation != 0.0) {
         float r = rotation * Deg2Rad;
         float cs = cos(r), sn = sin(r);
         dir = float2(dir.x * cs - dir.y * sn, dir.x * sn + dir.y * cs);
     }
 
-    // Full strength on the path, fading to zero `falloff` units (field-local) away; <= 0 = constant strength.
-    float falloff = lerp(sa.falloff, sb.falloff, bestT);
-    float strength = falloff > 0.0 ? saturate(1.0 - sqrt(bestSqr) / falloff) : 1.0;
+    float strength = SampleFalloffCurve(normalizedDist);
 
     float2 v = dir * (strength * magnitude);
     Result[texPos] = float4(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, 0.0, 1.0);

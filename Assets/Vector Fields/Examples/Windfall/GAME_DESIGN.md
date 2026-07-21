@@ -24,6 +24,11 @@ you, and choosing the instant to let go is the whole game.
 
 ## 2. Core fantasy: launch, then ride the wind
 
+> **Theme note (see §13):** the resolved theme reframes this as **metal balls in
+> a magnetic field** — "wind" is the field, and "catch" is switching the ball's
+> **electromagnet on**. The mechanic prose below is unchanged; read "wind" as
+> "field" and "parachute opening" as "magnet engaging."
+
 A shot has two phases:
 
 The **entire game is one button** — launch and flight both. No aim stick, no
@@ -303,6 +308,55 @@ end up authoring a **custom flow shader** (the system exposes the live field
 texture for your own shader; see `VECTOR_FIELDS.md`) if none of the stock
 renderers land it.
 
+**Theme update (see §13): the magnetic-field theme points the base look at
+iron-filing field lines.** A magnetic field is *drawn* as iron filings — dense
+strokes combed along the field — which is exactly the LIC look, and it's both
+the most legible ("ride the lines") and the most attractive option. So the
+leading direction is now: **LIC (or a filing-styled custom shader) as the base,
+recoloured to the art**, with a **particle layer of drifting filings/motes** for
+motion, and the arrow overlay as an optional "field vision" toggle. The bake-off
+still decides the exact recipe, but the theme resolves *which* way it leans.
+
+**RESOLVED look — "instrument glow" (field-viewer aesthetic).** Frame the whole
+screen as a top-down electromagnet rig / field-viewer, so "bright legible flow on
+a calm dark panel" is *what the object is*, not a compromise. Layer stack, back→
+front: **(1) setting** — dark brushed-metal / instrument panel, coil housings at
+the border, faint schematic grid + vignette; desaturated, static, recessive.
+**(2) apparatus (set-dressing, NOT a physical generator)** — see the note below;
+the fields are authored (Perlin/spline/stamp), not dipole fields, so props frame
+the rig without claiming to *cause* the visible flow. **(3) field** — LIC/IBFV
+flow lines + drifting filing particles in one cool electric hue (cyan),
+*animated*; single hue (don't colour per-vector direction — that goes rainbow-
+noisy, as the arrow renderer showed). **(4) actors + HUD** — metal balls/trails
+in saturated per-player colour (the only vivid hues), then HUD.
+
+**The field is authored, not natural (Perlin noise / splines / stamps), so the
+in-fiction rig is a *programmable electromagnet array / field table*** — that's
+what licenses an arbitrary flow pattern (a Perlin swirl or a spline lane isn't
+two bar magnets). Consequences for the apparatus layer: DON'T scatter coils
+implying poles the noise field won't honour (broken causality reads worse than no
+prop). DO make apparatus follow the *authored* structure where it genuinely
+exists — a rail/solenoid run **along a spline lane**, a ring coil around a
+**stamp vortex/attractor** — and otherwise keep coils as border/frame dressing on
+a "the whole plate is energised" read. Iron-filing lines reveal *any* field shape
+regardless of origin, so the core look holds; only the source-prop placement has
+to respect what the field actually is.
+
+Four figure/ground levers keep it readable *and* calm (use all four so none has
+to be cranked): **motion** (bg static, field drifts — the pre-attentive "this is
+the actionable layer" cue arrows can't give), **brightness** (light field on dark
+panel), **hue** (field = cyan, bg = neutral metal, balls = the only saturated
+colour — three distinct roles), **density-by-magnitude** (sparse/slow filings in
+calm pockets, dense/fast in strong flow — doubles as readability *and* the
+anti-noise move, giving the eye rest). Keep animation speed calm and contrast
+moderate — the field reads via motion+hue, so it needn't be loud. On **catch**,
+briefly pulse the field lines around the ball (§7a) so the grab is legible.
+
+Unity path (bake-off recipe): IBFV/Water-Flow or LIC base (recoloured, low
+contrast, animated) + `ParticleSystemVectorField` motes (cyan, density by
+magnitude) + static coil props at source points + a dark background quad + arrow
+renderer kept as a toggleable "field vision" assist.
+
 > Action item: build the bake-off scene first (§11 step 0) and screenshot each
 > option over the same course so we can judge side by side.
 
@@ -367,9 +421,10 @@ rewrite. Tracked as open question #8.
 5. ~~Bounds behavior~~ — **resolved: out of bounds = level fail.** §6.
 6. ~~Field type~~ — **resolved: level takes any `VectorFieldComponent`**; Tom
    authors them. §4.
-7. **Theme / character identity:** still open — see §13. Collision now nudges
-   toward solid, knockable objects (marbles/conkers/boats); my pick shifted from
-   dandelion seed → **marbles/boules**.
+7. ~~Theme / character identity~~ — **resolved: metal balls in a magnetic
+   field** (§13). The one button is an electromagnet toggle (clean catch/coast
+   justification), collision stays native (metal balls clack), and it answers
+   the visualization question (iron-filing field lines). Polarity deferred.
 8. **Items (see §9a):** still undecided; MVP ships without them.
 9. **Collision scope (§3b):** players collide with each other (yes). Do they also
    bounce off islands/walls, or only each other? Leaning islands = no bounce,
@@ -423,7 +478,45 @@ code". Nothing here needs new engine features — it's a pure consumer of the fi
 
 ---
 
-## 13. Theme suggestions (pick one — art/SFX/vehicle follow from it)
+## 13. Theme — RESOLVED: magnetic field / metal balls
+
+**Chosen theme: the players are metal balls navigating a magnetic field.** The
+one button is an **electromagnet toggle** on the ball: hold = magnet ON (the
+field grabs you and drags you along its flow lines — the "catch"); release =
+magnet OFF (you're inert, coasting on your own momentum — the "coast"). This is
+why it earns its place over plain marbles:
+
+- **It justifies the one-button catch/coast cleanly.** A binary "magnet on/off"
+  is a far tighter fit for the hold-to-catch, release-to-coast loop than a
+  parachute (which is muddy half-open). The button *is* the electromagnet.
+- **No physical prior to violate → the feel is free.** People have strong
+  intuitions for gravity/wind and notice when motion feels "wrong"; almost
+  nobody has an intuition for how a ball moves through a magnetic field. That
+  licenses the snappy exponential-approach catch to read as correct — the theme
+  covers the impulse-like feel rather than fighting it. (Note: real magnetism is
+  a continuous force, not an impulse; the *toggle*, not the physics, is the win.)
+- **Collision stays native.** Metal balls clack and shove exactly like the
+  marbles/boules pétanque fantasy (§3b) we already wanted — nothing lost.
+- **It answers the visualization question (§8).** A magnetic field *is* iron
+  filings; the flow-line look is both the most legible and the most attractive
+  option, and it's literally what the subject looks like.
+- **Level authoring & items get intuitive.** Fields read as magnets
+  (attractors/repellers) placed in the level; the deferred field-editing items
+  (§9a) become "drop a magnet" / "magnet bomb" with no reskin strain.
+
+The one hand-wave — an authored arbitrary flow field isn't how a real ball moves
+in a real magnetic field — is *reduced* by the iron-filing visual, which sells
+"ride the field lines," which is exactly what the game does.
+
+**Open (deferred, not MVP):** whether **polarity** (attract vs repel, per-player
+or as an item) ever becomes a mechanic. Keeping it pure single-toggle for now.
+
+Art/SFX follow: metal ball-bearings; magnetic hum that rises while catching;
+metallic *clack* on collision; a coil/rail launcher for the golf-style launch.
+
+---
+
+### Original theme options (superseded by the magnetic resolution above)
 
 The mechanic (catch a flow, coast, **knock rivals**, settle) fits any "carried
 by a current" fantasy — but **collision changes the weighting**: the vehicle

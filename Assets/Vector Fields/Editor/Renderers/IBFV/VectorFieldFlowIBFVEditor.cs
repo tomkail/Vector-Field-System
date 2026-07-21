@@ -11,7 +11,7 @@ public class VectorFieldFlowIBFVEditor : VectorFieldQuadEditor {
 		var buffers = VectorFieldInspectorUI.MakeSection("Buffers", ViewKey("buffers"));
 		buffers.Add(VectorFieldInspectorUI.Help("Prototype (IBFV, van Wijk 2002). Materials, noise and buffers auto-generate if left empty."));
 		buffers.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("ibfvMaterial"), "Advect Material",
-			"Material using the \"Vector Fields/Vector Field Flow IBFV\" shader (the feedback pass). Auto-created if empty."));
+			"Material using the \"Vector Fields/IBFV/IBFV\" shader (the feedback pass). Auto-created if empty."));
 		buffers.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("presentMaterial"), "Present Material",
 			"Material using the \"…IBFV Present\" shader that colours the buffer at display time. Auto-created if empty."));
 		buffers.Add(VectorFieldInspectorUI.Field(serializedObject.FindProperty("noiseTexture"), "Noise Texture",

@@ -7,16 +7,17 @@
 //
 // This shader is just the per-frame update pass (a fullscreen blit). It needs a ping-pong feedback loop to do anything
 // — drive it with VectorFieldFlowIBFV.cs.
-Shader "Vector Fields/Vector Field Flow IBFV" {
+Shader "Vector Fields/IBFV/IBFV" {
     Properties {
+        // Everything is set by VectorFieldFlowIBFV on the blit material every frame — editing a material does nothing.
         [HideInInspector] _MainTex ("Previous Accumulation", 2D) = "black" {} // blit source = previous frame's buffer
-        _FieldTex ("Field (RG vector)", 2D) = "gray" {}
-        _NoiseTex ("Injection Noise", 2D) = "white" {}
-        _FlowStep ("Advection Step", Range(0,0.05)) = 0.008                    // how far to advect per frame (uv units)
-        _NoiseAmount ("Noise Injection", Range(0,1)) = 0.08                    // fresh noise blended in each frame
-        _NoiseScale ("Noise Scale", Float) = 6
-        _NoiseRate ("Noise Twinkle Rate", Float) = 1.5                         // per-texel pulse cycles/sec
-        _NoisePhase ("Time (driver-set)", Vector) = (0,0,0,0)                  // .x = elapsed seconds, drives the twinkle
+        [HideInInspector] _FieldTex ("Field (RG vector)", 2D) = "gray" {}
+        [HideInInspector] _NoiseTex ("Injection Noise", 2D) = "white" {}
+        [HideInInspector] _FlowStep ("Advection Step", Range(0,0.05)) = 0.008  // how far to advect per frame (uv units)
+        [HideInInspector] _NoiseAmount ("Noise Injection", Range(0,1)) = 0.08  // fresh noise blended in each frame
+        [HideInInspector] _NoiseScale ("Noise Scale", Float) = 6
+        [HideInInspector] _NoiseRate ("Noise Twinkle Rate", Float) = 1.5       // per-texel pulse cycles/sec
+        [HideInInspector] _NoisePhase ("Time (driver-set)", Vector) = (0,0,0,0) // .x = elapsed seconds, drives the twinkle
     }
 
     SubShader {

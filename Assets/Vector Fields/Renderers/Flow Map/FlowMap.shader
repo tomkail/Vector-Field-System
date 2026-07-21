@@ -1,18 +1,19 @@
 // Single-texture "Flow Map" — the minimal case, built straight on the core FlowMapSample + the shared
 // VectorFieldFlowColor styling. This (and FlowMapRenderer) exercise the shared base with the simplest
-// possible effect; the tiered variant (FlowMap.shader) layers N speed tiers on the same core. Driven by
+// possible effect; the tiered variant (TieredFlowMap.shader) layers N speed tiers on the same core. Driven by
 // FlowMapRenderer.
-Shader "Vector Fields/Flow Map" {
+Shader "Vector Fields/Flow Map/Flow Map" {
     Properties {
         [HideInInspector] _MainTex ("Vector Field (RG)", 2D) = "gray" {} // bound by the renderer
-        _WaterTex ("Water Texture", 2D) = "white" {}
-        _Tiling ("Water Tiling", Float) = 4
-        _FlowStrength ("Flow Strength", Range(0,2)) = 0.3
-        _FlowSpeed ("Flow Speed", Range(0,4)) = 1
-        _DualScale ("Second Layer (breaks up tiling)", Float) = 1
-        _DetailTiling ("Detail Tiling x", Float) = 2.17
-        _DetailSpeed ("Detail Speed x", Float) = 1.7
-        _Color ("Tint", Color) = (1,1,1,1)
+        _WaterTex ("Water Texture", 2D) = "white" {} // used when the renderer's Water Texture slot is empty
+        // Driven by FlowMapRenderer via the property block every bind — editing them on the material does nothing.
+        [HideInInspector] _Tiling ("Water Tiling", Float) = 4
+        [HideInInspector] _FlowStrength ("Flow Strength", Range(0,2)) = 0.3
+        [HideInInspector] _FlowSpeed ("Flow Speed", Range(0,4)) = 1
+        [HideInInspector] _DualScale ("Second Layer (breaks up tiling)", Float) = 1
+        [HideInInspector] _DetailTiling ("Detail Tiling x", Float) = 2.17
+        [HideInInspector] _DetailSpeed ("Detail Speed x", Float) = 1.7
+        [HideInInspector] _Color ("Tint", Color) = (1,1,1,1)
         // Shared styling (driven by FlowMapRenderer via VectorFieldFlowStyle; defaults keep water untouched).
         [HideInInspector] _ColorGradient ("Colour Ramp", 2D) = "white" {}
         [HideInInspector] _AmplitudeRamp ("Amplitude Ramp", 2D) = "white" {}

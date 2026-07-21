@@ -1,15 +1,15 @@
-﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
-Shader "Vector Fields/Flow-Aligned/Flow-Aligned" {
+// Tiered variant of Flow-Aligned: the same cell-blend/seam-handling core (VectorFieldFlowAligned.cginc), but the
+// streak texture, its scale, and its scroll speed come from N SPEED TIERS packed into a Texture2DArray, blended per
+// sample by the local flow speed (VF_TIERED_STREAK — see the cginc). e.g. fine ripples where the flow is slow, bold
+// churn where it's fast. Driven by TieredFlowAlignedTextureRenderer.
+Shader "Vector Fields/Flow-Aligned/Flow-Aligned (Tiered)" {
 	Properties {
+		// Everything is driven by TieredFlowAlignedTextureRenderer via the property block every bind — editing the
+		// material does nothing (the ramps are baked from the component's gradient/curve).
 		[HideInInspector] _MainTex ("Vector Field", 2D) = "white" {} // bound by VectorFieldTextureRenderer
-		_Tex ("Texture", 2D) = "white" {} // used when the renderer's Streak Texture slot is empty
-		// Driven by FlowAlignedTextureRenderer via the property block every bind — editing them on the material does
-		// nothing (the ramps are baked from the component's gradient/curve).
+		[HideInInspector] _TexArray ("Streak Textures (per tier)", 2DArray) = "white" {}
 		[HideInInspector] _Rect ("Rect", Vector) = (0,0,1,1)
 		[HideInInspector] _GridCellCount ("Grid Cell Count", Range(0,256)) = 400.0
-		[HideInInspector] _Speed ("Speed", Range(0,500)) = 20
-		[HideInInspector] _TextureScale ("Texture Scale", Range(0,100)) = 10
 		[HideInInspector] _Brightness ("Brightness", Range(0,16)) = 8
 		[HideInInspector] _FlowSamplingMode ("Flow Sampling Mode", Float) = 1
 		[HideInInspector] _SeamBand ("Seam Mask Band (px)", Range(0,8)) = 2
@@ -20,8 +20,8 @@ Shader "Vector Fields/Flow-Aligned/Flow-Aligned" {
 		[HideInInspector] _ColorGradient ("Recolor Gradient", 2D) = "white" {}
 		[HideInInspector] _TextureRotation ("Texture Rotation", Float) = 0
 		[HideInInspector] _AmplitudeRamp ("Amplitude Alpha Ramp (curve)", 2D) = "white" {}
-		// Shared styling fallbacks (driven by FlowAlignedTextureRenderer via VectorFieldFlowStyle); identity defaults so
-		// a bare material renders unstyled.
+		// Shared styling fallbacks (driven by TieredFlowAlignedTextureRenderer via VectorFieldFlowStyle); identity
+		// defaults so a bare material renders unstyled.
 		[HideInInspector] _BackgroundColor ("Background", Color) = (0,0,0,0)
 		[HideInInspector] _Contrast ("Contrast", Float) = 1
 		[HideInInspector] _Gamma ("Gamma", Float) = 1
@@ -38,13 +38,12 @@ Shader "Vector Fields/Flow-Aligned/Flow-Aligned" {
 			Fog { Mode Off }
 
 			CGPROGRAM
-			// NOTE: editing VectorFieldFlowAligned.cginc alone may not trigger a recompile in Unity — touch this file (or
-			// reimport the shader) to force it. Bump this when the .cginc changes: rev 17
+			#define VF_TIERED_STREAK 1
 			#include "VectorFieldFlowAligned.cginc"
 
 			#pragma fragment frag
 			#pragma vertex vert
-			#pragma target 3.0
+			#pragma target 3.5           // Texture2DArray sampling
 
 			struct appdata
 			{
@@ -60,8 +59,6 @@ Shader "Vector Fields/Flow-Aligned/Flow-Aligned" {
 
 			v2f vert (appdata v) {
 			    v2f o;
-			    // transform position to clip space
-			    // (multiply with model*view*projection matrix)
 			    o.vertex = UnityObjectToClipPos(v.vertex);
 			    // pass the texture coordinate, offset and scaled to show the target rect
 			    float2 size = _Rect.zw - _Rect.xy;
@@ -71,10 +68,7 @@ Shader "Vector Fields/Flow-Aligned/Flow-Aligned" {
 
 			fixed4 frag (v2f i) : SV_Target {
 				_AnimationTime = _Time;
-				fixed4 col = CalculateFrag(i.uv);
-//				col.a = col.rgb;
-//				col = lerp(fixed4())
-				return col;
+				return CalculateFrag(i.uv);
 			}
 			ENDCG
 		}

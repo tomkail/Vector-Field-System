@@ -122,14 +122,21 @@ Sampling is covered in [Reading a field from code](#reading-a-field-from-code).
 
 The `com.unity.splines` package is an **optional** dependency: the VectorFields asmdef's `versionDefines` set the `VECTOR_FIELDS_SPLINES` scripting define while the package is installed, and this component only compiles under that define — install or remove the package and the component follows automatically. The underlying `SplineVectorFieldGenerator` is polyline-generic (it takes pre-flattened samples) and is always available.
 
+The field has a **width**: each cell's distance from the path, normalized against the width at its nearest point (0 = on the path, 1 = at the edge, clamped beyond), drives everything across the path — strength and rotation both read it.
+
 **Inspector**
-- **Spline container** — the spline(s) to trace (falls back to a `SplineContainer` on the same GameObject).
+- **Spline container** — the spline(s) to trace (falls back to a `SplineContainer` on the same GameObject; the create menu assigns it and seeds a straight two‑knot spline).
 - **Direction mode** — `Flow` (vectors follow the path's tangent) or `Fixed` (every cell uses **Fixed direction**, in field‑local plane space).
-- **Rotation** — rotates every vector around the plane normal (degrees). **Rotation along spline** (`SplineData<float>`) adds extra rotation authored at points along the spline, interpolated between them.
-- **Falloff** — distance from the path over which strength fades to zero (0 = constant strength). **Falloff along spline** (`SplineData<float>`) multiplies it at points along the spline.
+- **Rotation** — rotates every vector around the plane normal (degrees), everywhere. **Edge rotation** (`rotationAlongSpline`, `SplineData<float>`) is the extra rotation reached at the field's edge, authored at points along the spline; each cell scales the value at its nearest point by its *signed* normalized distance from the path (+ on the tangent's left, − on its right), so positive values fan the flow outward from the centreline and negative values pull it inward.
+- **Width** — how far the field reaches either side of the path, in field‑local units (0 = no width: constant strength, no edge rotation). **Width along spline** (`widthAlongSpline`, `SplineData<float>`) multiplies it at points along the spline.
+- **Falloff** — an `AnimationCurve` over normalized distance from the path (0 = on it, 1 = at the width edge; the end value holds beyond). The default linear 1→0 fade reproduces the classic distance falloff.
 - **Samples per spline** — how finely each spline is flattened; raise it for tight curves.
 
-Knot edits re‑render automatically (the component listens to `Spline.Changed`).
+**Scene tools** — two `EditorTool`s (scene‑view toolbar when a spline field is selected, or the *Edit … in Scene* inspector buttons): the **width tool** shows the width envelope and per‑point side handles, the **rotation tool** shows per‑point rotation discs. In both, left‑click the spline to add a data point, drag it along the spline to move it, right‑click to delete.
+
+Knot edits re‑render automatically (the component listens to `Spline.Changed`); scene‑tool edits to the `SplineData` channels are picked up by the parameter hash.
+
+> Migration note: `falloff` / `falloffAlongSpline` were renamed to `width` / `widthAlongSpline` (`FormerlySerializedAs` keeps old data), and `rotationAlongSpline` changed meaning from a uniform along‑path rotation offset to the edge‑scaled offset above — a spline‑wide rotation is now just **Rotation**.
 
 ### Stamp field
 
@@ -436,10 +443,12 @@ It bakes the field into a 3D texture the force field reads, and refreshes when t
 - **VectorFieldDebugOverlay** — a Scene‑view overlay (visible when a field is selected) to toggle arrow visualization: **Variable resolution**, **Spacing**, **Max arrows**.
 - **VectorFieldDebugRenderer** — draws the field as instanced arrows straight from the GPU texture (no readback), with zoom‑responsive density. Call `Draw(field, opacity, camera, variableResolution, targetSpacingPixels, maxArrows)`.
 - **VectorFieldTextureRenderer** — shows the raw field as a flow‑visualization quad in world space; supports an **amplitude→alpha** curve and a **color gradient** recolor, with a `depthOffset` for layering. Also the simplest way to feed a field into *your own* shader (see below).
-- **Water Flow Map** (`Vector Fields/Water Flow Map` shader) — scrolls a texture along the field per‑pixel, the classic ping‑pong flow‑map look. Point a `VectorFieldTextureRenderer` at a field, put a material using this shader on the same quad, and assign your image to `_WaterTex`. Optional dual‑scale second layer breaks up tiling.
-- **Water Flow Lit** (`Vector Fields/Water Flow Lit` shader) — same ping‑pong flow, but derives a normal from the flowed texture (as a heightfield) and lights it, so moving specular/shading ride the field. Self‑contained lighting (its own `_LightDir`); best with a smooth wavy `_WaterTex`. Wiring as above.
-- **Flow (IBFV)** — `VectorFieldFlowIBFV` component + shader: a seam‑free flowing‑streak visualization (van Wijk 2002) built by advecting a feedback buffer along the flow and injecting animated noise. Runs in play mode; tunables (`flowStep`, `noiseAmount`, `noiseScale`, `noiseRate`) are on the component.
-- **LIC** (`Vector Fields/Vector Field LIC` shader) — Line Integral Convolution: the classic dense "combed along the flow" picture of a field. Stateless (recomputed per frame), so it's crisp and never washes out. Point a `VectorFieldTextureRenderer` at a field, put a material using this shader on the quad, and assign a tiling white‑noise texture to `_NoiseTex`. Keep `_NoiseScale` low (a few px per noise texel).
+- **Flow Map** (`Vector Fields/Flow Map/Flow Map` shader + `FlowMapRenderer`) — scrolls a texture along the field per‑pixel, the classic ping‑pong flow‑map look. Point the renderer at a field and assign your image (or use a plain `VectorFieldTextureRenderer` and author the material directly). Optional dual‑scale second layer breaks up tiling.
+- **Flow Lit** (`Vector Fields/Flow Map/Flow Lit` shader) — same ping‑pong flow, but derives a normal from the flowed texture (as a heightfield) and lights it with the scene's URP lights, so moving specular/shading ride the field. Best with a smooth wavy `_WaterTex`; wire with a plain `VectorFieldTextureRenderer`.
+- **Flow (IBFV)** — `VectorFieldFlowIBFV` component + `Vector Fields/IBFV/IBFV` (+ `…IBFV Present`) shaders: a seam‑free flowing‑streak visualization (van Wijk 2002) built by advecting a feedback buffer along the flow and injecting animated noise. Tunables (`flowStep`, `noiseAmount`, `noiseScale`, `noiseRate`) are on the component.
+- **LIC** (`Vector Fields/LIC/LIC` shader + `LICTextureRenderer`) — Line Integral Convolution: the classic dense "combed along the flow" picture of a field. Stateless (recomputed per frame), so it's crisp and never washes out. Assign a tiling white‑noise texture; keep `noiseScale` low (a few px per noise texel).
+- **Flow‑Aligned** (`Vector Fields/Flow-Aligned/Flow-Aligned` shader + `FlowAlignedTextureRenderer`) — combs an anisotropic streak texture along the flow per grid cell (the sand‑ripple look), with selectable seam handling.
+- **Tiered variants** — every flow visualizer has an `(Tiered)` shader + renderer pair (`TieredFlowMapRenderer`, `TieredFlowLitRenderer`, `TieredLICTextureRenderer`, `TieredFlowAlignedTextureRenderer`, `TieredVectorFieldFlowIBFV`): N looks (texture + per‑effect params) keyed to positions on the normalised speed axis and packed into a `Texture2DArray`; per pixel the shader blends the two tiers straddling the local flow speed — e.g. calm water where the flow is slow, choppy where it's fast. Tiers are edited on an LODGroup‑style slider (drag boundaries, right‑click to add/remove). Tiered LIC marches up to twice per pixel, so it costs up to 2× the single‑tier shader.
 
 ### Consuming a field in your own shader
 

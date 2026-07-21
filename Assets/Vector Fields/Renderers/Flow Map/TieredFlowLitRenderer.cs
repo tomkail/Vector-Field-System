@@ -1,25 +1,24 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// VectorFieldTextureRenderer specialised for the "Vector Fields/Flow Map/Flow Map (Tiered)" shader. Drives every water-flow setting
-// AND the shared flow styling from the component (like LIC / Flow-Aligned), and adds N SPEED TIERS: several water looks
-// keyed to positions on the normalised speed axis. Per pixel the shader blends the two tiers straddling the local flow
-// speed — e.g. calm water where the flow is slow, choppy where it's fast.
+// VectorFieldTextureRenderer specialised for the "Vector Fields/Flow Map/Flow Lit (Tiered)" shader. Drives the field
+// texture plus N SPEED TIERS of water looks (height texture + tiling + flow params) keyed to positions on the
+// normalised speed axis; per pixel the shader height-blends the two tiers straddling the local flow speed before
+// deriving the lit normal. Surface/colour/specular stay on the material (they're global, like the plain Flow Lit).
 //
 // Tier textures are packed into a Texture2DArray (one slice per tier, sorted by speed); the per-tier scalar params +
-// speeds go into float[] uniforms. The water texture already carries colour, so the shared gradient acts as a SPEED
-// colourmap tint (white = untinted); contrast/gamma/background/opacity apply on top.
+// speeds go into float[] uniforms — same scheme as TieredFlowMapRenderer.
 [ExecuteAlways]
-[AddComponentMenu("Vector Fields/Renderers/Flow Map (Tiered)")]
+[AddComponentMenu("Vector Fields/Renderers/Flow Lit (Tiered)")]
 [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
-public class TieredFlowMapRenderer : VectorFieldTextureRenderer {
+public class TieredFlowLitRenderer : VectorFieldTextureRenderer {
     public const int MaxTiers = 8;   // keep in sync with VF_MAX_TIERS in VectorFieldSpeedTiers.cginc
 
     [System.Serializable]
     public struct WaterFlowTier {
         [Tooltip("Position on the normalised speed axis (0 = still, 1 = Max Speed) where this look sits.")]
         [Range(0f, 1f)] public float speed;
-        [Tooltip("Water texture for this tier. Empty = white.")]
+        [Tooltip("Water height texture for this tier (luminance = height). Empty = white.")]
         public Texture texture;
         [Tooltip("Tiling of the water texture across the quad.")]
         public float tiling;
@@ -29,8 +28,6 @@ public class TieredFlowMapRenderer : VectorFieldTextureRenderer {
         [Range(0f, 4f)] public float flowSpeed;
     }
 
-    [SerializeField] VectorFieldFlowStyle style = MakeUntintedStyle();
-
     [Tooltip("Water looks keyed to flow speed. Each pixel blends the two tiers straddling its local speed (calm ↔ choppy).")]
     [SerializeField] List<WaterFlowTier> tiers = DefaultTiers();
 
@@ -39,8 +36,8 @@ public class TieredFlowMapRenderer : VectorFieldTextureRenderer {
     [SerializeField] bool dualScale = true;
     [SerializeField] float detailTiling = 2.17f;
     [SerializeField] float detailSpeed = 1.7f;
-    [Tooltip("Flat tint multiplied into the water colour.")]
-    [SerializeField] Color tint = Color.white;
+    [Tooltip("Flow speed that maps to the top of the tier axis (tier position 1).")]
+    [SerializeField] float maxSpeed = 1f;
     [Tooltip("Resolution each tier texture is resampled to inside the packed array.")]
     [SerializeField] int arrayResolution = 256;
 
@@ -51,7 +48,7 @@ public class TieredFlowMapRenderer : VectorFieldTextureRenderer {
     static readonly int DualScale = Shader.PropertyToID("_DualScale");
     static readonly int DetailTiling = Shader.PropertyToID("_DetailTiling");
     static readonly int DetailSpeed = Shader.PropertyToID("_DetailSpeed");
-    static readonly int Color_ = Shader.PropertyToID("_Color");
+    static readonly int MaxSpeed_ = Shader.PropertyToID("_MaxSpeed");
     static readonly int TierSpeed = Shader.PropertyToID("_TierSpeed");
     static readonly int TierTiling = Shader.PropertyToID("_TierTiling");
     static readonly int TierStrength = Shader.PropertyToID("_TierStrength");
@@ -59,18 +56,16 @@ public class TieredFlowMapRenderer : VectorFieldTextureRenderer {
     static readonly int TierCount = Shader.PropertyToID("_TierCount");
 
     protected override void OnEnable() {
-        style.Bake();
         BakeArray();
         base.OnEnable(); // subscribes + binds; the bind pushes everything via ConfigurePropertyBlock
     }
 
     protected override void ConfigurePropertyBlock(MaterialPropertyBlock block) {
-        style.Apply(block);
         if (waterArray != null) block.SetTexture(WaterArray, waterArray);
         block.SetFloat(DualScale, dualScale ? 1f : 0f);
         block.SetFloat(DetailTiling, detailTiling);
         block.SetFloat(DetailSpeed, detailSpeed);
-        block.SetColor(Color_, tint);
+        block.SetFloat(MaxSpeed_, Mathf.Max(1e-4f, maxSpeed));
 
         // Push the sorted tiers as float[] uniforms, padded to MaxTiers with the last entry so a dynamic index is safe.
         int count = Mathf.Max(1, sorted.Count);
@@ -91,15 +86,13 @@ public class TieredFlowMapRenderer : VectorFieldTextureRenderer {
 
 #if UNITY_EDITOR
     protected override void OnValidate() {
-        style.Bake();
         BakeArray();
         base.OnValidate();
     }
 #endif
 
     void OnDestroy() {
-        style?.Dispose();
-        ReleaseArray();
+        VectorFieldRendererUtils.ReleaseTextureArray(ref waterArray);
     }
 
     // Sort the tiers by speed (into `sorted`, capped at MaxTiers) and pack their textures into the Texture2DArray.
@@ -116,19 +109,8 @@ public class TieredFlowMapRenderer : VectorFieldTextureRenderer {
         VectorFieldRendererUtils.BakeTextureArray(ref waterArray, textures, arrayResolution);
     }
 
-    void ReleaseArray() => VectorFieldRendererUtils.ReleaseTextureArray(ref waterArray);
-
     static List<WaterFlowTier> DefaultTiers() => new() {
         new WaterFlowTier { speed = 0f, tiling = 4f, flowStrength = 0.3f, flowSpeed = 1f },   // calm
         new WaterFlowTier { speed = 1f, tiling = 4f, flowStrength = 0.5f, flowSpeed = 1.5f }, // choppy
     };
-
-    static VectorFieldFlowStyle MakeUntintedStyle() {
-        var s = new VectorFieldFlowStyle();
-        var g = new Gradient();
-        g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                  new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
-        s.amplitudeColor = g;
-        return s;
-    }
 }

@@ -42,6 +42,20 @@ uniform sampler2D _AmplitudeRamp;
 float2 fragGridCellFrac;
 float2 midGrid;
 
+// ── Tiered streak texturing ─────────────────────────────────────────────────────────────────────────────────────────
+// When VF_TIERED_STREAK is defined (TieredVectorFieldFlowAligned.shader), the single _Tex/_TextureScale/_Speed are
+// replaced by N SPEED TIERS: a Texture2DArray of streak textures with per-tier scale + scroll speed, blended per sample
+// by the local flow speed (see VectorFieldSpeedTiers.cginc). Everything else — the cell blend, seam handling,
+// amplitude, styling — is unchanged.
+#ifdef VF_TIERED_STREAK
+#include "../_Shared/VectorFieldSpeedTiers.cginc"
+UNITY_DECLARE_TEX2DARRAY(_TexArray);          // one streak texture per speed tier
+uniform float _TierSpeed[VF_MAX_TIERS];       // sorted ascending; _TierCount valid entries
+uniform float _TierTextureScale[VF_MAX_TIERS];
+uniform float _TierScrollSpeed[VF_MAX_TIERS];
+uniform int _TierCount;
+#endif
+
 // Cubic B-spline weights for the four taps straddling a sample position (fractional offset v in [0,1]).
 float4 cubicWeights(float v) {
     float4 n = float4(1.0, 2.0, 3.0, 4.0) - v;
@@ -100,6 +114,18 @@ float2 rotateUV90(float2 uv, float steps) {
 // streak UV dot(flowDir, fragVec) is a clean linear ramp -> broad, filament-free streaks. This is the building block
 // for both the legacy corner blend and the steerable-basis mode; varying the direction *per pixel* instead is what
 // turns those broad streaks into fine filaments (the global-position lever arm amplifies dD/dP), see NOTES.
+#ifdef VF_TIERED_STREAK
+// One tier's streak sample: scroll/scale the streak UV by the tier's params and read its array slice. Explicit LOD —
+// the seam modes evaluate streaks inside per-pixel (non-uniform) branches, where implicit derivatives are undefined.
+float3 tierStreakSample(int slice, float2 fluidTexUV, float flowMag)
+{
+    fluidTexUV.x += flowMag * _TierScrollSpeed[slice] * _AnimationTime;
+    fluidTexUV /= _TierTextureScale[slice];
+    fluidTexUV = rotateUV90(fluidTexUV, _TextureRotation);
+    return UNITY_SAMPLE_TEX2DARRAY_LOD(_TexArray, float3(fluidTexUV, slice), 0).rgb;
+}
+#endif
+
 float3 streakForDirection(float2 flowDir, float flowMag)
 {
     float2 flowSide = float2(flowDir.y, -flowDir.x);
@@ -107,6 +133,15 @@ float3 streakForDirection(float2 flowDir, float flowMag)
     float2 fragVec = fragGridCellFrac - midGrid;
     float2 fluidTexUV = float2( dot(flowDir, fragVec), dot(flowSide, fragVec) );
 
+#ifdef VF_TIERED_STREAK
+    // Blend the two speed tiers bracketing this sample's flow speed (2*flowMag = |vector|, matching the speed01 used
+    // for colouring in CalculateFrag).
+    int lo, hi; float w;
+    FindTierBracket(saturate(2.0 * flowMag / max(_MaxSpeed, 1e-5)), _TierSpeed, _TierCount, lo, hi, w);
+    float3 streak = tierStreakSample(lo, fluidTexUV, flowMag);
+    if (hi > lo) streak = lerp(streak, tierStreakSample(hi, fluidTexUV, flowMag), w);
+    return _Brightness * streak;
+#else
     // Scroll along flow (texture X) over time.
     fluidTexUV.x += flowMag * _Speed * _AnimationTime;
 
@@ -115,6 +150,7 @@ float3 streakForDirection(float2 flowDir, float flowMag)
 
     // Animated streak pattern only; amplitude drives alpha separately in CalculateFrag.
     return _Brightness * tex2D(_Tex, fluidTexUV).rgb;
+#endif
 }
 
 float3 sampleStreakAtPoint(float2 loc)

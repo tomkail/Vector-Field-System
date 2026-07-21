@@ -5,7 +5,7 @@
 //
 // Wiring is identical to the other visualizers: a VectorFieldTextureRenderer binds the field to _MainTex; assign a
 // (tiling, ideally smooth/wavy) water texture to _WaterTex.
-Shader "Vector Fields/Water Flow Lit" {
+Shader "Vector Fields/Flow Map/Flow Lit" {
     Properties {
         [HideInInspector] _MainTex ("Vector Field (RG)", 2D) = "gray" {} // bound by VectorFieldTextureRenderer
         _WaterTex ("Water Height/Albedo", 2D) = "gray" {}

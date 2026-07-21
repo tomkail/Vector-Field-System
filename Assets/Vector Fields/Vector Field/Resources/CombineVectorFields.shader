@@ -1,4 +1,4 @@
-Shader "Custom/CombineVectorFields"
+Shader "Hidden/Vector Fields/Combine Vector Fields"
 {
     Properties
     {

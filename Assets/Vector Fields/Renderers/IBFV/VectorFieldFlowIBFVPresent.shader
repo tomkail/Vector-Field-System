@@ -2,7 +2,7 @@
 // so its feedback loop stays stable — all colouring happens HERE, at display time, so it never compounds through the
 // loop. Samples the grey accumulation (_MainTex) plus the field (_FieldTex, for speed/direction) and runs both through
 // the shared VectorFieldFlowColor styling. Driven by VectorFieldFlowIBFV via VectorFieldFlowStyle.
-Shader "Vector Fields/Vector Field Flow IBFV Present" {
+Shader "Vector Fields/IBFV/IBFV Present" {
     Properties {
         [HideInInspector] _MainTex ("Accumulation", 2D) = "black" {}
         [HideInInspector] _FieldTex ("Field (RG vector)", 2D) = "gray" {}

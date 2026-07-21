@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Vector Field Flow IBFV
-  m_Shader: {fileID: 4800000, guid: 3090bbbc2c16b4cbaafe8b6b3907429c, type: 3}
+  m_Name: Vector Field Flow IBFV (Tiered)
+  m_Shader: {fileID: 4800000, guid: 8988f0f1dcc0c41dc9fd1f79ceef64b9, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -42,6 +42,10 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _NoiseArray:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _NoiseTex:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
@@ -60,12 +64,13 @@ Material:
     - _ContinuousSampling: 1
     - _DebugView: 0
     - _FlowSamplingMode: 1
-    - _FlowStep: 0.02
+    - _FlowStep: 0.008
     - _GradientSource: 0
     - _GridCellCount: 60
+    - _MaxSpeed: 1
     - _NoiseAmount: 0.08
     - _NoiseRate: 1.5
-    - _NoiseScale: 6
+    - _NoiseScale: 8
     - _SeamBand: 2
     - _SeamReach: 2
     - _Speed: 93
@@ -73,7 +78,7 @@ Material:
     - _TextureScale: 10
     - _UseTextureColor: 1
     m_Colors:
-    - _NoisePhase: {r: 2944.5469, g: 0, b: 0, a: 0}
+    - _NoisePhase: {r: 0, g: 0, b: 0, a: 0}
     - _Rect: {r: 0, g: 0, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

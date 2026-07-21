@@ -7,13 +7,13 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Water Flow Lit
-  m_Shader: {fileID: 4800000, guid: cec39a441af4f43b5892f2095e0fe095, type: 3}
+  m_Name: Flow Map
+  m_Shader: {fileID: 4800000, guid: 8221fb9b27d0f4544b989e495fce61e6, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords:
+  m_ValidKeywords: []
+  m_InvalidKeywords:
   - _DUAL_SCALE
-  m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
@@ -24,33 +24,40 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _AmplitudeRamp:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ColorGradient:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _WaterArray:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _WaterTex:
-        m_Texture: {fileID: 2800000, guid: 9ed480cb0aef54170b8187d190981428, type: 3}
+        m_Texture: {fileID: 2800000, guid: 5e4ccfa472bcd42338954a4cf5c3279e, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _Ambient: 0
+    - _Contrast: 1
     - _DetailSpeed: 1.7
     - _DetailTiling: 2.17
     - _DualScale: 1
-    - _FlowSpeed: 0.3
-    - _FlowStrength: 0.1
-    - _FresnelPower: 4
-    - _FresnelStrength: 0.35
-    - _NormalStrength: 5.24
-    - _SampleDist: 0.006
-    - _Shininess: 20
-    - _Specular: 2
-    - _Tiling: 0.5
+    - _FlowAlpha: 1
+    - _FlowSpeed: 0.43
+    - _FlowStrength: 1.343
+    - _Gamma: 1
+    - _MaxSpeed: 1
+    - _Tiling: 3
     m_Colors:
-    - _DeepColor: {r: 0.03, g: 0.18, b: 0.3, a: 1}
-    - _LightColor: {r: 1, g: 1, b: 1, a: 1}
-    - _LightDir: {r: 15.92, g: 6.02, b: 3.18, a: 0}
-    - _ShallowColor: {r: 0.3, g: 0.7, b: 0.8, a: 1}
+    - _BackgroundColor: {r: 0, g: 0, b: 0, a: 0}
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

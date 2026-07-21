@@ -26,7 +26,7 @@ public class VectorFieldDebugRenderer : System.IDisposable
             return _arrowTexture;
         }
     }
-    static Shader arrowShader => Shader.Find("VectorField/InstanceDebugRenderer");
+    static Shader arrowShader => Shader.Find("Vector Fields/Debug/Instance Debug Renderer");
     static readonly int MainTex = Shader.PropertyToID("_MainTex");
     static readonly int FieldTex = Shader.PropertyToID("_FieldTex");
     static readonly int GridToWorldMatrix = Shader.PropertyToID("gridToWorldMatrix");

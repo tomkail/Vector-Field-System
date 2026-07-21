@@ -9,17 +9,18 @@
 // streaks appear to flow. Wiring: a VectorFieldTextureRenderer (use LICTextureRenderer to also drive the styling) binds
 // the field to _MainTex; assign a tiling white-noise texture to _NoiseTex. Colour/contrast/background come from the
 // shared VectorFieldFlowColor styling, pushed by LICTextureRenderer (see VectorFieldFlowStyle).
-Shader "Vector Fields/Vector Field LIC" {
+Shader "Vector Fields/LIC/LIC" {
     Properties {
         [HideInInspector] _MainTex ("Vector Field (RG)", 2D) = "gray" {} // bound by VectorFieldTextureRenderer
-        _NoiseTex ("White Noise", 2D) = "white" {}
+        _NoiseTex ("White Noise", 2D) = "white" {} // used when the renderer's Noise Texture slot is empty
+        // Driven by LICTextureRenderer via the property block every bind — editing them on the material does nothing.
         // NOTE: keep _NoiseScale low — the noise must be a few px per texel. Too high tiles it sub-pixel, so every
         // pixel samples decorrelated noise and LIC can't comb anything (it just looks like static noise).
-        _NoiseScale ("Noise Scale", Float) = 2
-        _StepCount ("Steps Per Side", Range(1,64)) = 32
-        _StepLength ("Step Length (uv)", Range(0.0005,0.02)) = 0.003
-        _Phase ("Flow Phase (anim)", Float) = 0        // shifts the along-streamline weighting so streaks animate
-        _AnimSpeed ("Anim Speed", Range(0,8)) = 2
+        [HideInInspector] _NoiseScale ("Noise Scale", Float) = 2
+        [HideInInspector] _StepCount ("Steps Per Side", Range(1,64)) = 32
+        [HideInInspector] _StepLength ("Step Length (uv)", Range(0.0005,0.02)) = 0.003
+        [HideInInspector] _Phase ("Flow Phase (anim)", Float) = 0        // shifts the along-streamline weighting so streaks animate
+        [HideInInspector] _AnimSpeed ("Anim Speed", Range(0,8)) = 2
         // Styling (driven from LICTextureRenderer via VectorFieldFlowStyle; these slots give sane defaults so the
         // material still renders if used without the component).
         [HideInInspector] _ColorGradient ("Colour Ramp", 2D) = "white" {}

@@ -28,9 +28,9 @@ public class VectorFieldFlowIBFV : VectorFieldQuad {
     [SerializeField] VectorFieldComponent vectorFieldComponent;
     protected override VectorFieldComponent Field => vectorFieldComponent;
 
-    // Material using "Vector Fields/Vector Field Flow IBFV". Auto-created if left empty.
+    // Material using "Vector Fields/IBFV/IBFV". Auto-created if left empty.
     [SerializeField] Material ibfvMaterial;
-    // Present material using "Vector Fields/Vector Field Flow IBFV Present" — colours the grey buffer at display time.
+    // Present material using "Vector Fields/IBFV/IBFV Present" — colours the grey buffer at display time.
     // Auto-created; assigned to the MeshRenderer each frame (overrides whatever material was on it).
     [SerializeField] Material presentMaterial;
     // Noise injected each frame. Auto-generated white noise if left empty.
@@ -38,7 +38,7 @@ public class VectorFieldFlowIBFV : VectorFieldQuad {
 
     [SerializeField] Vector2Int resolution = new Vector2Int(512, 512);
 
-    [SerializeField] VectorFieldFlowStyle style = new VectorFieldFlowStyle();
+    [SerializeField] protected VectorFieldFlowStyle style = new VectorFieldFlowStyle();
 
     [Tooltip("How far the feedback buffer is advected along the flow each frame, in UV units. Bigger = faster/longer streaks.")]
     [SerializeField] float flowStep = 0.02f;
@@ -55,33 +55,43 @@ public class VectorFieldFlowIBFV : VectorFieldQuad {
     float elapsed;   // drives the noise twinkle (passed to the shader as _NoisePhase.x)
     float lastTime;
 
-    void OnEnable() {
+    // Unity only calls the most-derived message method, so these are virtual and subclasses must chain.
+    protected virtual void OnEnable() {
         lastTime = Now();
         EnsureResources();
         style.Bake();
     }
 
 #if UNITY_EDITOR
-    void OnValidate() {
+    protected virtual void OnValidate() {
         style.Bake();
     }
 #endif
 
-    void OnDisable() {
+    protected virtual void OnDisable() {
         ReleaseBuffer(ref bufferA);
         ReleaseBuffer(ref bufferB);
     }
 
-    void OnDestroy() {
+    protected virtual void OnDestroy() {
         if (ibfvMaterial != null && ibfvMaterial.hideFlags == HideFlags.HideAndDontSave) VectorFieldObjectUtils.DestroyAutomatic(ibfvMaterial);
         if (presentMaterial != null && presentMaterial.hideFlags == HideFlags.HideAndDontSave) VectorFieldObjectUtils.DestroyAutomatic(presentMaterial);
         if (noiseTexture != null && noiseTexture.hideFlags == HideFlags.HideAndDontSave) VectorFieldObjectUtils.DestroyAutomatic(noiseTexture);
         style.Dispose();
     }
 
+    // Shader the feedback/update blit uses. Overridden by the tiered variant (same feedback loop, tiered noise).
+    protected virtual string UpdateShaderName => "Vector Fields/IBFV/IBFV";
+
+    // Hook for subclasses to push extra inputs onto the update material each frame (called just before the blit).
+    protected virtual void ConfigureUpdateMaterial(Material material) { }
+
+    // The auto-generated injection noise (R = value, G = twinkle phase); subclasses can use it as a tier fallback.
+    protected Texture2D SharedNoiseTexture => noiseTexture;
+
     void EnsureResources() {
-        VectorFieldRendererUtils.GetOrCreateMaterial(ref ibfvMaterial, "Vector Fields/Vector Field Flow IBFV", hideAndDontSave: true);
-        VectorFieldRendererUtils.GetOrCreateMaterial(ref presentMaterial, "Vector Fields/Vector Field Flow IBFV Present", hideAndDontSave: true);
+        VectorFieldRendererUtils.GetOrCreateMaterial(ref ibfvMaterial, UpdateShaderName, hideAndDontSave: true);
+        VectorFieldRendererUtils.GetOrCreateMaterial(ref presentMaterial, "Vector Fields/IBFV/IBFV Present", hideAndDontSave: true);
         if (noiseTexture == null) noiseTexture = CreateWhiteNoise(256);
         EnsureBuffer(ref bufferA);
         EnsureBuffer(ref bufferB);
@@ -128,6 +138,7 @@ public class VectorFieldFlowIBFV : VectorFieldQuad {
         ibfvMaterial.SetFloat(NoiseAmount, noiseAmount);
         ibfvMaterial.SetFloat(NoiseScale, noiseScale);
         ibfvMaterial.SetFloat(NoiseRate, noiseRate);
+        ConfigureUpdateMaterial(ibfvMaterial);          // subclass inputs (e.g. the tiered noise array)
         Graphics.Blit(src, dst, ibfvMaterial);          // _MainTex = src (previous accumulation)
         readFromA = !readFromA;
 

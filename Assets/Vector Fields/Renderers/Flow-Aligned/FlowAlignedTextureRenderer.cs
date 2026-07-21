@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// VectorFieldTextureRenderer specialised for the "Vector Fields/Flow-Aligned Texture" shader. Drives the shared flow
+// VectorFieldTextureRenderer specialised for the "Vector Fields/Flow-Aligned/Flow-Aligned" shader. Drives the shared flow
 // styling (VectorFieldFlowStyle) AND every Flow-Aligned material setting from the component, so the whole effect is
 // controlled from the inspector rather than the material asset. Everything is pushed into the base's property block.
 //
@@ -91,7 +91,7 @@ public class FlowAlignedTextureRenderer : VectorFieldTextureRenderer {
     }
 #endif
 
-    void OnDestroy() {
+    protected virtual void OnDestroy() {   // virtual: Unity only calls the most-derived message, so subclasses must chain
         style?.Dispose();
     }
 }

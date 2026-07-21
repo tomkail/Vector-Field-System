@@ -1,8 +1,9 @@
-Shader "VectorField/SmokeRender" {
+Shader "Vector Fields/Demos/Smoke Render" {
     Properties {
-        _MainTex ("Density", 2D) = "black" {}
-        _Tint ("Tint", Color) = (1,1,1,1)
-        _Opacity ("Opacity", Float) = 1
+        // Everything is set by SmokeSimulationComponent on its material every frame — editing a material does nothing.
+        [HideInInspector] _MainTex ("Density", 2D) = "black" {}
+        [HideInInspector] _Tint ("Tint", Color) = (1,1,1,1)
+        [HideInInspector] _Opacity ("Opacity", Float) = 1
     }
 
     // Shared program body, included by both the URP and Built-in SubShaders below. Draws the smoke density texture on

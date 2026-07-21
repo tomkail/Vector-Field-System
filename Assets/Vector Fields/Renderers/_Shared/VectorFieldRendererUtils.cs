@@ -63,6 +63,38 @@ public static class VectorFieldRendererUtils {
     public static Material GetOrCreateMaterial(ref Material material, string shaderName, bool hideAndDontSave = false)
         => GetOrCreateMaterial(ref material, Shader.Find(shaderName), hideAndDontSave);
 
+    // Pack `textures` into a Texture2DArray-shaped RenderTexture, one slice per entry (resampled to
+    // resolution x resolution). Reuses `array` in place when the slice count and size already match; null entries fall
+    // back to `fallback` (or plain white). Shared by the tiered renderers, whose shaders sample per-speed-tier slices
+    // via UNITY_SAMPLE_TEX2DARRAY.
+    public static void BakeTextureArray(ref RenderTexture array, System.Collections.Generic.IReadOnlyList<Texture> textures, int resolution, Texture fallback = null) {
+        int count = Mathf.Max(1, textures?.Count ?? 0);
+        int size = Mathf.Clamp(resolution, 8, 2048);
+        if (array == null || array.volumeDepth != count || array.width != size) {
+            ReleaseTextureArray(ref array);
+            array = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32) {
+                dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
+                volumeDepth = count,
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            array.Create();
+        }
+        for (int i = 0; i < count; i++) {
+            var tex = textures != null && i < textures.Count && textures[i] != null ? textures[i] : fallback;
+            if (tex == null) tex = Texture2D.whiteTexture;
+            Graphics.Blit(tex, array, 0, i);   // (source, dest, sourceDepthSlice, destDepthSlice)
+        }
+    }
+
+    public static void ReleaseTextureArray(ref RenderTexture array) {
+        if (array == null) return;
+        array.Release();
+        VectorFieldObjectUtils.DestroyAutomatic(array);
+        array = null;
+    }
+
     // Set `target`'s effective (lossy) scale, compensating for whatever the parent chain contributes. Reading lossyScale
     // at localScale = 1 folds in the parent, so this is correct for a child of the field as well as for an
     // unparented quad.

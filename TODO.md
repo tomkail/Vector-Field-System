@@ -94,6 +94,20 @@ Coverage to keep in mind (a good suite hits each source × consumer at least onc
       The "production-realistic" composition demo.
 - [ ] **Ambient beauty pass.** Leaves/snow/petals on a noise field — the low-effort screenshot/gif that sells at a glance.
 
+## Renderers
+- [x] **Two-tier shader menu paths.** All plugin shaders now live under `Vector Fields/<Renderer>/<Variant>`
+      (`Flow Map/`, `LIC/`, `IBFV/`, `Flow-Aligned/`, `Debug/`, `Demos/` for the Smoke example); the internal
+      `CombineVectorFields` blit shader moved to `Hidden/` (it's loaded by Resources path, not name). `Water Flow Lit`
+      was renamed to `Flow Lit` and its shader moved into `Renderers/Flow Map/` (it's a flow-map variant).
+- [x] **Tiered variants of every flow visualizer.** `Flow Lit (Tiered)`, `LIC (Tiered)`, `Flow-Aligned (Tiered)`, and
+      `IBFV (Tiered)` shaders + renderers join the existing `Flow Map (Tiered)`: N looks keyed to the normalised speed
+      axis (Texture2DArray + float[] tier uniforms, `VectorFieldSpeedTiers.cginc` bracket/blend), edited via the shared
+      LODGroup-style tier bar (`VectorFieldTierBarGUI`, extracted from the flow-map editor). Texture-array packing is
+      consolidated in `VectorFieldRendererUtils.BakeTextureArray`.
+- [ ] **Demo materials/scenes for the new tiered renderers** — nothing in `Examples/` exercises them yet.
+- [ ] **Sanity-pass the tiered defaults in-editor** (tier params were chosen to read well, not yet eyeballed live);
+      check the tiered LIC cost on a big quad (it marches up to 2×).
+
 ## Debug renderer / settings
 - [ ] Decide whether the density controls (variable resolution / spacing / max arrows — currently per-user in the
       scene-view overlay via `EditorPrefs`) should also live in the **Vector Fields** project-settings page as

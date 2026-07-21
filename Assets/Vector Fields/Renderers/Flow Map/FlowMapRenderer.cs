@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // Single-texture Flow Map renderer — the minimal case, built straight on VectorFieldTextureRenderer + the shared
-// VectorFieldFlowStyle, driving the "Vector Fields/Flow Map" shader. Sits alongside the multi-tier
+// VectorFieldFlowStyle, driving the "Vector Fields/Flow Map/Flow Map" shader. Sits alongside the multi-tier
 // TieredFlowMapRenderer; between them they exercise the shared base + core at both ends of the complexity range. No
 // tiers, no Texture2DArray — just one water texture and its flow params, pushed via the property block.
 [ExecuteAlways]

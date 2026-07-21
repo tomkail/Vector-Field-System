@@ -10,14 +10,15 @@
 // VectorFieldSpeedTiers.cginc) and blend them — e.g. calm water where the flow is slow, choppy where it's fast.
 //
 // Wiring: use TieredFlowMapRenderer (drives the field texture, the tier array + params, and the shared Flow Style).
-Shader "Vector Fields/Flow Map (Tiered)" {
+Shader "Vector Fields/Flow Map/Flow Map (Tiered)" {
     Properties {
         [HideInInspector] _MainTex ("Vector Field (RG)", 2D) = "gray" {} // bound by the renderer
         [HideInInspector] _WaterArray ("Water Textures (per tier)", 2DArray) = "white" {}
-        _DualScale ("Second Layer (breaks up tiling)", Float) = 1
-        _DetailTiling ("Detail Tiling x", Float) = 2.17
-        _DetailSpeed ("Detail Speed x", Float) = 1.7
-        _Color ("Tint", Color) = (1,1,1,1)
+        // Driven by TieredFlowMapRenderer via the property block every bind — editing them on the material does nothing.
+        [HideInInspector] _DualScale ("Second Layer (breaks up tiling)", Float) = 1
+        [HideInInspector] _DetailTiling ("Detail Tiling x", Float) = 2.17
+        [HideInInspector] _DetailSpeed ("Detail Speed x", Float) = 1.7
+        [HideInInspector] _Color ("Tint", Color) = (1,1,1,1)
         // Shared styling (driven by TieredFlowMapRenderer via VectorFieldFlowStyle; defaults keep the water untouched).
         [HideInInspector] _ColorGradient ("Colour Ramp", 2D) = "white" {}
         [HideInInspector] _AmplitudeRamp ("Amplitude Ramp", 2D) = "white" {}

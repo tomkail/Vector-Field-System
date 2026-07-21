@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// VectorFieldTextureRenderer specialised for the "Vector Fields/Vector Field LIC" shader. Drives the shared flow
+// VectorFieldTextureRenderer specialised for the "Vector Fields/LIC/LIC" shader. Drives the shared flow
 // styling (VectorFieldFlowStyle) AND every LIC material setting from the component, so the whole effect is controlled
 // from the inspector rather than the material asset. All settings are pushed into the base's property block.
 [ExecuteAlways]

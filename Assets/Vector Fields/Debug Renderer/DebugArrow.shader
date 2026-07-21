@@ -1,6 +1,6 @@
-Shader "VectorField/InstanceDebugRenderer" {
+Shader "Vector Fields/Debug/Instance Debug Renderer" {
     Properties {
-        _MainTex ("Texture", 2D) = "white" {}
+        [HideInInspector] _MainTex ("Texture", 2D) = "white" {} // set by VectorFieldDebugRenderer every draw
         // Blend factors, driven from VectorFieldDebugRenderer so the Invert Background colour mode can switch the pass
         // from straight alpha-over to a destination invert. Defaults reproduce the normal transparent blend.
         [HideInInspector] _SrcBlend ("__src", Float) = 5  // SrcAlpha

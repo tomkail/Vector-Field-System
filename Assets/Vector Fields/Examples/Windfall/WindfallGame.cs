@@ -134,6 +134,7 @@ namespace Windfall {
                 g.settings = settings;
                 g.input = cfg.input;
                 ApplyColor(g, cfg.color);
+                g.gameObject.AddComponent<WindfallJuice>();   // §7a feedback; subscribes to the glider's events on enable
                 var runner = new Runner { cfg = cfg, glider = g };
                 g.OnSettle += _ => OnSettle(runner, g.transform.position);
                 g.gameObject.SetActive(true);

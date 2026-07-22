@@ -85,6 +85,7 @@ namespace Windfall {
         public struct PlayerView {
             public string name;
             public Color color;
+            public string button;     // human-readable input button (e.g. "Space", "Pad 1")
             public int score;         // cumulative standing = total + this round's score
             public bool finished;
             public bool scoredZone;
@@ -101,6 +102,7 @@ namespace Windfall {
             var r = _runners[i];
             return new PlayerView {
                 name = r.cfg.name, color = r.cfg.color, score = r.total + r.score,
+                button = r.cfg.input != null ? r.cfg.input.Label : "",
                 finished = r.finished, scoredZone = r.scoredZone, zoneRank = r.zoneRank,
                 tracked = r.glider != null ? r.glider.transform : null,
             };

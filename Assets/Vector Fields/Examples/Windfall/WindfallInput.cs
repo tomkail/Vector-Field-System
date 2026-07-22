@@ -29,6 +29,19 @@ namespace Windfall {
         /// <summary>True on the frame the button was released.</summary>
         public bool ReleasedThisFrame { get; private set; }
 
+        /// <summary>Short human-readable name of this player's button, for the HUD.</summary>
+        public string Label {
+            get {
+                switch (source) {
+                    case Source.KeyboardSpace: return "Space";
+                    case Source.KeyboardEnter: return "Enter";
+                    case Source.KeyboardKey: return key.ToString();
+                    case Source.GamepadSouth: return "Pad " + (gamepadIndex + 1);
+                    default: return "?";
+                }
+            }
+        }
+
         public void Poll() {
             bool now = ReadRaw();
             PressedThisFrame = now && !_prev;

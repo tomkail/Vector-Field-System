@@ -28,13 +28,13 @@ namespace Windfall {
         bool _resultsVisible;
         string _resultsTitleText = "";
 
-        class Row { public Image swatch; public Text label; }
+        class Row { public Image swatch; public Text label; public Text sub; }
         readonly List<Row> _rows = new List<Row>();
 
         class Popup { public Text text; public Transform track; public Vector3 lastWorld; public float age; }
         readonly List<Popup> _popups = new List<Popup>();
 
-        const float BarHeight = 40f;
+        const float BarHeight = 52f;   // two lines: name + score, then the button beneath
         const float CellWidth = 210f;
         const float StartX = 16f;
         const float PopupLife = 1.1f;
@@ -206,7 +206,11 @@ namespace Windfall {
 
         void EnsureRows(int n) {
             if (_rows.Count == n) return;
-            foreach (var r in _rows) { if (r.swatch != null) Destroy(r.swatch.gameObject); if (r.label != null) Destroy(r.label.gameObject); }
+            foreach (var r in _rows) {
+                if (r.swatch != null) Destroy(r.swatch.gameObject);
+                if (r.label != null) Destroy(r.label.gameObject);
+                if (r.sub != null) Destroy(r.sub.gameObject);
+            }
             _rows.Clear();
             for (int i = 0; i < n; i++) {
                 var sw = NewImage("Swatch" + i, _bar);
@@ -215,11 +219,17 @@ namespace Windfall {
 
                 var lab = NewText("Label" + i, _bar);
                 lab.rectTransform.anchorMin = new Vector2(0f, 1f); lab.rectTransform.anchorMax = new Vector2(0f, 1f); lab.rectTransform.pivot = new Vector2(0f, 1f);
-                lab.rectTransform.sizeDelta = new Vector2(CellWidth - 28f, BarHeight);
+                lab.rectTransform.sizeDelta = new Vector2(CellWidth - 28f, 24f);
                 lab.alignment = TextAnchor.MiddleLeft;
                 lab.fontStyle = FontStyle.Bold;
 
-                _rows.Add(new Row { swatch = sw, label = lab });
+                var sub = NewText("Button" + i, _bar);   // the player's input button, shown under the name
+                sub.rectTransform.anchorMin = new Vector2(0f, 1f); sub.rectTransform.anchorMax = new Vector2(0f, 1f); sub.rectTransform.pivot = new Vector2(0f, 1f);
+                sub.rectTransform.sizeDelta = new Vector2(CellWidth - 28f, 18f);
+                sub.alignment = TextAnchor.MiddleLeft;
+                sub.fontSize = 13;
+
+                _rows.Add(new Row { swatch = sw, label = lab, sub = sub });
             }
         }
 
@@ -254,10 +264,13 @@ namespace Windfall {
                 float a = info.finished ? 0.55f : 1f;
                 row.swatch.color = new Color(info.color.r, info.color.g, info.color.b, a);
                 row.label.color = new Color(info.color.r, info.color.g, info.color.b, a);
+                row.sub.color = new Color(info.color.r, info.color.g, info.color.b, a * 0.7f);
                 string tag = info.finished ? (info.scoredZone ? " *" : " -") : "";
                 row.label.text = $"#{rank[p]}  {info.name}   {info.score}{tag}";
-                row.swatch.rectTransform.anchoredPosition = new Vector2(x, -(BarHeight - 18f) * 0.5f);
-                row.label.rectTransform.anchoredPosition = new Vector2(x + 26f, 0f);
+                row.sub.text = info.button;
+                row.swatch.rectTransform.anchoredPosition = new Vector2(x, -5f);
+                row.label.rectTransform.anchoredPosition = new Vector2(x + 26f, -2f);
+                row.sub.rectTransform.anchoredPosition = new Vector2(x + 26f, -28f);
                 x += CellWidth;
             }
         }

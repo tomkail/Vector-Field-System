@@ -2,20 +2,29 @@ using System;
 using UnityEngine;
 using UnityEditor;
 
-// LODGroup-style speed-tier editor shared by the tiered renderer editors (Flow Map, Flow Lit, LIC, Flow-Aligned,
-// IBFV). Modelled on Unity's LODGroup editor (LODGUI.cs / LODGroupEditor.cs): contiguous colour-coded regions across
-// the normalised speed axis with a "Tier n / %" label, draggable boundary handles (hotControl), click-to-select, and a
-// right-click Insert / Delete menu. The selected tier's fields are shown beneath the bar. Axis runs 0 (still, left) →
-// 1 (Max Speed, right).
+// Speed-tier editor shared by the tiered renderer editors (Flow Map, Flow Lit, LIC, Flow-Aligned, IBFV). Tiers are
+// interpolation ANCHORS on the normalised speed axis (0 = still, left → 1 = Max Speed, right); each sample blends the
+// two tiers straddling its local speed. Because a tier is a point (not a range), it's drawn as a fixed-size draggable
+// STOP under a blended-colour bar — like a Gradient editor's colour stops or an AnimationCurve's keys. Stops FAN OUT
+// when they'd overlap, so two coincident tiers (or a tier parked at the 0/1 edge) can never collapse to nothing and
+// vanish. A second, always-visible tier-select row below the bar is a belt-and-suspenders guarantee that every tier —
+// including a zero-gap one — stays reachable/selectable even if the bar can't separate them. The selected tier's fields
+// are drawn beneath. Right-click adds/removes tiers.
+//
+// (Was modelled on Unity's LODGroup slider, which draws each LOD as a region spanning to the next boundary. That model
+// hides any tier whose region is zero-width — a tier parked at speed 1, or coincident with a neighbour — which is what
+// motivated the stop-based rework. See git history for the region version.)
 //
 // Host editors construct one instance with the tier-list property path, the per-tier fields to draw (the "speed" field
 // must exist on the tier struct; list it first so it's editable numerically too), and a seeding action for a
 // brand-new tier, then add `new IMGUIContainer(bar.OnGUI)` to a section.
 public class VectorFieldTierBarGUI {
-	// LODGUI layout constants.
-	const int BarTopMargin = 18, BarHeight = 30, BarBottomMargin = 16, HandleWidth = 10;
+	// Layout constants.
+	const int BarTopMargin = 18, BarHeight = 22, StopGap = 5, StopHeight = 14, BarBottomMargin = 10;
+	const float StopWidth = 11f;          // fixed-size stop marker: never shrinks, so a tier can't disappear
+	const float GradientStepPx = 3f;      // horizontal resolution of the blended-colour fill between two stops
 
-	// LOD-style colour palette (kLODColors), cycled per region.
+	// LOD-style colour palette (kLODColors), cycled per tier so each stop reads as a distinct band.
 	static readonly Color[] TierColors = {
 		new Color(0.4831376f, 0.6211768f, 0.0219608f), new Color(0.2792160f, 0.4078432f, 0.5835296f),
 		new Color(0.2070592f, 0.5333336f, 0.6117648f), new Color(0.5333336f, 0.1600000f, 0.0282352f),
@@ -48,8 +57,8 @@ public class VectorFieldTierBarGUI {
 		int n = tiersProp.arraySize;
 
 		labelStyle ??= new GUIStyle(EditorStyles.miniLabel) {
-			alignment = TextAnchor.MiddleCenter, wordWrap = true,
-			normal = { textColor = Color.white }, richText = false,
+			alignment = TextAnchor.MiddleCenter, wordWrap = false,
+			normal = { textColor = Color.white }, richText = false, fontSize = 9,
 		};
 
 		if (n == 0) {
@@ -66,15 +75,33 @@ public class VectorFieldTierBarGUI {
 
 		GUILayout.Space(BarTopMargin);
 		Rect bar = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(BarHeight), GUILayout.ExpandWidth(true));
+		GUILayout.Space(StopGap);
+		Rect stops = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(StopHeight), GUILayout.ExpandWidth(true));
 		GUILayout.Space(BarBottomMargin);
 
-		HandleBarInput(bar, tiersProp, order, n);
-		// Horizontal-resize cursor over each boundary's (wide) grab area, like the LOD slider.
-		for (int d = 0; d < n; d++)
-			EditorGUIUtility.AddCursorRect(HandleRect(bar, Speed(tiersProp, order[d])), MouseCursor.ResizeHorizontal);
-		if (Event.current.type == EventType.Repaint) DrawBar(bar, tiersProp, order, n);
+		// Fan-out layout: each stop wants to sit centred on its speed, but a run of overlapping stops is left-packed with
+		// a minimum gap so every one stays fully drawn and grabbable — coincident/edge tiers can't hide behind each other.
+		float[] drawnX = ComputeStopPositions(bar, tiersProp, order, n);
 
-		// Selected tier's settings, beneath the bar (like the LODGroup renderer list).
+		HandleBarInput(bar, stops, drawnX, tiersProp, order, n);
+		for (int d = 0; d < n; d++)
+			EditorGUIUtility.AddCursorRect(StopRect(stops, drawnX[d]), MouseCursor.ResizeHorizontal);
+		if (Event.current.type == EventType.Repaint) DrawBar(bar, stops, drawnX, tiersProp, order, n);
+
+		// Belt-and-suspenders reachability: a row of buttons for EVERY tier, in speed order, so a zero-gap tier the bar
+		// can't separate is still one click away. Labels carry the tier's % so identical-position tiers stay legible.
+		using (new EditorGUILayout.HorizontalScope()) {
+			EditorGUILayout.LabelField("Tiers", GUILayout.Width(34));
+			for (int d = 0; d < n; d++) {
+				int e = order[d];
+				bool on = e == selectedTier;
+				var label = new GUIContent($"Tier {d}  {Mathf.RoundToInt(Speed(tiersProp, e) * 100)}%");
+				if (GUILayout.Toggle(on, label, EditorStyles.miniButton) && !on) selectedTier = e;
+			}
+			GUILayout.FlexibleSpace();
+		}
+
+		// Selected tier's settings (like the LODGroup renderer list).
 		selectedTier = Mathf.Clamp(selectedTier, 0, n - 1);
 		int displayPos = Array.IndexOf(order, selectedTier);
 		var el = tiersProp.GetArrayElementAtIndex(selectedTier);
@@ -86,36 +113,89 @@ public class VectorFieldTierBarGUI {
 		serializedObject.ApplyModifiedProperties();
 	}
 
+	// ── Layout ───────────────────────────────────────────────────────────────────────────────────────────────────
+	// Fixed-size stop x-positions (top-left of each marker), in display order. Each stop is centred on its speed, then
+	// clamped inside the bar and left-packed so consecutive stops keep at least StopWidth+1 between them. That gap is
+	// what makes coincident or edge tiers all stay visible and separately grabbable.
+	float[] ComputeStopPositions(Rect bar, SerializedProperty tiersProp, int[] order, int n) {
+		float half = StopWidth * 0.5f;
+		float minGap = StopWidth + 1f;
+		var xs = new float[n];
+		float prev = float.NegativeInfinity;
+		for (int d = 0; d < n; d++) {
+			float want = Mathf.Clamp(XForSpeed(bar, Speed(tiersProp, order[d])) - half, bar.x, bar.xMax - StopWidth);
+			if (want < prev + minGap) want = prev + minGap;   // overlaps its neighbour → shove right
+			xs[d] = want;
+			prev = want;
+		}
+		// If left-packing ran off the right edge, right-pack the tail back on so the last stop stays on-screen.
+		float overflow = xs[n - 1] - (bar.xMax - StopWidth);
+		if (overflow > 0f)
+			for (int d = n - 1; d >= 0; d--) {
+				xs[d] = Mathf.Max(bar.x, xs[d] - overflow);
+				if (d == 0) break;                                 // no earlier stop to push
+				overflow = (xs[d - 1] + minGap) - xs[d];           // how far the previous stop still overlaps
+				if (overflow <= 0f) break;                         // earlier stops already clear
+			}
+		return xs;
+	}
+
+	Rect StopRect(Rect stops, float x) => new Rect(x, stops.y, StopWidth, StopHeight);
+
 	// ── Drawing ──────────────────────────────────────────────────────────────────────────────────────────────────
-	void DrawBar(Rect bar, SerializedProperty tiersProp, int[] order, int n) {
+	void DrawBar(Rect bar, Rect stops, float[] drawnX, SerializedProperty tiersProp, int[] order, int n) {
 		EditorGUI.DrawRect(bar, new Color(0f, 0f, 0f, 0.5f)); // track background
 
-		// A region per tier spanning [its speed → next tier's speed] (last tier extends to 1). A leading region from 0
-		// to the first tier's speed shows the first tier held (clamped below its position).
-		float firstSpeed = Speed(tiersProp, order[0]);
-		if (firstSpeed > 0f) EditorGUI.DrawRect(FromSpeeds(bar, 0f, firstSpeed), TierColors[0] * 0.6f);
+		// Blended-colour fill: flat below the first tier and above the last, and a smooth lerp between each adjacent
+		// pair — a direct picture of "each sample blends the two tiers straddling its speed".
+		float firstS = Speed(tiersProp, order[0]);
+		float lastS = Speed(tiersProp, order[n - 1]);
+		if (firstS > 0f) EditorGUI.DrawRect(FromSpeeds(bar, 0f, firstS), TierColors[0]);
+		if (lastS < 1f) EditorGUI.DrawRect(FromSpeeds(bar, lastS, 1f), TierColors[(n - 1) % TierColors.Length]);
+		for (int d = 0; d < n - 1; d++)
+			DrawGradientSpan(bar, Speed(tiersProp, order[d]), Speed(tiersProp, order[d + 1]),
+				TierColors[d % TierColors.Length], TierColors[(d + 1) % TierColors.Length]);
 
+		// Stops: a stem from each stop up to its TRUE speed position on the bar (so a fanned-out stop still points at
+		// where it really sits), then the fixed-size marker, tier index, and a selection ring.
 		for (int d = 0; d < n; d++) {
 			int e = order[d];
-			float s = Speed(tiersProp, e);
-			float sNext = d < n - 1 ? Speed(tiersProp, order[d + 1]) : 1f;
-			Rect region = FromSpeeds(bar, s, sNext);
-			EditorGUI.DrawRect(region, TierColors[d % TierColors.Length]);
-			// Selected range: a soft inset highlight (like LOD's selected range), not a hard full outline.
-			if (e == selectedTier && region.width > 2f) {
-				var inset = new Rect(region.x + 2f, region.y + 2f, Mathf.Max(0f, region.width - 4f), region.height - 4f);
-				DrawOutline(inset, new Color(1f, 1f, 1f, 0.5f), 1);
-			}
-			if (region.width > 24) GUI.Label(region, $"Tier {d}\n{Mathf.RoundToInt(s * 100)}%", labelStyle);
-		}
+			float trueX = XForSpeed(bar, Speed(tiersProp, e));
+			float cx = drawnX[d] + StopWidth * 0.5f;
+			EditorGUI.DrawRect(new Rect(trueX - 0.5f, bar.y, 1f, bar.height), new Color(1f, 1f, 1f, 0.5f)); // tick on bar
+			if (Mathf.Abs(cx - trueX) > 1f)   // fanned out → draw the leaning stem
+				DrawStem(trueX, bar.yMax, cx, stops.y);
 
-		// Thin, subtle boundary markers at each interior tier position (the edges have nothing to grab). The grab area
-		// is still the wider HandleRect used in HandleBarInput — only the drawn marker is slim, matching the LOD slider.
-		for (int d = 0; d < n; d++) {
-			float s = Speed(tiersProp, order[d]);
-			if (s <= 0.002f || s >= 0.998f) continue;
-			EditorGUI.DrawRect(new Rect(XForSpeed(bar, s) - 1f, bar.y, 2f, bar.height), new Color(1f, 1f, 1f, 0.5f));
+			var r = StopRect(stops, drawnX[d]);
+			bool sel = e == selectedTier;
+			EditorGUI.DrawRect(r, TierColors[d % TierColors.Length]);
+			if (sel) DrawOutline(r, Color.white, 1);
+			else DrawOutline(r, new Color(0f, 0f, 0f, 0.6f), 1);
+			GUI.Label(new Rect(r.x - 4f, r.y, r.width + 8f, r.height), d.ToString(), labelStyle);
 		}
+	}
+
+	// A stepped horizontal lerp between two colours across [sA → sB] in speed space.
+	void DrawGradientSpan(Rect bar, float sA, float sB, Color colA, Color colB) {
+		float xa = XForSpeed(bar, sA), xb = XForSpeed(bar, sB);
+		float width = xb - xa;
+		if (width <= 0f) return;
+		int steps = Mathf.Max(1, Mathf.CeilToInt(width / GradientStepPx));
+		for (int i = 0; i < steps; i++) {
+			float t0 = i / (float)steps, t1 = (i + 1) / (float)steps;
+			float x0 = xa + t0 * width, x1 = xa + t1 * width;
+			EditorGUI.DrawRect(new Rect(x0, bar.y, Mathf.Max(1f, x1 - x0), bar.height),
+				Color.Lerp(colA, colB, (t0 + t1) * 0.5f));
+		}
+	}
+
+	// Diagonal stem (two thin segments in an L) linking a stop's marker to its true position on the bar.
+	static void DrawStem(float xTop, float yTop, float xBot, float yBot) {
+		var c = new Color(1f, 1f, 1f, 0.35f);
+		float mid = (yTop + yBot) * 0.5f;
+		EditorGUI.DrawRect(new Rect(xTop - 0.5f, yTop, 1f, mid - yTop), c);
+		EditorGUI.DrawRect(new Rect(Mathf.Min(xTop, xBot), mid - 0.5f, Mathf.Abs(xBot - xTop) + 1f, 1f), c);
+		EditorGUI.DrawRect(new Rect(xBot - 0.5f, mid, 1f, yBot - mid), c);
 	}
 
 	static void DrawOutline(Rect r, Color c, int t) {
@@ -125,26 +205,24 @@ public class VectorFieldTierBarGUI {
 		EditorGUI.DrawRect(new Rect(r.xMax - t, r.y, t, r.height), c);
 	}
 
-	// ── Input (LODGroupEditor-style hotControl drag) ─────────────────────────────────────────────────────────────
-	void HandleBarInput(Rect bar, SerializedProperty tiersProp, int[] order, int n) {
+	// ── Input (hotControl drag on the stops) ─────────────────────────────────────────────────────────────────────
+	void HandleBarInput(Rect bar, Rect stops, float[] drawnX, SerializedProperty tiersProp, int[] order, int n) {
 		int id = GUIUtility.GetControlID(FocusType.Passive);
 		Event e = Event.current;
+		Rect interactive = Rect.MinMaxRect(bar.xMin, bar.yMin, bar.xMax, stops.yMax);
 		switch (e.GetTypeForControl(id)) {
 			case EventType.MouseDown:
-				if (!bar.Contains(e.mousePosition)) break;
+				if (!interactive.Contains(e.mousePosition)) break;
 				if (e.button == 1) { ShowContextMenu(bar, tiersProp, order, n, e.mousePosition); e.Use(); break; }
-				// Handles first, then regions (like the LOD slider).
+				// Stop markers first (topmost priority), then fall back to selecting by the bar region clicked.
 				for (int d = 0; d < n; d++) {
-					if (HandleRect(bar, Speed(tiersProp, order[d])).Contains(e.mousePosition)) {
+					if (StopRect(stops, drawnX[d]).Contains(e.mousePosition)) {
 						GUIUtility.hotControl = id; dragTier = order[d]; selectedTier = order[d];
 						e.Use(); return;
 					}
 				}
-				for (int d = 0; d < n; d++) {
-					float s = Speed(tiersProp, order[d]);
-					float sNext = d < n - 1 ? Speed(tiersProp, order[d + 1]) : 1f;
-					if (FromSpeeds(bar, s, sNext).Contains(e.mousePosition)) { selectedTier = order[d]; e.Use(); break; }
-				}
+				selectedTier = order[NearestDisplay(bar, tiersProp, order, n, e.mousePosition.x)];
+				e.Use();
 				break;
 
 			case EventType.MouseDrag:
@@ -163,6 +241,17 @@ public class VectorFieldTierBarGUI {
 				if (GUIUtility.hotControl == id) { GUIUtility.hotControl = 0; dragTier = -1; e.Use(); }
 				break;
 		}
+	}
+
+	// Display index of the tier whose speed is nearest the given screen x (for click-to-select on the bar background).
+	int NearestDisplay(Rect bar, SerializedProperty tiersProp, int[] order, int n, float x) {
+		float s = Mathf.Clamp01((x - bar.x) / Mathf.Max(1f, bar.width));
+		int best = 0; float bestD = float.MaxValue;
+		for (int d = 0; d < n; d++) {
+			float dist = Mathf.Abs(Speed(tiersProp, order[d]) - s);
+			if (dist < bestD) { bestD = dist; best = d; }
+		}
+		return best;
 	}
 
 	void ShowContextMenu(Rect bar, SerializedProperty tiersProp, int[] order, int n, Vector2 mouse) {
@@ -236,7 +325,4 @@ public class VectorFieldTierBarGUI {
 		float xa = XForSpeed(bar, a), xb = XForSpeed(bar, b);
 		return new Rect(xa, bar.y, Mathf.Max(0f, xb - xa), bar.height);
 	}
-
-	static Rect HandleRect(Rect bar, float s) =>
-		new Rect(XForSpeed(bar, s) - HandleWidth * 0.5f, bar.y, HandleWidth, bar.height);
 }

@@ -27,15 +27,26 @@ static class VectorFieldGameObjectMenu {
 #if VECTOR_FIELDS_SPLINES
 	// Only exists while the optional com.unity.splines package is installed (same define the component compiles
 	// under). Also adds the SplineContainer the field traces — assigned into the inspector reference (the component's
-	// GetComponent fallback would find it anyway, but an explicit reference is visible) and seeded with a straight
-	// two-knot segment so the created field renders something out of the box.
+	// GetComponent fallback would find it anyway, but an explicit reference is visible) and seeded so the created
+	// field shows itself off out of the box: the field spans the unit square (±0.5) in its local plane, so a rounded
+	// three-knot closed loop comfortably inside it demonstrates curving flow, and a small width leaves the falloff
+	// fade clearly visible around the loop.
 	[MenuItem(Root + "Spline Vector Field", false, Priority)]
 	static void CreateSpline(MenuCommand cmd) {
 		var go = Create("Spline Vector Field", cmd, typeof(UnityEngine.Splines.SplineContainer), typeof(SplineVectorFieldComponent));
 		var container = go.GetComponent<UnityEngine.Splines.SplineContainer>();
-		go.GetComponent<SplineVectorFieldComponent>().splineContainer = container;
-		container.Spline.Add(new UnityEngine.Splines.BezierKnot(new Unity.Mathematics.float3(-2f, 0f, 0f)), UnityEngine.Splines.TangentMode.AutoSmooth);
-		container.Spline.Add(new UnityEngine.Splines.BezierKnot(new Unity.Mathematics.float3(2f, 0f, 0f)), UnityEngine.Splines.TangentMode.AutoSmooth);
+		var field = go.GetComponent<SplineVectorFieldComponent>();
+		field.splineContainer = container;
+		field.width = 0.1f;
+
+		var spline = container.Spline;
+		const float radius = 0.3f;
+		for (int i = 0; i < 3; i++) {
+			float angle = (90f + i * 120f) * Mathf.Deg2Rad;
+			spline.Add(new UnityEngine.Splines.BezierKnot(new Unity.Mathematics.float3(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius, 0f)),
+				UnityEngine.Splines.TangentMode.AutoSmooth);
+		}
+		spline.Closed = true;
 	}
 #endif
 

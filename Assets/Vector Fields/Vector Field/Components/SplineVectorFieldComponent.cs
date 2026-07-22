@@ -6,7 +6,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Serialization;
 using UnityEngine.Splines;
 using UnityEngine.Splines.Interpolators;
 
@@ -46,11 +45,9 @@ public class SplineVectorFieldComponent : VectorFieldComponent {
 	// Half-extent of the field either side of the path, in this field's local units: the distance from the path over
 	// which falloffCurve is evaluated (and rotationAlongSpline reaches full effect). 0 = no width — constant
 	// falloffCurve(0) strength everywhere and no edge rotation.
-	[FormerlySerializedAs("falloff")]
 	[Min(0)] public float width = 1f;
 	// Multiplier on `width` authored at points along the spline and interpolated between them; each cell uses the
 	// value at its nearest point on the path. Empty = 1 everywhere.
-	[FormerlySerializedAs("falloffAlongSpline")]
 	public SplineData<float> widthAlongSpline = new SplineData<float>();
 	// Strength across the width: sampled at each cell's normalized distance from the path (0 = on the path, 1 = at
 	// the width edge; clamped, so the curve's end value holds beyond the edge). The default linear 1→0 fade

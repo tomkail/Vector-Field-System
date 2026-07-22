@@ -125,7 +125,7 @@ The `com.unity.splines` package is an **optional** dependency: the VectorFields 
 The field has a **width**: each cell's distance from the path, normalized against the width at its nearest point (0 = on the path, 1 = at the edge, clamped beyond), drives everything across the path — strength and rotation both read it.
 
 **Inspector**
-- **Spline container** — the spline(s) to trace (falls back to a `SplineContainer` on the same GameObject; the create menu assigns it and seeds a straight two‑knot spline).
+- **Spline container** — the spline(s) to trace (falls back to a `SplineContainer` on the same GameObject; the create menu assigns it and seeds a rounded three‑knot loop inside the field with a narrow width, so the new field demos itself).
 - **Direction mode** — `Flow` (vectors follow the path's tangent) or `Fixed` (every cell uses **Fixed direction**, in field‑local plane space).
 - **Rotation** — rotates every vector around the plane normal (degrees), everywhere. **Edge rotation** (`rotationAlongSpline`, `SplineData<float>`) is the extra rotation reached at the field's edge, authored at points along the spline; each cell scales the value at its nearest point by its *signed* normalized distance from the path (+ on the tangent's left, − on its right), so positive values fan the flow outward from the centreline and negative values pull it inward.
 - **Width** — how far the field reaches either side of the path, in field‑local units (0 = no width: constant strength, no edge rotation). **Width along spline** (`widthAlongSpline`, `SplineData<float>`) multiplies it at points along the spline.
@@ -135,8 +135,6 @@ The field has a **width**: each cell's distance from the path, normalized agains
 **Scene tools** — two `EditorTool`s (scene‑view toolbar when a spline field is selected, or the *Edit … in Scene* inspector buttons): the **width tool** shows the width envelope and per‑point side handles, the **rotation tool** shows per‑point rotation discs. In both, left‑click the spline to add a data point, drag it along the spline to move it, right‑click to delete.
 
 Knot edits re‑render automatically (the component listens to `Spline.Changed`); scene‑tool edits to the `SplineData` channels are picked up by the parameter hash.
-
-> Migration note: `falloff` / `falloffAlongSpline` were renamed to `width` / `widthAlongSpline` (`FormerlySerializedAs` keeps old data), and `rotationAlongSpline` changed meaning from a uniform along‑path rotation offset to the edge‑scaled offset above — a spline‑wide rotation is now just **Rotation**.
 
 ### Stamp field
 

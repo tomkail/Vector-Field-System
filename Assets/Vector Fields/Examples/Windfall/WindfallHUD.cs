@@ -18,6 +18,16 @@ namespace Windfall {
         RectTransform _canvasRT;
         RectTransform _bar;
 
+        // Round-flow presentation (driven by WindfallGame).
+        Image _overlay;                 // full-screen black fade
+        Text _banner;                   // centred round-name / message
+        RectTransform _resultsPanel;    // centred end-of-round standings
+        Text _resultsTitle;
+        readonly List<Text> _resultRows = new List<Text>();
+        bool _barVisible = true;
+        bool _resultsVisible;
+        string _resultsTitleText = "";
+
         class Row { public Image swatch; public Text label; }
         readonly List<Row> _rows = new List<Row>();
 
@@ -30,6 +40,7 @@ namespace Windfall {
         const float PopupLife = 1.1f;
         const float PopupRisePixels = 55f;
         const float HeadOffset = 0.9f;   // world units above the tracked transform
+        const float ResultRowHeight = 40f;
 
         public void Init(WindfallGame game) {
             _game = game;
@@ -40,6 +51,9 @@ namespace Windfall {
 
             BuildCanvas();
             BuildBar();
+            BuildResults();
+            BuildBanner();
+            BuildOverlay();   // last child → drawn on top of everything
             _game.OnPointsGained += HandlePoints;
         }
 
@@ -84,6 +98,112 @@ namespace Windfall {
             hRT.anchoredPosition = new Vector2(-12f, 0f);
         }
 
+        void BuildOverlay() {
+            _overlay = NewImage("Overlay", _canvasRT);
+            var rt = _overlay.rectTransform;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;   // full screen
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            _overlay.color = new Color(0f, 0f, 0f, 1f);               // starts black; the game fades it in
+        }
+
+        void BuildBanner() {
+            _banner = NewText("Banner", _canvasRT);
+            _banner.fontSize = 64;
+            _banner.fontStyle = FontStyle.Bold;
+            _banner.alignment = TextAnchor.MiddleCenter;
+            var rt = _banner.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f); rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(900f, 140f);
+            rt.anchoredPosition = new Vector2(0f, 60f);
+            _banner.color = new Color(1f, 1f, 1f, 0f);
+        }
+
+        void BuildResults() {
+            _resultsPanel = NewRect("Results", _canvasRT);
+            _resultsPanel.anchorMin = _resultsPanel.anchorMax = new Vector2(0.5f, 0.5f);
+            _resultsPanel.pivot = new Vector2(0.5f, 0.5f);
+            _resultsPanel.sizeDelta = new Vector2(440f, 380f);
+            _resultsPanel.anchoredPosition = Vector2.zero;
+
+            var bg = NewImage("ResBG", _resultsPanel);
+            bg.color = new Color(0f, 0f, 0f, 0.6f);
+            var bgRT = bg.rectTransform;
+            bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
+            bgRT.offsetMin = Vector2.zero; bgRT.offsetMax = Vector2.zero;
+
+            _resultsTitle = NewText("ResTitle", _resultsPanel);
+            _resultsTitle.fontSize = 32;
+            _resultsTitle.fontStyle = FontStyle.Bold;
+            _resultsTitle.alignment = TextAnchor.MiddleCenter;
+            _resultsTitle.color = Color.white;
+            var trt = _resultsTitle.rectTransform;
+            trt.anchorMin = new Vector2(0f, 1f); trt.anchorMax = new Vector2(1f, 1f); trt.pivot = new Vector2(0.5f, 1f);
+            trt.sizeDelta = new Vector2(0f, 56f);
+            trt.anchoredPosition = new Vector2(0f, -14f);
+
+            _resultsPanel.gameObject.SetActive(false);
+        }
+
+        // ---- round-flow setters (called by WindfallGame) ----
+        public void SetFade(float alpha01) {
+            if (_overlay == null) return;
+            var c = _overlay.color; c.a = Mathf.Clamp01(alpha01); _overlay.color = c;
+        }
+
+        public void SetBanner(string text, float alpha01) {
+            if (_banner == null) return;
+            _banner.text = text ?? "";
+            var c = _banner.color; c.a = Mathf.Clamp01(alpha01); _banner.color = c;
+        }
+
+        public void SetBarVisible(bool visible) {
+            _barVisible = visible;
+            if (_bar != null) _bar.gameObject.SetActive(visible);
+        }
+
+        public void SetResults(bool visible, string title) {
+            _resultsVisible = visible;
+            _resultsTitleText = title ?? "";
+            if (_resultsPanel != null) _resultsPanel.gameObject.SetActive(visible);
+        }
+
+        void UpdateResults() {
+            if (!_resultsVisible || _game == null) return;
+            _resultsTitle.text = _resultsTitleText;
+            int n = _game.PlayerCount;
+            EnsureResultRows(n);
+
+            var order = new int[n];
+            for (int i = 0; i < n; i++) order[i] = i;
+            System.Array.Sort(order, (a, b) => _game.GetPlayer(b).score.CompareTo(_game.GetPlayer(a).score));
+
+            float y = -70f;   // below the title
+            for (int d = 0; d < n; d++) {
+                var info = _game.GetPlayer(order[d]);
+                var row = _resultRows[d];
+                row.color = info.color;
+                row.text = $"{d + 1}.   {info.name}      {info.score}";
+                row.rectTransform.anchoredPosition = new Vector2(0f, y);
+                y -= ResultRowHeight;
+            }
+        }
+
+        void EnsureResultRows(int n) {
+            if (_resultRows.Count == n) return;
+            foreach (var t in _resultRows) if (t != null) Destroy(t.gameObject);
+            _resultRows.Clear();
+            for (int i = 0; i < n; i++) {
+                var t = NewText("ResRow" + i, _resultsPanel);
+                t.fontSize = 26;
+                t.fontStyle = FontStyle.Bold;
+                t.alignment = TextAnchor.MiddleCenter;
+                var rt = t.rectTransform;
+                rt.anchorMin = new Vector2(0f, 1f); rt.anchorMax = new Vector2(1f, 1f); rt.pivot = new Vector2(0.5f, 1f);
+                rt.sizeDelta = new Vector2(-40f, ResultRowHeight);
+                _resultRows.Add(t);
+            }
+        }
+
         void EnsureRows(int n) {
             if (_rows.Count == n) return;
             foreach (var r in _rows) { if (r.swatch != null) Destroy(r.swatch.gameObject); if (r.label != null) Destroy(r.label.gameObject); }
@@ -105,9 +225,15 @@ namespace Windfall {
 
         void Update() {
             if (_game == null) return;
+            if (_barVisible) UpdateBar();
+            UpdateResults();
+            UpdatePopups();
+        }
+
+        void UpdateBar() {
             int n = _game.PlayerCount;
             EnsureRows(n);
-            if (n == 0) { UpdatePopups(); return; }
+            if (n == 0) return;
 
             // Rank by score (desc), with competition ranking for ties (1,2,2,4).
             var order = new int[n];
@@ -134,8 +260,6 @@ namespace Windfall {
                 row.label.rectTransform.anchoredPosition = new Vector2(x + 26f, 0f);
                 x += CellWidth;
             }
-
-            UpdatePopups();
         }
 
         void HandlePoints(Transform track, int amount, Color color) {

@@ -37,6 +37,10 @@ namespace Windfall {
         [Tooltip("Emits only while flying.")]
         public TrailRenderer trail;
 
+        /// <summary>When true the glider ignores input, physics and aim visuals — used by
+        /// <see cref="WindfallGame"/> to hold players still during the round intro/outro.</summary>
+        [System.NonSerialized] public bool Frozen;
+
         // --- events (juice/scoring subscribe; GAME_DESIGN.md §7a) ---
         public event Action<Vector2> OnLaunch;      // initial launch velocity
         public event Action OnCatchStart;
@@ -77,7 +81,12 @@ namespace Windfall {
                 Debug.LogWarning("WindGlider has no WindfallSettings assigned.", this);
                 return;
             }
-            input.Poll();
+            input.Poll();   // poll even while frozen so edge state stays fresh (no stale press on unfreeze)
+
+            if (Frozen) {
+                if (aimLine != null) aimLine.enabled = false;
+                return;
+            }
 
             switch (CurrentState) {
                 case State.AimingDirection:
@@ -109,7 +118,7 @@ namespace Windfall {
 
         // Flight physics runs in FixedUpdate for a stable, framerate-independent integrator.
         void FixedUpdate() {
-            if (settings == null || CurrentState != State.Flying) return;
+            if (Frozen || settings == null || CurrentState != State.Flying) return;
             float dt = Time.fixedDeltaTime;
 
             Vector2 windVel = Vector2.zero;

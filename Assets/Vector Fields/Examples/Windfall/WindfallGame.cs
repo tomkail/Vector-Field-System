@@ -18,12 +18,17 @@ namespace Windfall {
     }
 
     /// <summary>
-    /// Simultaneous local-multiplayer round (GAME_DESIGN.md §9 simultaneous mode + §12 game loop). Spawns one
-    /// player per spawn point, hands each its own field consumer + input, and runs the round: fly at once, collect
-    /// scattered points, and score by SETTLING inside the <see cref="TargetRing"/>. Players who settle inside earn
-    /// the zone's points plus a rank bonus by settle ORDER (first in gets the biggest bonus). Out of bounds ends a
-    /// player's run with no zone score. Backspace resets the level. Presentation is a runtime <see cref="WindfallHUD"/>
-    /// (created on start) that reads the player views below and the <see cref="OnPointsGained"/> event.
+    /// Simultaneous local-multiplayer round manager (GAME_DESIGN.md §9 simultaneous mode + §12 game loop),
+    /// wrapped in a multi-round flow. Each round runs through phases:
+    /// <c>FadeIn → Pan (camera sweeps the map, skippable) → RoundName → Playing → Results → FadeOut</c>, then
+    /// the next round. After the last round a Game-Over standings screen waits for reset.
+    ///
+    /// During Playing, one player is spawned per spawn point with its own field consumer + input + colour, and
+    /// scores by SETTLING inside the <see cref="TargetRing"/> (zone points + a rank bonus by settle ORDER) and
+    /// by collecting scattered <see cref="Collectible"/>s. Out of bounds ends a player's run with no zone score;
+    /// the round ends once every player has finished (or a safety time limit elapses). Score is CUMULATIVE across
+    /// rounds. Backspace resets the whole game. Presentation is a runtime <see cref="WindfallHUD"/> (created on
+    /// start): the live top bar, the fade overlay, the round-name banner, the "+N" popups, and the results panel.
     /// </summary>
     public class WindfallGame : MonoBehaviour {
         [Header("Wiring")]
@@ -44,13 +49,33 @@ namespace Windfall {
         [Tooltip("A flying player past this distance from the origin is out of bounds (run ends, no zone score).")]
         public float outOfBoundsRadius = 13f;
 
+        [Header("Rounds")]
+        [Tooltip("How many rounds a game runs before the final standings.")]
+        public int roundCount = 3;
+        [Tooltip("Optional per-round names shown on the intro banner. Falls back to \"Round N\" if empty/short.")]
+        public string[] roundNames;
+        [Tooltip("Safety: force-end a round after this many seconds so a player who never launches can't stall it. 0 = no limit.")]
+        public float roundTimeLimit = 45f;
+
+        [Header("Intro / presentation timing (seconds)")]
+        public float fadeDuration = 0.8f;
+        [Tooltip("Total time the camera spends panning over the map. Tap any button to skip.")]
+        public float panDuration = 4f;
+        [Tooltip("Orthographic size at the establishing (spawn / ring) pan waypoints.")]
+        public float establishSize = 7f;
+        public float roundNameDuration = 1.8f;
+        public float resultsDuration = 4f;
+
         [Header("Players (auto-filled from spawn children if left empty)")]
         public List<WindfallPlayerConfig> players = new List<WindfallPlayerConfig>();
+
+        enum Phase { FadeIn, Pan, RoundName, Playing, Results, FadeOut, GameOver }
 
         class Runner {
             public WindfallPlayerConfig cfg;
             public WindGlider glider;
-            public int score;
+            public int total;         // confirmed points from previous rounds (cumulative)
+            public int score;         // points earned this round
             public bool finished;
             public bool scoredZone;
             public int zoneRank = -1;
@@ -60,7 +85,7 @@ namespace Windfall {
         public struct PlayerView {
             public string name;
             public Color color;
-            public int score;
+            public int score;         // cumulative standing = total + this round's score
             public bool finished;
             public bool scoredZone;
             public int zoneRank;      // settle order into the ring, -1 if not scored there
@@ -75,7 +100,7 @@ namespace Windfall {
         public PlayerView GetPlayer(int i) {
             var r = _runners[i];
             return new PlayerView {
-                name = r.cfg.name, color = r.cfg.color, score = r.score,
+                name = r.cfg.name, color = r.cfg.color, score = r.total + r.score,
                 finished = r.finished, scoredZone = r.scoredZone, zoneRank = r.zoneRank,
                 tracked = r.glider != null ? r.glider.transform : null,
             };
@@ -85,6 +110,18 @@ namespace Windfall {
         readonly List<Collectible> _collectibles = new List<Collectible>();
         int _zoneScoredCount;
         WindfallHUD _hud;
+
+        // --- round flow state ---
+        Phase _phase;
+        float _phaseT;
+        int _round;               // 0-based index of the current round
+
+        // --- camera pan ---
+        struct CamPose { public Vector2 pos; public float size; public CamPose(Vector2 p, float s) { pos = p; size = s; } }
+        Camera _cam;
+        Vector3 _camHome;
+        float _camHomeSize;
+        readonly List<CamPose> _panPoses = new List<CamPose>();
 
         static readonly Color[] Palette = {
             new Color(1f, 0.35f, 0.35f), new Color(0.4f, 0.62f, 1f), new Color(0.45f, 0.9f, 0.45f),
@@ -96,8 +133,11 @@ namespace Windfall {
         };
 
         void Start() {
-            BuildRound();
             EnsureHud();
+            CacheCameraAndPan();
+            _round = 0;
+            StartRound();
+            EnterFadeIn();
         }
 
         void EnsureHud() {
@@ -107,39 +147,49 @@ namespace Windfall {
             _hud.Init(this);
         }
 
-        public void BuildRound() {
-            // Tear down any previous round.
-            foreach (var r in _runners) if (r.glider != null) Destroy(r.glider.gameObject);
-            _runners.Clear();
+        // ------------------------------------------------------------------ round setup
+
+        /// <summary>Set up the current round: (re)spawn players frozen at their pads and restore collectibles.
+        /// Cumulative totals are preserved — only per-round state resets.</summary>
+        public void StartRound() {
+            EnsureConfigs();
+            EnsureRunners();
             _zoneScoredCount = 0;
 
-            // Refresh collectibles (find any in the scene, restore them).
             _collectibles.Clear();
             _collectibles.AddRange(FindObjectsByType<Collectible>(FindObjectsInactive.Include));
             foreach (var c in _collectibles) c.ResetCollectible();
 
-            EnsureConfigs();
-
             if (playerPrefab == null) { Debug.LogWarning("WindfallGame: no playerPrefab assigned.", this); return; }
 
-            foreach (var cfg in players) {
+            foreach (var r in _runners) {
+                if (r.glider != null) Destroy(r.glider.gameObject);
+                r.score = 0; r.finished = false; r.scoredZone = false; r.zoneRank = -1;
+
+                var cfg = r.cfg;
                 Vector3 pos = cfg.spawnPoint != null ? cfg.spawnPoint.position : Vector3.zero;
                 var g = Instantiate(playerPrefab, pos, Quaternion.identity);
                 // Configure while inactive so WindGlider.OnEnable registers its field consumer with the field
-                // already assigned. (The prefab can't hold a scene-field reference, so a live instance would
-                // otherwise enable with field==null and never register — the CPU mirror would stay empty.)
+                // already assigned. (The prefab can't hold a scene-field reference.)
                 g.gameObject.SetActive(false);
                 g.name = "Player_" + cfg.name;
                 g.field = field;
                 g.settings = settings;
                 g.input = cfg.input;
+                g.Frozen = true;   // held until the round's Playing phase begins
                 ApplyColor(g, cfg.color);
                 g.gameObject.AddComponent<WindfallJuice>();   // §7a feedback; subscribes to the glider's events on enable
-                var runner = new Runner { cfg = cfg, glider = g };
+                var runner = r;   // capture for the closure
                 g.OnSettle += _ => OnSettle(runner, g.transform.position);
                 g.gameObject.SetActive(true);
-                _runners.Add(runner);
+                r.glider = g;
             }
+        }
+
+        void EnsureRunners() {
+            if (_runners.Count == players.Count) return;
+            _runners.Clear();
+            foreach (var cfg in players) _runners.Add(new Runner { cfg = cfg });
         }
 
         void EnsureConfigs() {
@@ -187,6 +237,8 @@ namespace Windfall {
             }
         }
 
+        // ------------------------------------------------------------------ scoring
+
         void OnSettle(Runner r, Vector2 pos) {
             if (r.finished) return;
             if (targetRing != null && targetRing.Contains(pos)) {
@@ -207,9 +259,13 @@ namespace Windfall {
             if (r.glider != null) r.glider.enabled = false;   // freeze — no relaunch; run is over
         }
 
-        void Update() {
-            if (Keyboard.current != null && Keyboard.current.backspaceKey.wasPressedThisFrame) BuildRound();
+        bool AllFinished() {
+            if (_runners.Count == 0) return false;
+            foreach (var r in _runners) if (!r.finished) return false;
+            return true;
+        }
 
+        void TickPlaying() {
             float pr = settings != null ? settings.radius : 0.5f;
             foreach (var r in _runners) {
                 if (r.finished || r.glider == null) continue;
@@ -227,6 +283,182 @@ namespace Windfall {
                     }
                 }
             }
+        }
+
+        // ------------------------------------------------------------------ round-flow state machine
+
+        void Update() {
+            if (Keyboard.current != null && Keyboard.current.backspaceKey.wasPressedThisFrame) { ResetGame(); return; }
+
+            _phaseT += Time.deltaTime;
+            switch (_phase) {
+                case Phase.FadeIn:
+                    _hud.SetFade(1f - Mathf.Clamp01(_phaseT / Mathf.Max(0.01f, fadeDuration)));
+                    if (_phaseT >= fadeDuration) EnterPan();
+                    break;
+
+                case Phase.Pan:
+                    ApplyPose(SamplePan(Mathf.Clamp01(_phaseT / Mathf.Max(0.01f, panDuration))));
+                    if (AnyPress() || _phaseT >= panDuration) EnterRoundName();
+                    break;
+
+                case Phase.RoundName:
+                    _hud.SetBanner(CurrentRoundName(), BannerAlpha(_phaseT, roundNameDuration));
+                    if (_phaseT >= roundNameDuration) EnterPlaying();
+                    break;
+
+                case Phase.Playing:
+                    TickPlaying();
+                    if (roundTimeLimit > 0f && _phaseT >= roundTimeLimit)
+                        foreach (var r in _runners) if (!r.finished) Finish(r);
+                    if (AllFinished()) EnterResults();
+                    break;
+
+                case Phase.Results:
+                    if (_phaseT >= resultsDuration || AnyPress()) {
+                        if (_round >= roundCount - 1) EnterGameOver();
+                        else EnterFadeOut();
+                    }
+                    break;
+
+                case Phase.FadeOut:
+                    _hud.SetFade(Mathf.Clamp01(_phaseT / Mathf.Max(0.01f, fadeDuration)));
+                    if (_phaseT >= fadeDuration) NextRound();
+                    break;
+
+                case Phase.GameOver:
+                    // Final standings held on screen; Backspace (handled above) starts a new game.
+                    break;
+            }
+        }
+
+        void SetPhase(Phase p) { _phase = p; _phaseT = 0f; }
+
+        void EnterFadeIn() {
+            FreezeAll(true);
+            _hud.SetBarVisible(false);
+            _hud.SetResults(false, "");
+            _hud.SetBanner("", 0f);
+            ApplyPose(_panPoses.Count > 0 ? _panPoses[0] : Home());   // establishing shot behind the black
+            _hud.SetFade(1f);
+            SetPhase(Phase.FadeIn);
+        }
+
+        void EnterPan() { SetPhase(Phase.Pan); }
+
+        void EnterRoundName() {
+            ApplyPose(Home());
+            FreezeAll(true);
+            _hud.SetBanner(CurrentRoundName(), 0f);
+            SetPhase(Phase.RoundName);
+        }
+
+        void EnterPlaying() {
+            ApplyPose(Home());
+            _hud.SetBanner("", 0f);
+            _hud.SetBarVisible(true);
+            FreezeAll(false);
+            SetPhase(Phase.Playing);
+        }
+
+        void EnterResults() {
+            foreach (var r in _runners) { r.total += r.score; r.score = 0; }   // bank this round into the cumulative total
+            FreezeAll(true);
+            _hud.SetBarVisible(false);
+            _hud.SetResults(true, "Round " + (_round + 1) + " — Totals");
+            SetPhase(Phase.Results);
+        }
+
+        void EnterFadeOut() { SetPhase(Phase.FadeOut); }
+
+        void EnterGameOver() {
+            _hud.SetFade(0f);
+            _hud.SetBarVisible(false);
+            _hud.SetResults(true, "Final Standings");
+            SetPhase(Phase.GameOver);
+        }
+
+        void NextRound() {
+            _round++;
+            if (_round >= roundCount) { EnterGameOver(); return; }
+            StartRound();
+            EnterFadeIn();
+        }
+
+        /// <summary>Full reset to round 1 with scores zeroed (Backspace).</summary>
+        public void ResetGame() {
+            foreach (var r in _runners) { r.total = 0; r.score = 0; }
+            _round = 0;
+            StartRound();
+            EnterFadeIn();
+        }
+
+        void FreezeAll(bool frozen) {
+            foreach (var r in _runners) if (r.glider != null) r.glider.Frozen = frozen;
+        }
+
+        string CurrentRoundName() {
+            if (roundNames != null && _round < roundNames.Length && !string.IsNullOrEmpty(roundNames[_round]))
+                return roundNames[_round];
+            return "Round " + (_round + 1);
+        }
+
+        // Fade the banner in, hold, fade out across its lifetime.
+        static float BannerAlpha(float t, float dur) {
+            const float edge = 0.35f;
+            if (t < edge) return t / edge;
+            if (t > dur - edge) return Mathf.Max(0f, (dur - t) / edge);
+            return 1f;
+        }
+
+        // ------------------------------------------------------------------ camera
+
+        void CacheCameraAndPan() {
+            _cam = Camera.main;
+            if (_cam != null) {
+                _camHome = _cam.transform.position;
+                _camHomeSize = _cam.orthographic ? _cam.orthographicSize : 10f;
+            } else {
+                _camHome = new Vector3(0f, 0f, -10f);
+                _camHomeSize = 11f;
+            }
+
+            // Pan waypoints follow the intended flight: over the launch pads → over the goal → settle to play view.
+            Vector2 spawnC = Vector2.zero; int n = 0;
+            if (players != null)
+                foreach (var cfg in players) if (cfg.spawnPoint != null) { spawnC += (Vector2)cfg.spawnPoint.position; n++; }
+            if (n > 0) spawnC /= n; else spawnC = (Vector2)_camHome;
+            Vector2 ringC = targetRing != null ? targetRing.Center : (Vector2)_camHome;
+
+            _panPoses.Clear();
+            _panPoses.Add(new CamPose(spawnC, establishSize));
+            _panPoses.Add(new CamPose(ringC, establishSize));
+            _panPoses.Add(Home());
+        }
+
+        CamPose Home() => new CamPose(new Vector2(_camHome.x, _camHome.y), _camHomeSize);
+
+        CamPose SamplePan(float u) {
+            int legs = _panPoses.Count - 1;
+            if (legs <= 0) return Home();
+            float f = Mathf.Clamp01(u) * legs;
+            int i = Mathf.Min((int)f, legs - 1);
+            float s = Mathf.SmoothStep(0f, 1f, f - i);
+            var a = _panPoses[i]; var b = _panPoses[i + 1];
+            return new CamPose(Vector2.Lerp(a.pos, b.pos, s), Mathf.Lerp(a.size, b.size, s));
+        }
+
+        void ApplyPose(CamPose pose) {
+            if (_cam == null) return;
+            _cam.transform.position = new Vector3(pose.pos.x, pose.pos.y, _camHome.z);
+            if (_cam.orthographic) _cam.orthographicSize = pose.size;
+        }
+
+        static bool AnyPress() {
+            if (Keyboard.current != null && Keyboard.current.anyKey.wasPressedThisFrame) return true;
+            foreach (var pad in Gamepad.all)
+                if (pad.buttonSouth.wasPressedThisFrame || pad.startButton.wasPressedThisFrame) return true;
+            return false;
         }
     }
 }

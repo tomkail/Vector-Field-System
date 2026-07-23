@@ -21,6 +21,10 @@ namespace Windfall {
         // Round-flow presentation (driven by WindfallGame).
         Image _overlay;                 // full-screen black fade
         Text _banner;                   // centred round-name / message
+        Image _timerBg, _timerFill;     // round-timer bar under the top bar
+        Text _goalArrow;                // off-screen goal indicator at the screen edge
+        bool _goalActive;
+        Vector3 _goalWorld;
         RectTransform _resultsPanel;    // centred end-of-round standings
         Text _resultsTitle;
         readonly List<Text> _resultRows = new List<Text>();
@@ -51,9 +55,11 @@ namespace Windfall {
 
             BuildCanvas();
             BuildBar();
+            BuildTimer();
             BuildResults();
             BuildBanner();
             BuildOverlay();   // last child → drawn on top of everything
+            BuildGoalArrow();
             _game.OnPointsGained += HandlePoints;
         }
 
@@ -96,6 +102,96 @@ namespace Windfall {
             hRT.anchorMin = new Vector2(1f, 1f); hRT.anchorMax = new Vector2(1f, 1f); hRT.pivot = new Vector2(1f, 1f);
             hRT.sizeDelta = new Vector2(160f, BarHeight);
             hRT.anchoredPosition = new Vector2(-12f, 0f);
+        }
+
+        void BuildTimer() {
+            _timerBg = NewImage("TimerBG", _canvasRT);
+            var bg = _timerBg.rectTransform;
+            bg.anchorMin = new Vector2(0f, 1f); bg.anchorMax = new Vector2(1f, 1f); bg.pivot = new Vector2(0.5f, 1f);
+            bg.sizeDelta = new Vector2(-24f, 7f);                      // full width minus a 12px margin each side
+            bg.anchoredPosition = new Vector2(0f, -(BarHeight + 4f));  // just under the player bar
+            _timerBg.color = new Color(0f, 0f, 0f, 0.45f);
+
+            _timerFill = NewImage("TimerFill", _timerBg.rectTransform);
+            var f = _timerFill.rectTransform;
+            f.anchorMin = new Vector2(0f, 0f); f.anchorMax = new Vector2(0f, 1f); f.pivot = new Vector2(0f, 0.5f);
+            f.sizeDelta = Vector2.zero; f.anchoredPosition = Vector2.zero;
+
+            _timerBg.gameObject.SetActive(false);
+        }
+
+        public void SetTimer(bool visible, float frac01) {
+            if (_timerBg == null) return;
+            if (_timerBg.gameObject.activeSelf != visible) _timerBg.gameObject.SetActive(visible);
+            if (!visible) return;
+            frac01 = Mathf.Clamp01(frac01);
+            float w = _timerBg.rectTransform.rect.width; if (w < 1f) w = Screen.width - 24f;
+            _timerFill.rectTransform.sizeDelta = new Vector2(frac01 * w, 0f);
+            // green when there's plenty of time, through amber, to red as it runs out
+            _timerFill.color = Color.Lerp(new Color(1f, 0.3f, 0.2f, 0.9f), new Color(0.4f, 0.9f, 0.5f, 0.9f), frac01);
+        }
+
+        void BuildGoalArrow() {
+            _goalArrow = NewText("GoalArrow", _canvasRT);
+            _goalArrow.text = "▶";                     // ▶ points +x at 0° rotation
+            _goalArrow.fontSize = 44;
+            _goalArrow.fontStyle = FontStyle.Bold;
+            _goalArrow.alignment = TextAnchor.MiddleCenter;
+            _goalArrow.color = new Color(1f, 0.85f, 0.3f, 0.95f);
+            var rt = _goalArrow.rectTransform;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.zero; rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(64f, 64f);
+            _goalArrow.gameObject.SetActive(false);
+        }
+
+        public void SetGoalArrow(bool active, Vector3 worldPos) {
+            _goalActive = active;
+            _goalWorld = worldPos;
+            if (!active && _goalArrow != null && _goalArrow.gameObject.activeSelf) _goalArrow.gameObject.SetActive(false);
+        }
+
+        void UpdateGoalArrow() {
+            if (_goalArrow == null) return;
+            var cam = Camera.main;
+            if (!_goalActive || cam == null) { if (_goalArrow.gameObject.activeSelf) _goalArrow.gameObject.SetActive(false); return; }
+
+            Vector3 sp = cam.WorldToScreenPoint(_goalWorld);
+            const float margin = 44f;
+            var view = new Rect(margin, margin, Screen.width - 2f * margin, Screen.height - 2f * margin);
+            bool onScreen = sp.z > 0f && view.Contains(new Vector2(sp.x, sp.y));
+            if (onScreen) { if (_goalArrow.gameObject.activeSelf) _goalArrow.gameObject.SetActive(false); return; }
+
+            Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            Vector2 dir = new Vector2(sp.x, sp.y) - center;
+            if (sp.z < 0f) dir = -dir;                       // target behind camera (safety; N/A for top-down ortho)
+            if (dir.sqrMagnitude < 0.01f) dir = Vector2.up;
+            dir.Normalize();
+
+            if (!_goalArrow.gameObject.activeSelf) _goalArrow.gameObject.SetActive(true);
+            _goalArrow.rectTransform.anchoredPosition = ClampRayToRect(center, dir, view);
+            _goalArrow.rectTransform.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
+        }
+
+        // First boundary of `rect` hit by the ray from `origin` along `dir`.
+        static Vector2 ClampRayToRect(Vector2 origin, Vector2 dir, Rect rect) {
+            float best = float.MaxValue;
+            if (Mathf.Abs(dir.x) > 1e-4f) {
+                TryEdge(ref best, (rect.xMin - origin.x) / dir.x, origin, dir, rect, true);
+                TryEdge(ref best, (rect.xMax - origin.x) / dir.x, origin, dir, rect, true);
+            }
+            if (Mathf.Abs(dir.y) > 1e-4f) {
+                TryEdge(ref best, (rect.yMin - origin.y) / dir.y, origin, dir, rect, false);
+                TryEdge(ref best, (rect.yMax - origin.y) / dir.y, origin, dir, rect, false);
+            }
+            if (best == float.MaxValue) best = 0f;
+            return origin + dir * best;
+        }
+
+        static void TryEdge(ref float best, float t, Vector2 origin, Vector2 dir, Rect rect, bool verticalEdge) {
+            if (t <= 0f || t >= best) return;
+            Vector2 p = origin + dir * t;
+            bool ok = verticalEdge ? (p.y >= rect.yMin && p.y <= rect.yMax) : (p.x >= rect.xMin && p.x <= rect.xMax);
+            if (ok) best = t;
         }
 
         void BuildOverlay() {
@@ -238,12 +334,21 @@ namespace Windfall {
             if (_barVisible) UpdateBar();
             UpdateResults();
             UpdatePopups();
+            UpdateGoalArrow();
         }
 
         void UpdateBar() {
             int n = _game.PlayerCount;
             EnsureRows(n);
             if (n == 0) return;
+
+            // Distribute cells across the actual bar width so the bar scales with the screen (the canvas is
+            // ConstantPixelSize, so bar width == screen width). Reserve room on the right for the reset hint.
+            float barW = _bar.rect.width; if (barW < 1f) barW = Screen.width;
+            const float HintReserve = 150f;
+            float cell = Mathf.Clamp((barW - StartX - HintReserve) / n, 78f, CellWidth);
+            int labelFont = Mathf.RoundToInt(Mathf.Clamp(cell * 0.095f, 12f, 18f));
+            int subFont = Mathf.RoundToInt(labelFont * 0.72f);
 
             // Rank by score (desc), with competition ranking for ties (1,2,2,4).
             var order = new int[n];
@@ -267,11 +372,15 @@ namespace Windfall {
                 row.sub.color = new Color(info.color.r, info.color.g, info.color.b, a * 0.7f);
                 string tag = info.finished ? (info.scoredZone ? " *" : " -") : "";
                 row.label.text = $"#{rank[p]}  {info.name}   {info.score}{tag}";
+                row.label.fontSize = labelFont;
+                row.label.rectTransform.sizeDelta = new Vector2(cell - 26f, 24f);
                 row.sub.text = info.button;
+                row.sub.fontSize = subFont;
+                row.sub.rectTransform.sizeDelta = new Vector2(cell - 26f, 18f);
                 row.swatch.rectTransform.anchoredPosition = new Vector2(x, -5f);
                 row.label.rectTransform.anchoredPosition = new Vector2(x + 26f, -2f);
                 row.sub.rectTransform.anchoredPosition = new Vector2(x + 26f, -28f);
-                x += CellWidth;
+                x += cell;
             }
         }
 

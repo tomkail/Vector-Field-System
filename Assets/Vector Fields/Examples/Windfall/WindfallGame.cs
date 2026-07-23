@@ -36,8 +36,14 @@ namespace Windfall {
         public WindGlider playerPrefab;
         [Tooltip("One player is spawned per child transform of this object.")]
         public Transform spawnParent;
-        [Tooltip("The level's wind field (any VectorFieldComponent, laid flat in XY).")]
+        [Tooltip("The level's wind field (any VectorFieldComponent, laid flat in XY). Overwritten each round when Generate Levels is on.")]
         public VectorFieldComponent field;
+        [Tooltip("Builds a fresh random field each round. Auto-created when Generate Levels is on and none is assigned.")]
+        public WindfallLevelGenerator levelGenerator;
+        [Tooltip("Generate a random level each round instead of using the serialized field above.")]
+        public bool generateLevels = true;
+        [Tooltip("Install a runtime bloom post-process so the plasma trails and flow lines glow (instrument-glow look).")]
+        public bool bloom = true;
         [Tooltip("Feel constants shared by every player.")]
         public WindfallSettings settings;
         [Tooltip("The scoring target.")]
@@ -48,6 +54,21 @@ namespace Windfall {
         public int[] rankBonuses = { 50, 30, 20, 10 };
         [Tooltip("A flying player past this distance from the origin is out of bounds (run ends, no zone score).")]
         public float outOfBoundsRadius = 13f;
+
+        [Header("Level")]
+        [Tooltip("Random world size (square, centred on origin) picked per level — the field, out-of-bounds and target/spawn distances scale off this.")]
+        public Vector2 levelSizeRange = new Vector2(80f, 140f);
+
+        [Header("Camera")]
+        [Tooltip("The camera follows the active players and zooms to fit them; never tighter than min nor wider than max (ortho half-height).")]
+        public float cameraMinZoom = 9f;
+        public float cameraMaxZoom = 30f;
+        [Tooltip("World-unit margin kept around the players when framing.")]
+        public float cameraMargin = 5f;
+        [Tooltip("Follow/zoom smoothing (higher = snappier).")]
+        public float cameraFollowSpeed = 4f;
+        [Tooltip("Zoom for the goal fly-by during the intro pan, as a fraction of the play radius.")]
+        public float establishZoom = 0.4f;
 
         [Header("Rounds")]
         [Tooltip("How many rounds a game runs before the final standings.")]
@@ -61,8 +82,6 @@ namespace Windfall {
         public float fadeDuration = 0.8f;
         [Tooltip("Total time the camera spends panning over the map. Tap any button to skip.")]
         public float panDuration = 4f;
-        [Tooltip("Orthographic size at the establishing (spawn / ring) pan waypoints.")]
-        public float establishSize = 7f;
         public float roundNameDuration = 1.8f;
         public float resultsDuration = 4f;
 
@@ -112,6 +131,7 @@ namespace Windfall {
         readonly List<Collectible> _collectibles = new List<Collectible>();
         int _zoneScoredCount;
         WindfallHUD _hud;
+        WindfallPostFx _postFx;
 
         // --- round flow state ---
         Phase _phase;
@@ -121,22 +141,28 @@ namespace Windfall {
         // --- camera pan ---
         struct CamPose { public Vector2 pos; public float size; public CamPose(Vector2 p, float s) { pos = p; size = s; } }
         Camera _cam;
-        Vector3 _camHome;
-        float _camHomeSize;
+        float _camHomeZ = -10f;
         readonly List<CamPose> _panPoses = new List<CamPose>();
+
+        // --- per-level state ---
+        float _levelSize;
+        float _playRadius;
+        Vector2 _targetPos;
+        readonly List<Vector3> _spawnPositions = new List<Vector3>();
+        const float SpawnZ = -0.5f;
 
         static readonly Color[] Palette = {
             new Color(1f, 0.35f, 0.35f), new Color(0.4f, 0.62f, 1f), new Color(0.45f, 0.9f, 0.45f),
             new Color(1f, 0.85f, 0.3f), new Color(0.9f, 0.45f, 1f), new Color(0.35f, 0.9f, 0.9f),
         };
-        static readonly WindfallInput.Source[] DefaultSources = {
-            WindfallInput.Source.KeyboardSpace, WindfallInput.Source.KeyboardEnter,
-            WindfallInput.Source.GamepadSouth, WindfallInput.Source.GamepadSouth,
-        };
+        // Keyboard keys for auto-built players, and the laptop fallback when a gamepad player has no pad connected.
+        // Spread across the keyboard (A F on the left, J L on the right) so up to four can share one keyboard.
+        static readonly Key[] FallbackKeys = { Key.A, Key.F, Key.J, Key.L, Key.Z, Key.M };
 
         void Start() {
             EnsureHud();
-            CacheCameraAndPan();
+            EnsurePostFx();
+            CacheCameraHome();
             _round = 0;
             StartRound();
             EnterFadeIn();
@@ -149,6 +175,11 @@ namespace Windfall {
             _hud.Init(this);
         }
 
+        void EnsurePostFx() {
+            if (!bloom || _postFx != null) return;
+            _postFx = new GameObject("WindfallPostFx").AddComponent<WindfallPostFx>();
+        }
+
         // ------------------------------------------------------------------ round setup
 
         /// <summary>Set up the current round: (re)spawn players frozen at their pads and restore collectibles.
@@ -158,18 +189,36 @@ namespace Windfall {
             EnsureRunners();
             _zoneScoredCount = 0;
 
+            PrepareLevel();          // pick this level's size; scale out-of-bounds + camera off it
+            PlaceTargetAndSpawns();  // randomise the target and the non-overlapping launch ring
+
+            // Procedural level (GAME_DESIGN §4/§6): rebuild a fresh random field each round, sized to this level,
+            // populating the existing Group in place (if `field` is one) so the scene's field visualiser keeps working.
+            if (generateLevels) {
+                if (levelGenerator == null) levelGenerator = gameObject.AddComponent<WindfallLevelGenerator>();
+                field = levelGenerator.Generate(Random.Range(int.MinValue, int.MaxValue),
+                                                field as GroupVectorFieldComponent, _targetPos, _levelSize);
+            }
+
+            // Refresh + scatter collectibles across the (now larger) play area.
             _collectibles.Clear();
             _collectibles.AddRange(FindObjectsByType<Collectible>(FindObjectsInactive.Include));
-            foreach (var c in _collectibles) c.ResetCollectible();
+            foreach (var c in _collectibles) {
+                c.ResetCollectible();
+                Vector2 cp = Random.insideUnitCircle * (_playRadius * 0.8f);
+                c.transform.position = new Vector3(cp.x, cp.y, c.transform.position.z);
+            }
 
             if (playerPrefab == null) { Debug.LogWarning("WindfallGame: no playerPrefab assigned.", this); return; }
 
-            foreach (var r in _runners) {
+            for (int i = 0; i < _runners.Count; i++) {
+                var r = _runners[i];
                 if (r.glider != null) Destroy(r.glider.gameObject);
                 r.score = 0; r.finished = false; r.scoredZone = false; r.zoneRank = -1;
 
                 var cfg = r.cfg;
-                Vector3 pos = cfg.spawnPoint != null ? cfg.spawnPoint.position : Vector3.zero;
+                Vector3 pos = i < _spawnPositions.Count ? _spawnPositions[i]
+                    : (cfg.spawnPoint != null ? cfg.spawnPoint.position : Vector3.zero);
                 var g = Instantiate(playerPrefab, pos, Quaternion.identity);
                 // Configure while inactive so WindGlider.OnEnable registers its field consumer with the field
                 // already assigned. (The prefab can't hold a scene-field reference.)
@@ -186,6 +235,45 @@ namespace Windfall {
                 g.gameObject.SetActive(true);
                 r.glider = g;
             }
+
+            BuildPanWaypoints();   // frame the intro pan from this level's spawns + target
+        }
+
+        void PrepareLevel() {
+            _levelSize = generateLevels
+                ? Random.Range(levelSizeRange.x, levelSizeRange.y)
+                : (field != null ? Mathf.Max(1f, Mathf.Abs(field.transform.lossyScale.x)) : levelSizeRange.x);
+            _playRadius = _levelSize * 0.5f;
+            outOfBoundsRadius = _playRadius * 1.12f;     // a little beyond the field edge
+        }
+
+        void PlaceTargetAndSpawns() {
+            // Target: a random spot out from the centre.
+            float tAng = Random.Range(0f, Mathf.PI * 2f);
+            float tDist = _playRadius * Random.Range(0.45f, 0.7f);
+            _targetPos = new Vector2(Mathf.Cos(tAng), Mathf.Sin(tAng)) * tDist;
+            if (targetRing != null) {
+                var p = targetRing.transform.position;
+                targetRing.transform.position = new Vector3(_targetPos.x, _targetPos.y, p.z);
+            }
+
+            // Launch cluster: roughly opposite the target so there's a flight to make.
+            float lAng = tAng + Mathf.PI + Random.Range(-0.6f, 0.6f);
+            float lDist = _playRadius * Random.Range(0.45f, 0.7f);
+            Vector2 launch = new Vector2(Mathf.Cos(lAng), Mathf.Sin(lAng)) * lDist;
+
+            // Ring of non-overlapping starts around the cluster (balls can never touch at spawn).
+            int n = _runners.Count;
+            float ballR = settings != null ? settings.radius : 0.5f;
+            float minSep = ballR * 2f * 1.35f;
+            float ring = n >= 2 ? Mathf.Max(minSep, minSep / (2f * Mathf.Sin(Mathf.PI / n))) : 0f;
+            float phase = Random.Range(0f, Mathf.PI * 2f);
+            _spawnPositions.Clear();
+            for (int i = 0; i < n; i++) {
+                float a = phase + i * (Mathf.PI * 2f / Mathf.Max(1, n));
+                Vector2 sp = launch + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * ring;
+                _spawnPositions.Add(new Vector3(sp.x, sp.y, SpawnZ));
+            }
         }
 
         void EnsureRunners() {
@@ -197,46 +285,100 @@ namespace Windfall {
         void EnsureConfigs() {
             if (players != null && players.Count > 0) {
                 foreach (var c in players) if (c.input == null) c.input = new WindfallInput();
-                return;
+            } else {
+                players = new List<WindfallPlayerConfig>();
+                if (spawnParent == null) { Debug.LogWarning("WindfallGame: no spawnParent and no players configured.", this); return; }
+                int n = spawnParent.childCount;
+                for (int i = 0; i < n; i++) {
+                    players.Add(new WindfallPlayerConfig {
+                        name = "P" + (i + 1),
+                        color = Palette[i % Palette.Length],
+                        spawnPoint = spawnParent.GetChild(i),
+                        input = new WindfallInput {
+                            source = WindfallInput.Source.KeyboardKey,
+                            key = FallbackKeys[Mathf.Min(i, FallbackKeys.Length - 1)],
+                        },
+                    });
+                }
             }
-            players = new List<WindfallPlayerConfig>();
-            if (spawnParent == null) { Debug.LogWarning("WindfallGame: no spawnParent and no players configured.", this); return; }
-            int n = spawnParent.childCount;
-            for (int i = 0; i < n; i++) {
-                var cfg = new WindfallPlayerConfig {
-                    name = "P" + (i + 1),
-                    color = Palette[i % Palette.Length],
-                    spawnPoint = spawnParent.GetChild(i),
-                    input = new WindfallInput { source = DefaultSources[Mathf.Min(i, DefaultSources.Length - 1)] },
-                };
-                if (cfg.input.source == WindfallInput.Source.GamepadSouth) cfg.input.gamepadIndex = Mathf.Max(0, i - 2);
-                players.Add(cfg);
+
+            // Laptop fallback: a gamepad-bound player with no matching pad connected uses a keyboard key instead,
+            // so every player is controllable on a MacBook. A real gamepad, when present, still takes over.
+            for (int i = 0; i < players.Count; i++) {
+                var inp = players[i].input;
+                if (inp.source == WindfallInput.Source.GamepadSouth && inp.gamepadIndex >= Gamepad.all.Count) {
+                    inp.source = WindfallInput.Source.KeyboardKey;
+                    inp.key = FallbackKeys[Mathf.Min(i, FallbackKeys.Length - 1)];
+                }
             }
         }
 
         static void ApplyColor(WindGlider g, Color col) {
+            // Ball: tinted polished metal (a ball bearing). Build a fresh URP/Lit material so it's genuinely
+            // metallic regardless of the prefab's (empty) material slot; a faint self-glow keeps it readable
+            // on the dark instrument panel.
             var mr = g.GetComponentInChildren<MeshRenderer>();
             if (mr != null) {
-                var m = mr.material;
-                if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col);
-                if (m.HasProperty("_Color")) m.color = col;
+                var lit = Shader.Find("Universal Render Pipeline/Lit");
+                if (lit != null) {
+                    var ball = new Material(lit);
+                    ball.SetColor("_BaseColor", col);
+                    ball.SetFloat("_Metallic", 0.95f);
+                    ball.SetFloat("_Smoothness", 0.8f);
+                    ball.EnableKeyword("_EMISSION");
+                    ball.SetColor("_EmissionColor", col * 0.25f);
+                    mr.material = ball;
+                } else {
+                    var m = mr.material;
+                    if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col);
+                    if (m.HasProperty("_Color")) m.color = col;
+                }
             }
-            // Assign fresh line materials at spawn — the prefab can't serialize the runtime-created ones
-            // (they'd render as the magenta error shader), so build them here and let vertex colours tint.
-            var lineShader = Shader.Find("Sprites/Default");
+
+            // Trail: a molten/plasma path — white-hot where it's freshly laid at the ball, cooling to the
+            // player's colour along the path. Additive so it glows on the dark panel (there's no bloom volume).
             if (g.trail != null) {
-                g.trail.material = new Material(lineShader);
-                var grad = new Gradient();
+                g.trail.material = MakeAdditiveMaterial();
+                var hot = Color.Lerp(col, Color.white, 0.8f);
+                var warm = Color.Lerp(col, Color.white, 0.3f);
+                var grad = new Gradient { mode = GradientMode.Blend };
                 grad.SetKeys(
-                    new[] { new GradientColorKey(col, 0f), new GradientColorKey(col, 1f) },
-                    new[] { new GradientAlphaKey(0.9f, 0f), new GradientAlphaKey(0f, 1f) });
+                    new[] {
+                        new GradientColorKey(hot, 0f),      // at the ball: white-hot
+                        new GradientColorKey(warm, 0.18f),
+                        new GradientColorKey(col, 1f),      // tail: cooled to the player colour
+                    },
+                    new[] {
+                        new GradientAlphaKey(1f, 0f),
+                        new GradientAlphaKey(0.7f, 0.6f),
+                        new GradientAlphaKey(0.35f, 1f),    // stays visible so the whole path reads
+                    });
                 g.trail.colorGradient = grad;
+                g.trail.time = 12f;   // long enough to keep the whole flight path on screen
             }
+
             if (g.aimLine != null) {
-                g.aimLine.material = new Material(lineShader);
+                g.aimLine.material = new Material(Shader.Find("Sprites/Default"));
                 g.aimLine.startColor = col;
                 g.aimLine.endColor = new Color(col.r, col.g, col.b, 0.5f);
             }
+        }
+
+        // A transparent-additive material for the trails so overlapping/bright segments glow like hot plasma.
+        // Uses URP's particle unlit shader (honours the trail's vertex colours); falls back to Sprites/Default.
+        static Material MakeAdditiveMaterial() {
+            var sh = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (sh == null) sh = Shader.Find("Sprites/Default");
+            var mat = new Material(sh);
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);   // transparent
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 2f);       // additive
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+            return mat;
         }
 
         // ------------------------------------------------------------------ scoring
@@ -313,6 +455,9 @@ namespace Windfall {
                     TickPlaying();
                     if (roundTimeLimit > 0f && _phaseT >= roundTimeLimit)
                         foreach (var r in _runners) if (!r.finished) Finish(r);
+                    UpdateFollowCamera();
+                    _hud.SetTimer(roundTimeLimit > 0f, roundTimeLimit > 0f ? Mathf.Clamp01(1f - _phaseT / roundTimeLimit) : 0f);
+                    _hud.SetGoalArrow(true, targetRing != null ? targetRing.transform.position : (Vector3)_targetPos);
                     if (AllFinished()) EnterResults();
                     break;
 
@@ -341,6 +486,8 @@ namespace Windfall {
             _hud.SetBarVisible(false);
             _hud.SetResults(false, "");
             _hud.SetBanner("", 0f);
+            _hud.SetTimer(false, 0f);
+            _hud.SetGoalArrow(false, Vector3.zero);
             ApplyPose(_panPoses.Count > 0 ? _panPoses[0] : Home());   // establishing shot behind the black
             _hud.SetFade(1f);
             SetPhase(Phase.FadeIn);
@@ -352,6 +499,8 @@ namespace Windfall {
             ApplyPose(Home());
             FreezeAll(true);
             _hud.SetBanner(CurrentRoundName(), 0f);
+            _hud.SetTimer(false, 0f);
+            _hud.SetGoalArrow(false, Vector3.zero);
             SetPhase(Phase.RoundName);
         }
 
@@ -367,6 +516,8 @@ namespace Windfall {
             foreach (var r in _runners) { r.total += r.score; r.score = 0; }   // bank this round into the cumulative total
             FreezeAll(true);
             _hud.SetBarVisible(false);
+            _hud.SetTimer(false, 0f);
+            _hud.SetGoalArrow(false, Vector3.zero);
             _hud.SetResults(true, "Round " + (_round + 1) + " — Totals");
             SetPhase(Phase.Results);
         }
@@ -376,6 +527,8 @@ namespace Windfall {
         void EnterGameOver() {
             _hud.SetFade(0f);
             _hud.SetBarVisible(false);
+            _hud.SetTimer(false, 0f);
+            _hud.SetGoalArrow(false, Vector3.zero);
             _hud.SetResults(true, "Final Standings");
             SetPhase(Phase.GameOver);
         }
@@ -415,30 +568,66 @@ namespace Windfall {
 
         // ------------------------------------------------------------------ camera
 
-        void CacheCameraAndPan() {
+        void CacheCameraHome() {
             _cam = Camera.main;
-            if (_cam != null) {
-                _camHome = _cam.transform.position;
-                _camHomeSize = _cam.orthographic ? _cam.orthographicSize : 10f;
-            } else {
-                _camHome = new Vector3(0f, 0f, -10f);
-                _camHomeSize = 11f;
-            }
-
-            // Pan waypoints follow the intended flight: over the launch pads → over the goal → settle to play view.
-            Vector2 spawnC = Vector2.zero; int n = 0;
-            if (players != null)
-                foreach (var cfg in players) if (cfg.spawnPoint != null) { spawnC += (Vector2)cfg.spawnPoint.position; n++; }
-            if (n > 0) spawnC /= n; else spawnC = (Vector2)_camHome;
-            Vector2 ringC = targetRing != null ? targetRing.Center : (Vector2)_camHome;
-
-            _panPoses.Clear();
-            _panPoses.Add(new CamPose(spawnC, establishSize));
-            _panPoses.Add(new CamPose(ringC, establishSize));
-            _panPoses.Add(Home());
+            if (_cam != null) _camHomeZ = _cam.transform.position.z;
         }
 
-        CamPose Home() => new CamPose(new Vector2(_camHome.x, _camHome.y), _camHomeSize);
+        // Pan the intended flight: whole-level overview → goal fly-by → settle on the players' start.
+        // Rebuilt each round from the level's actual spawns + target.
+        void BuildPanWaypoints() {
+            _panPoses.Clear();
+            _panPoses.Add(new CamPose(Vector2.zero, _playRadius * 1.05f));                                  // whole-level overview
+            _panPoses.Add(new CamPose(_targetPos, Mathf.Clamp(_playRadius * establishZoom, cameraMinZoom, cameraMaxZoom))); // the goal
+            _panPoses.Add(Home());                                                                          // settle on the start
+        }
+
+        // "Home" = the players' start framing (used as the pan's final pose and the Playing hand-off).
+        CamPose Home() {
+            Vector2 c = SpawnCentroid();
+            float size = Mathf.Clamp(SpawnExtent() + cameraMargin, cameraMinZoom, cameraMaxZoom);
+            return new CamPose(c, size);
+        }
+
+        Vector2 SpawnCentroid() {
+            if (_spawnPositions.Count == 0) return Vector2.zero;
+            Vector2 c = Vector2.zero;
+            foreach (var p in _spawnPositions) c += (Vector2)p;
+            return c / _spawnPositions.Count;
+        }
+
+        float SpawnExtent() {
+            Vector2 c = SpawnCentroid();
+            float e = 0f;
+            foreach (var p in _spawnPositions) e = Mathf.Max(e, Vector2.Distance(c, (Vector2)p));
+            return e;
+        }
+
+        // Follow the active (still-flying) players and zoom to fit them, clamped so they're never too small
+        // and never zoomed out past the cap. Smoothed. Used every frame during Playing.
+        void UpdateFollowCamera() {
+            if (_cam == null) return;
+            bool any = false;
+            Vector2 min = Vector2.zero, max = Vector2.zero;
+            foreach (var r in _runners) {
+                if (r.finished || r.glider == null) continue;
+                Vector2 p = r.glider.transform.position;
+                if (!any) { min = max = p; any = true; }
+                else { min = Vector2.Min(min, p); max = Vector2.Max(max, p); }
+            }
+            if (!any) return;   // nobody flying — hold the last framing
+
+            Vector2 c = (min + max) * 0.5f;
+            float aspect = _cam.aspect > 0.01f ? _cam.aspect : 1.6f;
+            float halfW = (max.x - min.x) * 0.5f, halfH = (max.y - min.y) * 0.5f;
+            float fit = Mathf.Max(halfW / aspect, halfH) + cameraMargin;
+            float size = Mathf.Clamp(fit, cameraMinZoom, cameraMaxZoom);
+
+            float k = 1f - Mathf.Exp(-cameraFollowSpeed * Time.deltaTime);
+            Vector2 np = Vector2.Lerp((Vector2)_cam.transform.position, c, k);
+            _cam.transform.position = new Vector3(np.x, np.y, _camHomeZ);
+            _cam.orthographicSize = Mathf.Lerp(_cam.orthographicSize, size, k);
+        }
 
         CamPose SamplePan(float u) {
             int legs = _panPoses.Count - 1;
@@ -452,7 +641,7 @@ namespace Windfall {
 
         void ApplyPose(CamPose pose) {
             if (_cam == null) return;
-            _cam.transform.position = new Vector3(pose.pos.x, pose.pos.y, _camHome.z);
+            _cam.transform.position = new Vector3(pose.pos.x, pose.pos.y, _camHomeZ);
             if (_cam.orthographic) _cam.orthographicSize = pose.size;
         }
 

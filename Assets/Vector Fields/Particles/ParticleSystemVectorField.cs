@@ -19,12 +19,16 @@ public class ParticleSystemVectorField : MonoBehaviour
 		set
 		{
 			if (_vectorFieldComponent == value) return;
-			if (isActiveAndEnabled) Unsubscribe();
 			_vectorFieldComponent = value;
 			SetupConstraints();
-			if (isActiveAndEnabled) Subscribe();
+			if (isActiveAndEnabled) Subscribe(); // Subscribe reconciles: drops the old field, hooks the new one
 		}
 	}
+	// The field we currently hold an OnCpuDataReady handler + CPU-consumer registration on — the single source of
+	// truth for our subscription. It can diverge from _vectorFieldComponent when the inspector writes the serialized
+	// field directly (that bypasses the property setter); Subscribe()/OnValidate reconcile the two. Not serialized: a
+	// live subscription can't survive a domain reload, so OnEnable re-establishes it from scratch.
+	[NonSerialized] VectorFieldComponent _subscribedComponent;
 	// Maps flow magnitude (0..1 along the X axis) to a remapped magnitude (Y), reshaping how the field's strength drives
 	// the particles' force. Default is identity (linear 0->1), so the field is unchanged until you edit it; e.g. drop
 	// weak regions to zero with a threshold, or ease the falloff. Baked into a LUT so the per-voxel cost is a cheap
@@ -52,22 +56,29 @@ public class ParticleSystemVectorField : MonoBehaviour
 		Subscribe();
 	}
 
-	// Tell the field we need its CPU copy (it won't produce one otherwise), and refresh whenever it's ready. We
-	// don't need it the same frame it changes, so register as a non-immediate consumer — that keeps GPU-combine
-	// fields on the async readback (no per-frame stall) even when they change every frame.
+	// Reconcile our subscription so we're hooked to _vectorFieldComponent and nothing else, then refresh. Tell the
+	// field we need its CPU copy (it won't produce one otherwise). We don't need it the same frame it changes, so
+	// register as a non-immediate consumer — that keeps GPU-combine fields on the async readback (no per-frame stall)
+	// even when they change every frame. Idempotent: safe to call after an inspector edit has swapped the serialized
+	// field out from under us, and calling it twice never double-subscribes.
 	void Subscribe()
 	{
-		if (_vectorFieldComponent == null) return;
-		_vectorFieldComponent.OnCpuDataReady += Refresh;
-		_vectorFieldComponent.RegisterCpuConsumer(this, immediate: false);
-		Refresh(); // pick up data that's already available
+		if (_subscribedComponent != _vectorFieldComponent) Unsubscribe(); // drop the stale field (no-op if none)
+		if (_vectorFieldComponent != null && _subscribedComponent == null)
+		{
+			_subscribedComponent = _vectorFieldComponent;
+			_subscribedComponent.OnCpuDataReady += Refresh;
+			_subscribedComponent.RegisterCpuConsumer(this, immediate: false);
+		}
+		Refresh(); // pick up data that's already available (or clear stale output if the field is now null)
 	}
 
 	void Unsubscribe()
 	{
-		if (_vectorFieldComponent == null) return;
-		_vectorFieldComponent.OnCpuDataReady -= Refresh;
-		_vectorFieldComponent.UnregisterCpuConsumer(this);
+		if (_subscribedComponent == null) return;
+		_subscribedComponent.OnCpuDataReady -= Refresh;
+		_subscribedComponent.UnregisterCpuConsumer(this);
+		_subscribedComponent = null;
 	}
 
 	// The force field's shape/range/gravity/etc. never change at runtime, so set them once rather than on every Refresh.
@@ -125,9 +136,32 @@ public class ParticleSystemVectorField : MonoBehaviour
 		Unsubscribe();
 	}
 
+	// Release the Texture3D we allocated. It's flagged DontSave, so it isn't cleaned up by serialization — without
+	// this it would leak until the next domain reload (e.g. add/remove the component repeatedly in the editor).
+	void OnDestroy()
+	{
+		if (texture3D != null)
+		{
+			VectorFieldObjectUtils.DestroyAutomatic(texture3D);
+			texture3D = null;
+		}
+	}
+
 	void Refresh()
 	{
-		if (_vectorFieldComponent == null || _vectorFieldComponent.vectorField == null) return;
+		// No field (or no CPU copy yet): tear down our texture and clear the force field so particles don't keep
+		// running on stale data after the reference is cleared. The force field's own texture is left to whatever
+		// authored it; we only clear a texture we created.
+		if (_vectorFieldComponent == null || _vectorFieldComponent.vectorField == null)
+		{
+			if (texture3D != null)
+			{
+				if (forceField.vectorField == texture3D) forceField.vectorField = null;
+				VectorFieldObjectUtils.DestroyAutomatic(texture3D);
+				texture3D = null;
+			}
+			return;
+		}
 		// Allocate a fresh Texture3D each refresh. ParticleSystemForceField only re-reads its vector field when the
 		// texture reference changes, so updating one in place (SetPixels/Apply) leaves the particles on stale data.
 		// Refresh runs only when the field changes (not every frame), so this allocation is not per-frame.
@@ -154,10 +188,13 @@ public class ParticleSystemVectorField : MonoBehaviour
 			amplitudeLut[i] = amplitudeCurve.Evaluate(i / (float)(AmplitudeResolution - 1));
 	}
 
+	// Inspector edits write _vectorFieldComponent directly, bypassing the property setter, so reconcile here.
+	// Subscribe() re-points our subscription if the reference changed and refreshes either way; when only the
+	// amplitude curve changed it's already the subscribed field, so this is just a rebake + Refresh.
 	void OnValidate()
 	{
 		SetupConstraints();
 		BakeAmplitudeLut();
-		if (isActiveAndEnabled) Refresh();
+		if (isActiveAndEnabled) Subscribe();
 	}
 }

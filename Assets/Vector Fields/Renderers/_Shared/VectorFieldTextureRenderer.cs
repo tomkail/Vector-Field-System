@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 // Binds a vector field's live GPU render texture onto a mesh quad. This is the generic adapter every flow shader uses:
@@ -21,11 +22,15 @@ public class VectorFieldTextureRenderer : VectorFieldQuad {
 		get => _vectorFieldComponent;
 		set {
 			if (_vectorFieldComponent == value) return;
-			if (isActiveAndEnabled) Unsubscribe();
 			_vectorFieldComponent = value;
-			if (isActiveAndEnabled) Subscribe();
+			if (isActiveAndEnabled) Subscribe(); // Subscribe reconciles: drops the old field, hooks the new one
 		}
 	}
+	// The field we currently hold an OnRendered handler on — the single source of truth for our subscription. It can
+	// diverge from _vectorFieldComponent when the inspector writes the serialized field directly (that bypasses the
+	// property setter); Subscribe()/OnValidate reconcile the two. Not serialized: a live subscription can't survive a
+	// domain reload, so OnEnable re-establishes it from scratch.
+	[NonSerialized] VectorFieldComponent _subscribedComponent;
 
 	protected override VectorFieldComponent Field => _vectorFieldComponent;
 
@@ -43,15 +48,22 @@ public class VectorFieldTextureRenderer : VectorFieldQuad {
 		Unsubscribe();
 	}
 
+	// Reconcile so we're hooked to _vectorFieldComponent's OnRendered and nothing else, then bind. Idempotent: safe to
+	// call after an inspector edit swapped the serialized field out from under us, and calling it twice never
+	// double-subscribes.
 	void Subscribe() {
-		if (_vectorFieldComponent == null) return;
-		_vectorFieldComponent.OnRendered += BindTexture;
-		BindTexture(); // pick up whatever has already been rendered
+		if (_subscribedComponent != _vectorFieldComponent) Unsubscribe(); // drop the stale field (no-op if none)
+		if (_vectorFieldComponent != null && _subscribedComponent == null) {
+			_subscribedComponent = _vectorFieldComponent;
+			_subscribedComponent.OnRendered += BindTexture;
+		}
+		BindTexture(); // pick up whatever has already been rendered (no-ops if the field/texture is null)
 	}
 
 	void Unsubscribe() {
-		if (_vectorFieldComponent == null) return;
-		_vectorFieldComponent.OnRendered -= BindTexture;
+		if (_subscribedComponent == null) return;
+		_subscribedComponent.OnRendered -= BindTexture;
+		_subscribedComponent = null;
 	}
 
 	// Point the material at the field's live render texture. Driven by OnRendered, since that's when the texture (and
@@ -83,8 +95,11 @@ public class VectorFieldTextureRenderer : VectorFieldQuad {
 	protected virtual void ConfigurePropertyBlock(MaterialPropertyBlock block) { }
 
 #if UNITY_EDITOR
+	// Inspector edits write _vectorFieldComponent directly, bypassing the property setter, so reconcile here.
+	// Subscribe() re-points OnRendered if the reference changed and re-binds either way (e.g. after a subclass rebakes
+	// its shader inputs and chains base.OnValidate()).
 	protected virtual void OnValidate() {
-		if (isActiveAndEnabled) BindTexture();
+		if (isActiveAndEnabled) Subscribe();
 	}
 #endif
 }

@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Windfall {
     /// <summary>
@@ -16,7 +17,20 @@ namespace Windfall {
 
         [Header("Wiring")]
         [Tooltip("The level's wind field. Any VectorFieldComponent subtype; laid flat in the XY plane.")]
-        public VectorFieldComponent field;
+        [SerializeField, FormerlySerializedAs("field")] VectorFieldComponent _field;
+        public VectorFieldComponent field {
+            get => _field;
+            set {
+                if (_field == value) return;
+                _field = value;
+                if (isActiveAndEnabled) RegisterField(); // reconciles: drops the old field, registers the new one
+            }
+        }
+        // The field we currently hold a CPU-consumer registration on — the single source of truth. It can diverge
+        // from _field when the inspector writes the serialized field directly (that bypasses the property setter);
+        // RegisterField()/OnValidate reconcile the two. Not serialized: a registration can't survive a domain reload,
+        // so OnEnable re-establishes it from scratch.
+        [NonSerialized] VectorFieldComponent _registeredField;
         [Tooltip("Feel constants (tune live in play mode).")]
         public WindfallSettings settings;
         public WindfallInput input = new WindfallInput();
@@ -64,16 +78,40 @@ namespace Windfall {
 
         void OnEnable() {
             _planeZ = transform.position.z;
-            // immediate:true guarantees the CPU mirror is fresh the frame we sample; the async
-            // (immediate:false) path is the perf option once feel is dialled in.
-            if (field != null) field.RegisterCpuConsumer(this, immediate: true);
+            RegisterField();
             EnsureAimLine();
             EnterAimingDirection();
         }
 
         void OnDisable() {
-            if (field != null) field.UnregisterCpuConsumer(this);
+            UnregisterField();
         }
+
+        // Reconcile our CPU-consumer registration so it's on `_field` and nothing else, then nothing more. Idempotent:
+        // safe to call after an inspector edit swapped the serialized field out from under us, and registering twice
+        // is a no-op on the field side.
+        void RegisterField() {
+            if (_registeredField != _field) UnregisterField(); // drop the stale field (no-op if none)
+            if (_field != null && _registeredField == null) {
+                // immediate:true guarantees the CPU mirror is fresh the frame we sample; the async
+                // (immediate:false) path is the perf option once feel is dialled in.
+                _field.RegisterCpuConsumer(this, immediate: true);
+                _registeredField = _field;
+            }
+        }
+
+        void UnregisterField() {
+            if (_registeredField == null) return;
+            _registeredField.UnregisterCpuConsumer(this);
+            _registeredField = null;
+        }
+
+#if UNITY_EDITOR
+        // Inspector edits write _field directly, bypassing the property setter, so reconcile the registration here.
+        void OnValidate() {
+            if (isActiveAndEnabled) RegisterField();
+        }
+#endif
 
         // Discrete, edge-driven transitions run in Update (one input poll per rendered frame).
         void Update() {

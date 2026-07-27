@@ -74,19 +74,19 @@
     height: 22px;
 }
 
-/* --- Grid-size lock (chain-link) button. Absolutely positioned in the label gutter just left of the X field
-   (like the Transform scale lock), so it doesn't push the X/Y fields to the right. ------------------------- */
+/* --- Grid-size lock (chain-link) button. In-flow as the first child of the field's input row, just left of X
+   (like the Transform scale lock). NOT absolutely positioned: an absolute -20px offset lands outside the input
+   row's box and gets clipped by its overflow (invisible lock), so it sits in-flow and shifts X/Y right ~20px. --- */
 .vf-lock {
-    position: absolute;
-    left: -20px;
-    top: 1px;
     width: 18px;
     height: 18px;
+    margin-right: 2px;
     padding: 0;
     background-color: transparent;
     border-width: 0;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .vf-lock:hover {

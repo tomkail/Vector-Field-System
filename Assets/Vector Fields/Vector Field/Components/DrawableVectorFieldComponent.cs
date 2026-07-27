@@ -23,6 +23,14 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     // sourceAsset is assigned (otherwise the asset's map is the working copy — see ActiveMap).
     [System.NonSerialized] VectorFieldMap paintField;
 
+    // Resampling support. When the grid resizes (a manual Grid Size edit, or Auto-resolution following the transform
+    // scale), we bilinearly resample the painted field into the new resolution instead of discarding it. `baseline` is
+    // the authored map captured at the START of a resize sequence; every resize in the sequence resamples from it (not
+    // from the previous, already-resampled result) so a continuous scale drag stays single-generation — no cumulative
+    // blur. `baselineStale` (set on any paint/clear/load/undo) forces the baseline to refresh on the next resize.
+    [System.NonSerialized] VectorFieldMap resampleBaseline;
+    [System.NonSerialized] bool resampleBaselineStale;
+
     // Serialized backing. The data always lives on the component (never an asset), stored in exactly ONE of these per
     // VectorFieldStorage.format: `storedValues` (verbose Vector2 array) or `storedRows` (compact base64 per row).
     // Reading detects which is populated, so switching the project setting doesn't break existing scenes.
@@ -41,11 +49,43 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
     // Ensure the active map exists at the current grid size; returns true if it had to be (re)created (a resize),
     // which RenderInternal uses to choose between a region and a full GPU upload. A deserialized VectorFieldMap can come
     // back non-null with a null `values` array, so IsValid treats that as "needs (re)building" too.
+    //
+    // On a resize with existing painted data we RESAMPLE (bilinear) rather than clear, so changing resolution — whether
+    // a manual Grid Size edit or Auto-resolution tracking the transform scale — never discards the painting. See the
+    // resampleBaseline field for how a continuous scale drag avoids cumulative blur.
     bool EnsurePaintField() {
         var size = new Vector2Int(grid.Size.x, grid.Size.y);
         if (IsValid(ActiveMap, size)) return false;
-        ActiveMap = new VectorFieldMap(size);
+
+        var current = ActiveMap;
+        bool hasData = current != null && current.values != null && current.values.Length > 0
+            && current.size.x > 0 && current.size.y > 0;
+        if (hasData) {
+            if (resampleBaseline == null || resampleBaselineStale) {
+                resampleBaseline = new VectorFieldMap(current);   // capture the authored map for this resize sequence
+                resampleBaselineStale = false;
+            }
+            ActiveMap = ResampleMap(resampleBaseline, size);
+        } else {
+            ActiveMap = new VectorFieldMap(size);
+            resampleBaseline = null;
+            resampleBaselineStale = false;
+        }
         return true;
+    }
+
+    // Bilinearly resample `src` into a `newSize` map (normalized 0..1 sampling), preserving the painted flow across a
+    // resolution change. Directions are resampled the same way the GPU texture would be when the render target resizes.
+    static VectorFieldMap ResampleMap(VectorFieldMap src, Vector2Int newSize) {
+        var dst = new VectorFieldMap(newSize);
+        for (int y = 0; y < newSize.y; y++) {
+            float ny = newSize.y > 1 ? (float)y / (newSize.y - 1) : 0f;
+            for (int x = 0; x < newSize.x; x++) {
+                float nx = newSize.x > 1 ? (float)x / (newSize.x - 1) : 0f;
+                dst.SetValueAtGridPoint(x, y, src.GetValueAtNormalizedPosition(new Vector2(nx, ny)));
+            }
+        }
+        return dst;
     }
 
     // The painted field, created/resized to the current grid on demand. The drawing tool reads and writes this.
@@ -121,6 +161,8 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         // Undo restored the serialized backing but didn't re-run the deserialize callback; rebuild the live map from it.
         if (sourceAsset != null) ((ISerializationCallbackReceiver)sourceAsset).OnAfterDeserialize();
         else ((ISerializationCallbackReceiver)this).OnAfterDeserialize();
+        resampleBaseline = null;   // the authored map was replaced wholesale; don't resample from a stale baseline
+        resampleBaselineStale = false;
         EnsurePaintField();   // guard: never leave a null/mismatched field
         SetDirty();           // re-render the GPU texture from it
     }
@@ -159,6 +201,7 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
 
     public void MarkRegionDirty(RectInt gridRegion) {
         pendingDirtyRegion = pendingDirtyRegion.HasValue ? Union(pendingDirtyRegion.Value, gridRegion) : gridRegion;
+        resampleBaselineStale = true;   // painting changed the authored map; the next resize must re-baseline from it
         SetDirty();
         MarkSourceAssetDirty();
     }
@@ -198,6 +241,7 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         RegisterPaintUndo("Clear Vector Field");
 #endif
         PaintField.Clear();
+        resampleBaselineStale = true;
 #if UNITY_EDITOR
         // Flush the cleared field into the backing so the change persists and redo captures it.
         SnapshotForUndo();
@@ -248,6 +292,7 @@ public class DrawableVectorFieldComponent : VectorFieldComponent, ISerialization
         if (source == null) return;
         grid.Size = new Vector2Int(source.size.x, source.size.y);
         ActiveMap = new VectorFieldMap(source);   // writes to the asset in asset mode, else the component
+        resampleBaselineStale = true;             // new authored data; re-baseline on the next resize
         SetDirty();
         MarkSourceAssetDirty();
     }

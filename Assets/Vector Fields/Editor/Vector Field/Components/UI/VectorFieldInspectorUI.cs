@@ -142,14 +142,92 @@ public static class VectorFieldInspectorUI {
 		});
 
 		field.TrackPropertyValue(constrainProp, _ => UpdateIcon()); // keep the icon right on undo/redo
-		UpdateIcon();
 
 		// Sit the lock to the LEFT of the X/Y fields (like the Transform scale constrain-proportions lock): insert it
-		// at the front of the field's input row, before X.
-		var input = field.Q(className: "unity-base-field__input");
-		if (input != null) input.Insert(0, lockButton);
-		else field.Add(lockButton);
+		// at the front of the field's input row, before X. A freshly-constructed composite field doesn't always have its
+		// input row built yet (Q returns null until layout), so also retry on attach — otherwise the lock silently never
+		// appears. Reparent into the input row once it exists so it lands in the gutter, not appended at the field's end.
+		void InsertLock() {
+			var input = field.Q(className: "unity-base-field__input");
+			if (input != null) { if (lockButton.parent != input) input.Insert(0, lockButton); }
+			else if (lockButton.parent == null) field.Add(lockButton);
+		}
+
+		// EditorGUIUtility.IconContent can transiently return a null image while a domain reload settles (right after a
+		// recompile), which would leave the lock as an invisible icon-less button. So (re)insert AND refresh the icon on
+		// construction, on attach, and once more on the next scheduled tick — by then IconContent is reliably populated.
+		void Reconcile() { InsertLock(); UpdateIcon(); }
+		Reconcile();
+		field.RegisterCallback<AttachToPanelEvent>(_ => Reconcile());
+		field.schedule.Execute(Reconcile);
 		return field;
+	}
+
+	// The full resolution control: an Auto-resolution toggle that switches between the manual Grid Size field (with its
+	// constrain-proportions lock) and a density field (cells per world unit) whose derived X×Y grid is shown read-only.
+	// In Auto mode the grid size follows the transform scale so per-axis fidelity stays equal (see GridTransform).
+	// `autoSizePreview` returns the size Auto mode would currently derive (typically target.grid.ComputeAutoSize()).
+	public static VisualElement ResolutionField(SerializedProperty sizeProp, SerializedProperty constrainProp,
+		SerializedProperty autoProp, SerializedProperty cellsProp, System.Func<Vector2Int> autoSizePreview,
+		System.Func<Vector3> ownerLossyScale, string manualTooltip = null) {
+		var container = new VisualElement();
+
+		var autoToggle = new Toggle("Auto Resolution") {
+			tooltip = "Derive the grid resolution from the transform scale (a constant number of cells per world unit), " +
+			          "so a non-uniformly scaled field gets a matching non-square grid and equal fidelity on both axes."
+		};
+		autoToggle.AddToClassList("unity-base-field__aligned");
+		autoToggle.BindProperty(autoProp);
+		container.Add(autoToggle);
+
+		var manual = GridSizeField(sizeProp, constrainProp, manualTooltip);
+
+		var auto = new VisualElement();
+		var cells = new FloatField("Cells / Unit") { tooltip = "Grid cells per world unit. Higher is more detailed." };
+		cells.AddToClassList("unity-base-field__aligned");
+		cells.BindProperty(cellsProp);
+		auto.Add(cells);
+		var derived = new Label { name = "vf-derived-size" };
+		derived.AddToClassList("unity-base-field__aligned");
+		derived.style.opacity = 0.7f;
+		derived.style.marginLeft = 3;
+		auto.Add(derived);
+
+		void RefreshDerived() {
+			if (autoSizePreview == null) return;
+			var s = autoSizePreview();
+			derived.text = $"Grid Size:  {s.x} × {s.y} cells";
+		}
+
+		void ApplyMode() {
+			bool isAuto = autoProp.boolValue;
+			manual.style.display = isAuto ? DisplayStyle.None : DisplayStyle.Flex;
+			auto.style.display = isAuto ? DisplayStyle.Flex : DisplayStyle.None;
+			if (isAuto) RefreshDerived();
+		}
+
+		container.Add(manual);
+		container.Add(auto);
+		ApplyMode();
+		autoToggle.RegisterValueChangedCallback(evt => {
+			// When enabling Auto, seed CellsPerUnit so the derived size matches the CURRENT size — otherwise a large
+			// transform (e.g. lossyScale 200) instantly explodes to a huge/clamped map. Density = current cells per world
+			// unit, averaged over both axes (a single density can't preserve a non-square grid on a uniform transform).
+			if (evt.newValue) {
+				var sz = sizeProp.vector2IntValue;
+				var sc = ownerLossyScale != null ? ownerLossyScale() : Vector3.one;
+				float ax = Mathf.Abs(sc.x), ay = Mathf.Abs(sc.y);
+				float dx = ax > 1e-4f ? sz.x / ax : sz.x;
+				float dy = ay > 1e-4f ? sz.y / ay : sz.y;
+				cellsProp.floatValue = Mathf.Max(0.01f, (dx + dy) * 0.5f);
+				cellsProp.serializedObject.ApplyModifiedProperties();   // flush with the toggle so no interim huge derive
+			}
+			ApplyMode();
+		});
+		container.TrackPropertyValue(autoProp, _ => ApplyMode());   // keep in sync on undo/redo
+		// The derived size follows the transform scale (edited outside this inspector), so poll while Auto is visible.
+		container.schedule.Execute(() => { if (autoProp.boolValue) RefreshDerived(); }).Every(200);
+		return container;
 	}
 
 	// Show/hide `element` whenever `gate` changes, per `predicate`. This is the conditional-display idiom that

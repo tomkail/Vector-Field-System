@@ -39,9 +39,15 @@ public class VectorFieldComponentEditor : Editor {
 		var gridProp = serializedObject.FindProperty("<grid>k__BackingField");
 		var gridSize = gridProp?.FindPropertyRelative("_size");
 		var gridConstrain = gridProp?.FindPropertyRelative("_constrainProportions");
+		var gridAuto = gridProp?.FindPropertyRelative("_autoResolution");
+		var gridCells = gridProp?.FindPropertyRelative("_cellsPerUnit");
 		string gridTip = "The field's resolution in cells (X × Y). Higher is more detailed but costs more GPU/CPU. " +
 			"Toggle the chain-link to constrain proportions (keep the X:Y ratio when editing an axis).";
-		if (gridSize != null && gridConstrain != null)
+		if (gridSize != null && gridConstrain != null && gridAuto != null && gridCells != null)
+			section.Add(VectorFieldInspectorUI.ResolutionField(gridSize, gridConstrain, gridAuto, gridCells,
+				() => data != null ? data.grid.ComputeAutoSize() : default,
+				() => data != null ? data.transform.lossyScale : Vector3.one, gridTip));
+		else if (gridSize != null && gridConstrain != null)
 			section.Add(VectorFieldInspectorUI.GridSizeField(gridSize, gridConstrain, gridTip));
 		else if (gridSize != null)
 			section.Add(VectorFieldInspectorUI.Field(gridSize, "Grid Size", gridTip));

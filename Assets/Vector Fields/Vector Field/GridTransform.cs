@@ -15,7 +15,18 @@ public class GridTransform {
 	// When true, editing one grid axis in the inspector scales the other to preserve the current X:Y aspect ratio
 	// (constrained proportions, like the Transform scale lock). Editor-only behaviour; serialized so it persists per
 	// field/prefab. Deliberately NOT enforced in the Size setter — code that sets Size directly may change the ratio.
+	// Irrelevant in Auto-resolution mode, where the extent ratio already dictates the cell ratio.
 	[SerializeField] bool _constrainProportions;
+
+	// Auto-resolution: when true, Size is DERIVED each update from _cellsPerUnit × the owner's world extent (lossyScale)
+	// on each axis, instead of being an authored constant. This keeps a constant number of cells per world unit, so a
+	// non-uniformly-scaled transform gets a matching non-square grid and per-axis fidelity stays equal (isotropic cells
+	// in world space). When false, Size is the authored _size below (the original "resolution is a purely visual knob").
+	[SerializeField] bool _autoResolution;
+
+	// Target cell density in cells per world unit, used only in Auto-resolution mode. Min-clamped so it can't zero the
+	// grid. Default matches the manual 64-cell default at unit scale.
+	[SerializeField] float _cellsPerUnit = 64f;
 
 	// Whether the inspector keeps the grid's X:Y aspect ratio when one axis is edited.
 	public bool ConstrainProportions {
@@ -23,10 +34,26 @@ public class GridTransform {
 		set => _constrainProportions = value;
 	}
 
+	// Whether resolution is derived from world extent × density (see _autoResolution).
+	public bool AutoResolution {
+		get => _autoResolution;
+		set { if (_autoResolution == value) return; _autoResolution = value; _dirty = true; }
+	}
+
+	// Cells per world unit in Auto-resolution mode (see _cellsPerUnit).
+	public float CellsPerUnit {
+		get => _cellsPerUnit;
+		set { var v = Mathf.Max(0.01f, value); if (_cellsPerUnit == v) return; _cellsPerUnit = v; _dirty = true; }
+	}
+
 	// Grid resolution in cells. Clamped to a minimum of 1 on each axis (a zero-dimension grid can't allocate a texture).
+	// The getter runs EnsureUpToDate() first so that in Auto-resolution mode it returns the freshly-derived size (readers
+	// like GridSize / CollectParameters / EnsurePaintField see the scale-driven value without touching a matrix getter).
+	// The setter is a no-op in Auto mode — size is owned by the density × extent derivation there, not authored directly.
 	public Vector2Int Size {
-		get => _size;
+		get { EnsureUpToDate(); return _size; }
 		set {
+			if (_autoResolution) return;
 			var clamped = new Vector2Int(Mathf.Max(1, value.x), Mathf.Max(1, value.y));
 			if (_size == clamped) return;
 			_size = clamped;
@@ -42,6 +69,8 @@ public class GridTransform {
 	// consume the shared Transform.hasChanged flag that other code may rely on).
 	bool _dirty = true;
 	Vector2Int _cachedSize;
+	bool _cachedAuto;
+	float _cachedCellsPerUnit;
 	Matrix4x4 _cachedOwnerMatrix = Matrix4x4.identity;
 	Matrix4x4 _gridToLocal = Matrix4x4.identity;
 	Matrix4x4 _gridToWorld = Matrix4x4.identity;
@@ -59,13 +88,38 @@ public class GridTransform {
 
 	Matrix4x4 OwnerLocalToWorld => _owner != null ? _owner.localToWorldMatrix : Matrix4x4.identity;
 
+	// Hard ceiling on a derived axis resolution. A large transform × density (e.g. lossyScale 200 × 64 cells/unit =
+	// 12800) would allocate a multi-hundred-megabyte map and can hang or crash the editor, so Auto mode clamps here. The
+	// inspector sets CellsPerUnit to preserve the current size when Auto is enabled, so this is a safety net, not the
+	// normal path; a clamp reduces fidelity on that axis but never crashes.
+	public const int MaxAutoAxisResolution = 2048;
+
+	// The size Auto-resolution mode would derive from the current owner extent — cellsPerUnit × |lossyScale| per axis,
+	// clamped to [1, MaxAutoAxisResolution]. World extent equals lossyScale because the field always spans the unit local
+	// quad. Public so the inspector can preview it without forcing a matrix rebuild.
+	public Vector2Int ComputeAutoSize() {
+		Vector3 scale = _owner != null ? _owner.lossyScale : Vector3.one;
+		return new Vector2Int(
+			Mathf.Clamp(Mathf.RoundToInt(_cellsPerUnit * Mathf.Abs(scale.x)), 1, MaxAutoAxisResolution),
+			Mathf.Clamp(Mathf.RoundToInt(_cellsPerUnit * Mathf.Abs(scale.y)), 1, MaxAutoAxisResolution));
+	}
+
 	void EnsureUpToDate() {
 		var ownerMatrix = OwnerLocalToWorld;
 		// Recompute when the size changed — including inspector edits, which write the serialized _size field directly
-		// and bypass the Size setter (so _dirty stays false) — when the owner moved, on a Bind, or on first use.
-		if (!_dirty && _size == _cachedSize && ownerMatrix == _cachedOwnerMatrix) return;
+		// and bypass the Size setter (so _dirty stays false) — when the owner moved (Auto mode re-derives size from the
+		// new scale), when the mode/density changed (also written directly by the inspector), on a Bind, or on first use.
+		if (!_dirty && _size == _cachedSize && ownerMatrix == _cachedOwnerMatrix
+			&& _autoResolution == _cachedAuto && _cellsPerUnit == _cachedCellsPerUnit) return;
+
+		// In Auto mode, derive the resolution from world extent × density before building the matrices, and write it back
+		// into _size so every Size reader (and the serialized fallback) sees the derived value.
+		if (_autoResolution) _size = ComputeAutoSize();
+
 		_dirty = false;
 		_cachedSize = _size;
+		_cachedAuto = _autoResolution;
+		_cachedCellsPerUnit = _cellsPerUnit;
 		_cachedOwnerMatrix = ownerMatrix;
 
 		// Cell-center conversion, Manhattan mode, scaleWithGridSize = false:

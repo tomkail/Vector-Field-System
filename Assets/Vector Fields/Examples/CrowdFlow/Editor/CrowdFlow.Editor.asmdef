@@ -1,0 +1,19 @@
+{
+    "name": "VectorFields.Examples.CrowdFlow.Editor",
+    "rootNamespace": "CrowdFlow.EditorTools",
+    "references": [
+        "VectorFields",
+        "VectorFields.Examples.CrowdFlow"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

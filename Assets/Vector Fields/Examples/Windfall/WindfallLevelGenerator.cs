@@ -23,9 +23,11 @@ namespace Windfall {
 
         [Header("Toward-target pull (base flow — keeps levels winnable)")]
         [Tooltip("Strength of the constant attractor pulling players toward the target; kept above the noise so the target is always reachable.")]
-        public float targetPullStrength = 1.6f;
+        public float targetPullStrength = 0.4f;
 
         [Header("Noise variation")]
+        [Tooltip("Overall strength of the meandering noise flow layered on top of the pull.")]
+        public float noiseStrength = 1f;
         [Tooltip("Noise frequency (cycles across the field): higher = more, tighter meanders on top of the pull.")]
         public Vector2 frequencyRange = new Vector2(1f, 2f);
         public Vector2Int octavesRange = new Vector2Int(1, 3);
@@ -95,6 +97,7 @@ namespace Windfall {
             noise.noiseSampler.properties.persistence = 0.5f;
             noise.vortexAngle = Range(vortexAngleRange, rng);
             noise.normalizeMagnitude = true;   // keep the base flow ~unit regardless of frequency
+            noise.magnitude = noiseStrength;
             Activate(noise);
 
             // --- random stamp features ---

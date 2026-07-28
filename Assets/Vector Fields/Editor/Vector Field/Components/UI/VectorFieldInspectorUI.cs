@@ -393,28 +393,6 @@ public static class VectorFieldInspectorUI {
 		return field;
 	}
 
-	// A default-style inspector (one PropertyField per visible property, script field shown disabled) that renders
-	// the named AnimationCurve property as a ranged CurveField. For simple components that need a ranged curve and
-	// have no other custom UI, without depending on the [CurveRange] attribute.
-	public static VisualElement DefaultInspectorWithRangedCurve(SerializedObject so, string curvePropertyName, Rect ranges, string curveTooltip = null) {
-		var root = new VisualElement();
-		var it = so.GetIterator();
-		if (it.NextVisible(true)) {
-			do {
-				if (it.propertyPath == "m_Script") {
-					var script = new PropertyField(it.Copy());
-					script.SetEnabled(false);
-					root.Add(script);
-				} else if (it.name == curvePropertyName) {
-					root.Add(RangedCurveField(it.Copy(), it.displayName, ranges, curveTooltip));
-				} else {
-					root.Add(new PropertyField(it.Copy()));
-				}
-			} while (it.NextVisible(false));
-		}
-		return root;
-	}
-
 	// Thin BaseField wrapper: we drive the value ourselves (the button callbacks write the serialized enum), but
 	// deriving from BaseField gives us the label element and the inspector's automatic label-column alignment.
 	// The "unity-base-field__aligned" class is what the alignment pass looks for.

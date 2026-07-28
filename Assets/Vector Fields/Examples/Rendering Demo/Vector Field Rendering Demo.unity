@@ -518,6 +518,8 @@ MonoBehaviour:
   <grid>k__BackingField:
     _size: {x: 64, y: 64}
     _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1
   cookie:
     mode: 0
@@ -682,6 +684,8 @@ MonoBehaviour:
   <grid>k__BackingField:
     _size: {x: 64, y: 64}
     _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1
   cookie:
     mode: 2
@@ -757,6 +761,8 @@ MonoBehaviour:
   <grid>k__BackingField:
     _size: {x: 64, y: 64}
     _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1.5
   cookie:
     mode: 0
@@ -1226,6 +1232,8 @@ MonoBehaviour:
   <grid>k__BackingField:
     _size: {x: 64, y: 64}
     _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1
   cookie:
     mode: 0
@@ -1294,6 +1302,15 @@ MonoBehaviour:
       weightedMode: 0
       inWeight: 0
       outWeight: 0
+    - serializedVersion: 3
+      time: 0.75
+      value: 0.49999762
+      inSlope: -3.197009
+      outSlope: -3.197009
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.36345768
     - serializedVersion: 3
       time: 1
       value: 0
@@ -1710,8 +1727,8 @@ MonoBehaviour:
   style:
     amplitudeColor:
       serializedVersion: 2
-      key0: {r: 1, g: 1, b: 1, a: 1}
-      key1: {r: 1, g: 1, b: 1, a: 1}
+      key0: {r: 0.19103774, g: 0.5367001, b: 1, a: 1}
+      key1: {r: 0.3803922, g: 0.91526306, b: 1, a: 1}
       key2: {r: 0, g: 0, b: 0, a: 0}
       key3: {r: 0, g: 0, b: 0, a: 0}
       key4: {r: 0, g: 0, b: 0, a: 0}
@@ -1743,31 +1760,31 @@ MonoBehaviour:
       m_Curve:
       - serializedVersion: 3
         time: 0
-        value: 0
-        inSlope: 0
-        outSlope: 0
+        value: 0.10151188
+        inSlope: 0.14277299
+        outSlope: 0.14277299
         tangentMode: 0
         weightedMode: 0
         inWeight: 0
-        outWeight: 0
+        outWeight: 0.15127702
       - serializedVersion: 3
         time: 1
         value: 1
-        inSlope: 1.4428996
-        outSlope: 1.4428996
+        inSlope: 1.1442237
+        outSlope: 1.1442237
         tangentMode: 0
         weightedMode: 0
-        inWeight: 0.06286836
+        inWeight: 0.096267164
         outWeight: 0
       m_PreInfinity: 2
       m_PostInfinity: 2
       m_RotationOrder: 4
-    backgroundColor: {r: 0, g: 0, b: 0, a: 0}
+    backgroundColor: {r: 0.1509434, g: 0.1509434, b: 0.1509434, a: 1}
     contrast: 1
     gamma: 1
     maxSpeed: 1
     opacity: 1
-  useTextureColor: 1
+  useTextureColor: 0
   streakTexture: {fileID: 0}
   textureScale: 10
   textureRotation: 0
@@ -1781,14 +1798,18 @@ MonoBehaviour:
   seamReach: 1
   seamDebug: 0
   tiers:
-  - speed: 0
-    texture: {fileID: 2800000, guid: 9e49fea1a943c4ff894da74a8a836933, type: 3}
-    textureScale: 5
+  - speed: 0.0027739252
+    texture: {fileID: 2800000, guid: 5408fc3909abd4cdaac960ce49473e11, type: 3}
+    textureScale: 4
+    scrollSpeed: 73
+  - speed: 0.5076283
+    texture: {fileID: 2800000, guid: 5408fc3909abd4cdaac960ce49473e11, type: 3}
+    textureScale: 8
     scrollSpeed: 73
   - speed: 1
-    texture: {fileID: 0}
-    textureScale: 5
-    scrollSpeed: 186
+    texture: {fileID: 2800000, guid: 5408fc3909abd4cdaac960ce49473e11, type: 3}
+    textureScale: 12
+    scrollSpeed: 100
   arrayResolution: 256
 --- !u!4 &1148423296
 Transform:

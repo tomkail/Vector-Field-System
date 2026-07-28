@@ -15,7 +15,7 @@ namespace VectorFields {
     }
 
     // Appearance settings for the vector field debug arrows. This is plain runtime data so the renderer can consume it
-    // directly; the editor-side project settings (see VectorFieldDebugProjectSettings) hold and serialize an instance of
+    // directly; the editor-side project settings (see VectorFieldProjectSettings) hold and serialize an instance of
     // it. Defaults give the standard look (Direction colouring, full opacity, unit magnitude scale).
     [System.Serializable]
     public class VectorFieldDebugAppearance {

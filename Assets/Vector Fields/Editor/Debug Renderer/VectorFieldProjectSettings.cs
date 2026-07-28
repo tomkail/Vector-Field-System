@@ -2,11 +2,11 @@ using UnityEditor;
 using UnityEngine;
 
 namespace VectorFields {
-    // Project-wide defaults for the vector field debug arrows, shown under Project Settings > Vector Field Debug.
+    // Project-wide defaults for the vector field debug arrows, shown under Project Settings > Vector Fields.
     // Stored in the ProjectSettings/ folder (not Assets/) so it's version-controlled with the project and shared by the
     // team, the modern Unity pattern for project settings (ScriptableSingleton + FilePath in the ProjectFolder).
-    [UnityEditor.FilePath("ProjectSettings/VectorFieldDebugSettings.asset", UnityEditor.FilePathAttribute.Location.ProjectFolder)]
-    public class VectorFieldDebugProjectSettings : UnityEditor.ScriptableSingleton<VectorFieldDebugProjectSettings> {
+    [UnityEditor.FilePath("ProjectSettings/VectorFieldSettings.asset", UnityEditor.FilePathAttribute.Location.ProjectFolder)]
+    public class VectorFieldProjectSettings : UnityEditor.ScriptableSingleton<VectorFieldProjectSettings> {
         [SerializeField] VectorFieldDebugAppearance _appearance = new VectorFieldDebugAppearance();
         public VectorFieldDebugAppearance appearance => _appearance ??= new VectorFieldDebugAppearance();
 

@@ -75,7 +75,7 @@ namespace VectorFields {
                     renderers[component] = renderer;
                 }
                 renderer.Draw(component, camera,
-                    VectorFieldDebugProjectSettings.instance.appearance,
+                    VectorFieldProjectSettings.instance.appearance,
                     VectorFieldDebugSettings.VariableResolution ? VectorFieldArrowResolutionMode.Adaptive : VectorFieldArrowResolutionMode.Native,
                     VectorFieldDebugSettings.TargetSpacingPixels,
                     VectorFieldDebugSettings.MaxArrows,

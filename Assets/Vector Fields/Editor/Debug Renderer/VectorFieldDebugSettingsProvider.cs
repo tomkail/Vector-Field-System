@@ -3,8 +3,8 @@ using UnityEditor;
 using UnityEngine;
 
 namespace VectorFields {
-    // Registers the "Vector Field Debug" page under Edit > Project Settings. Edits the project-wide appearance defaults
-    // (VectorFieldDebugProjectSettings) used by the scene-view debug arrows.
+    // Registers the "Vector Fields" page under Edit > Project Settings. Edits the project-wide appearance defaults
+    // (VectorFieldProjectSettings) used by the scene-view debug arrows.
     static class VectorFieldDebugSettingsProvider {
         [SettingsProvider]
         public static SettingsProvider Create() {
@@ -14,7 +14,7 @@ namespace VectorFields {
                     "vector", "field", "debug", "arrow", "colour", "color", "texture", "magnitude", "direction"
                 }),
                 guiHandler = _ => {
-                    var settings = VectorFieldDebugProjectSettings.instance;
+                    var settings = VectorFieldProjectSettings.instance;
                     var so = new SerializedObject(settings);
                     so.Update();
 

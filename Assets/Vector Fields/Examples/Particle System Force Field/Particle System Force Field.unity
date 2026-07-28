@@ -304,6 +304,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _vectorFieldComponent: {fileID: 1404041568}
+  matchFieldTransform: 1
+  thickness: 1
   amplitudeCurve:
     serializedVersion: 2
     m_Curve:
@@ -831,9 +833,9 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 295217448}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 50.25458, y: 50.25458, z: 1}
+  m_LocalScale: {x: 50, y: 50, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1030985555}
@@ -854,7 +856,7 @@ ScaleConstraint:
   m_AffectScalingX: 1
   m_AffectScalingY: 1
   m_AffectScalingZ: 1
-  m_Active: 1
+  m_Active: 0
   m_IsLocked: 1
   m_Sources:
   - sourceTransform: {fileID: 1404041570}
@@ -874,7 +876,7 @@ RotationConstraint:
   m_AffectRotationX: 1
   m_AffectRotationY: 1
   m_AffectRotationZ: 1
-  m_Active: 1
+  m_Active: 0
   m_IsLocked: 1
   m_Sources:
   - sourceTransform: {fileID: 1404041570}
@@ -894,7 +896,7 @@ PositionConstraint:
   m_AffectTranslationX: 1
   m_AffectTranslationY: 1
   m_AffectTranslationZ: 1
-  m_Active: 1
+  m_Active: 0
   m_IsLocked: 1
   m_Sources:
   - sourceTransform: {fileID: 1404041570}
@@ -929,6 +931,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7371edf8bc6c4365ba781cdcd6ca7af8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1
   cookie:
     mode: 1
@@ -976,9 +983,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   modeModule: {fileID: 1668894558}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 16
-    y: 16
+  _gridSize: {x: 16, y: 16}
   showGizmos: 0
 --- !u!4 &341557764
 Transform:
@@ -1025,6 +1030,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7371edf8bc6c4365ba781cdcd6ca7af8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1
   cookie:
     mode: 1
@@ -1072,9 +1082,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   modeModule: {fileID: 913688564}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 16
-    y: 16
+  _gridSize: {x: 16, y: 16}
   showGizmos: 0
 --- !u!4 &784381459
 Transform:
@@ -1133,6 +1141,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 449c126fe7344e0d81f292f477ebe3a4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1
   cookie:
     mode: 3
@@ -1163,9 +1176,7 @@ MonoBehaviour:
       m_RotationOrder: 4
     texture: {fileID: 0}
   sourceAsset: {fileID: 11400000, guid: f2c639c9cbc3041729c0d435577aa459, type: 2}
-  storedSize:
-    x: 32
-    y: 32
+  storedSize: {x: 32, y: 32}
   storedValues: []
   storedRows: []
 --- !u!114 &924814426
@@ -1182,9 +1193,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   modeModule: {fileID: 11400000, guid: b763ad5eca59439439bbeb4a300cbc55, type: 2}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 32
-    y: 32
+  _gridSize: {x: 32, y: 32}
   showGizmos: 0
 --- !u!4 &924814427
 Transform:
@@ -6045,7 +6054,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1.0107, y: 1, z: 1}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 295217451}
@@ -6188,6 +6197,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b20aa33103fe45579cd0c7c9ac3e1090, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 2
   cookie:
     mode: 0
@@ -6227,6 +6241,7 @@ MonoBehaviour:
       persistence: 0.8
       normalization: 0
   vortexAngle: 90
+  normalizeMagnitude: 0
 --- !u!114 &1297038200
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6241,9 +6256,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   modeModule: {fileID: 1325781721}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 64
-    y: 64
+  _gridSize: {x: 64, y: 64}
   showGizmos: 0
 --- !u!4 &1297038201
 Transform:
@@ -6302,6 +6315,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0a7a670a476549348e1f45a839bb443e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  <grid>k__BackingField:
+    _size: {x: 64, y: 64}
+    _constrainProportions: 0
+    _autoResolution: 0
+    _cellsPerUnit: 64
   magnitude: 1
   cookie:
     mode: 0
@@ -6362,7 +6380,7 @@ MonoBehaviour:
     scaleByFieldMagnitude: 0
     components: -1
   - component: {fileID: 784381457}
-    strength: 1
+    strength: 0.528
     blendMode: 0
     alignmentRamp:
       serializedVersion: 2
@@ -6420,7 +6438,7 @@ MonoBehaviour:
     scaleByFieldMagnitude: 0
     components: 3
   - component: {fileID: 924814425}
-    strength: 1
+    strength: 0.323
     blendMode: 0
     alignmentRamp:
       serializedVersion: 2
@@ -6462,9 +6480,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   modeModule: {fileID: 1540460592}
   scaleWithGridSize: 0
-  _gridSize:
-    x: 128
-    y: 128
+  _gridSize: {x: 128, y: 128}
   showGizmos: 0
 --- !u!4 &1404041570
 Transform:
@@ -6503,7 +6519,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!198 &1519249928
 ParticleSystem:
   m_ObjectHideFlags: 0
@@ -7143,7 +7159,7 @@ ParticleSystem:
     donutRadius: 0.2
     m_Position: {x: 0, y: 0, z: 0}
     m_Rotation: {x: 0, y: 0, z: 0}
-    m_Scale: {x: 24, y: 1, z: 24}
+    m_Scale: {x: 50, y: 1, z: 50}
     placementMode: 0
     m_MeshMaterialIndex: 0
     m_MeshNormalOffset: 0
@@ -11278,7 +11294,7 @@ ParticleSystemRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
-  m_RenderMode: 0
+  m_RenderMode: 5
   m_MeshDistribution: 0
   m_SortMode: 0
   m_MinParticleSize: 0

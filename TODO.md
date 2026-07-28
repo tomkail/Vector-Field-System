@@ -7,32 +7,14 @@ public API changes.
 ## Packaging / distribution
 To ship as a proper UPM package these are required:
 
-- [x] **Added asmdefs.** `VectorFields` (runtime, asmdef at the plugin root; references `UnityX.NoiseSampler` +
-      `UnityX.Noises`, `Unity.InputSystem`, `Unity.Mathematics`, and `Unity.Splines` — the splines reference is by
-      GUID with a `versionDefines` entry setting `VECTOR_FIELDS_SPLINES`, so that package stays optional). All editor
-      code was consolidated from the scattered `<X>/Editor/` subfolders into one `Editor/` tree mirroring the runtime
-      layout (including `VectorFieldWorldEditor/`, which previously sat unguarded in the runtime assembly and would
-      have broken player builds), compiled as `VectorFields.Editor`. `Tests/Editor/` compiles as
-      `VectorFields.Tests.Editor`.
 - [ ] **Convert the brush self-tests to NUnit.** They were a menu item only because the project had no asmdefs; now
       that `VectorFields.Tests.Editor` exists the conversion is mechanical (menu item kept for now).
 - [ ] **Wrap public types in a `VectorFields` namespace.** The project is currently global-namespace; for distribution,
-      namespacing avoids collisions with consumer code. Do it together with the asmdefs. (The map-family collision with
+      namespacing avoids collisions with consumer code. (The map-family collision with
       UnityX that would otherwise force this early was sidestepped by giving the vendored maps distinct names —
       `FieldMap`/`VectorFieldMap`/`ColorFieldMap` — so this is now purely a consumer-collision concern.)
-- [x] **Removed the UnityX dependency (Phase 1 of the reorg).** Vendored + trimmed the map family into
-      `Vector Field/FieldMap.cs` (`FieldMap<T>`/`VectorFieldMap`/`ColorFieldMap`, migrated `Point`→`Vector2Int`); folded
-      `GridRenderer` into a serializable `GridTransform`; replaced the stray helpers (`ObjectX`, `DebugX`,
-      `SerializableTransform`, `IEnumerableX.GetChanges`, `ComponentX`/`GetComponentsX`, `GetHierarchyIndex`,
-      `BaseEditor<T>`, `GizmosX`, `BoundsX`, `Plane.TryGetHitPoint`, `Color.WithAlpha`) with self-contained code; and
-      swapped `[EasyButtons.Button]` for custom editors. Only remaining UnityX use is the `[CurveRange]` /
-      `[EnumFlagsButtonGroup]` inspector attributes (being removed separately).
 
 ## Architecture / component consolidation
-- [x] **Rolled the Grid component into the Vector Field component.** The required UnityX `GridRenderer` is folded into a
-      serializable `GridTransform` owned by each `VectorFieldComponent` (and the standalone `SmokeSimulationComponent`),
-      so a single self-contained component is now a working field — grid size lives on the component (`grid.Size`).
-      Existing scenes keep their now-orphaned `GridRenderer` components (left in place by design).
 - [ ] **Investigate a single Vector Field component with multiple modes** instead of several distinct vector-field
       component types. Evaluate a mode enum (or similar) on one component vs. the current per-type components — weigh
       inspector clarity, serialization, and how much behaviour actually differs between the modes.
@@ -136,15 +118,6 @@ Coverage to keep in mind (a good suite hits each source × consumer at least onc
 - [ ] **Ambient beauty pass.** Leaves/snow/petals on a noise field — the low-effort screenshot/gif that sells at a glance.
 
 ## Renderers
-- [x] **Two-tier shader menu paths.** All plugin shaders now live under `Vector Fields/<Renderer>/<Variant>`
-      (`Flow Map/`, `LIC/`, `IBFV/`, `Flow-Aligned/`, `Debug/`, `Demos/` for the Smoke example); the internal
-      `CombineVectorFields` blit shader moved to `Hidden/` (it's loaded by Resources path, not name). `Water Flow Lit`
-      was renamed to `Flow Lit` and its shader moved into `Renderers/Flow Map/` (it's a flow-map variant).
-- [x] **Tiered variants of every flow visualizer.** `Flow Lit (Tiered)`, `LIC (Tiered)`, `Flow-Aligned (Tiered)`, and
-      `IBFV (Tiered)` shaders + renderers join the existing `Flow Map (Tiered)`: N looks keyed to the normalised speed
-      axis (Texture2DArray + float[] tier uniforms, `VectorFieldSpeedTiers.cginc` bracket/blend), edited via the shared
-      LODGroup-style tier bar (`VectorFieldTierBarGUI`, extracted from the flow-map editor). Texture-array packing is
-      consolidated in `VectorFieldRendererUtils.BakeTextureArray`.
 - [ ] **Sanity-pass the tiered defaults in-editor** (tier params were chosen to read well, not yet eyeballed live);
       check the tiered LIC cost on a big quad (it marches up to 2×). The Rendering Demo scene exercises the tiered
       Flow Map / LIC / Flow-Aligned materials; the `Vector Field Flow IBFV (Tiered)` material exists but isn't

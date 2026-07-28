@@ -60,15 +60,8 @@ namespace Windfall {
         public Vector2 levelSizeRange = new Vector2(80f, 140f);
 
         [Header("Camera")]
-        [Tooltip("The camera follows the active players and zooms to fit them; never tighter than min nor wider than max (ortho half-height).")]
-        public float cameraMinZoom = 9f;
-        public float cameraMaxZoom = 30f;
-        [Tooltip("World-unit margin kept around the players when framing.")]
-        public float cameraMargin = 5f;
-        [Tooltip("Follow/zoom smoothing (higher = snappier).")]
-        public float cameraFollowSpeed = 4f;
-        [Tooltip("Zoom for the goal fly-by during the intro pan, as a fraction of the play radius.")]
-        public float establishZoom = 0.4f;
+        [Tooltip("Drives the intro pan + in-play follow framing. Auto-created on this object if left empty.")]
+        public WindfallCamera cameraRig;
 
         [Header("Rounds")]
         [Tooltip("How many rounds a game runs before the final standings.")]
@@ -138,11 +131,8 @@ namespace Windfall {
         float _phaseT;
         int _round;               // 0-based index of the current round
 
-        // --- camera pan ---
-        struct CamPose { public Vector2 pos; public float size; public CamPose(Vector2 p, float s) { pos = p; size = s; } }
-        Camera _cam;
-        float _camHomeZ = -10f;
-        readonly List<CamPose> _panPoses = new List<CamPose>();
+        // Active-player world positions handed to the follow-cam each Playing frame (reused to avoid garbage).
+        readonly List<Vector2> _activeBuf = new List<Vector2>();
 
         // --- per-level state ---
         float _levelSize;
@@ -162,7 +152,7 @@ namespace Windfall {
         void Start() {
             EnsureHud();
             EnsurePostFx();
-            CacheCameraHome();
+            EnsureCameraRig();
             _round = 0;
             StartRound();
             EnterFadeIn();
@@ -236,7 +226,7 @@ namespace Windfall {
                 r.glider = g;
             }
 
-            BuildPanWaypoints();   // frame the intro pan from this level's spawns + target
+            cameraRig.BeginLevel(_spawnPositions, _targetPos, _playRadius);   // frame the intro pan from this level's spawns + target
         }
 
         void PrepareLevel() {
@@ -442,7 +432,7 @@ namespace Windfall {
                     break;
 
                 case Phase.Pan:
-                    ApplyPose(SamplePan(Mathf.Clamp01(_phaseT / Mathf.Max(0.01f, panDuration))));
+                    cameraRig.UpdatePan(Mathf.Clamp01(_phaseT / Mathf.Max(0.01f, panDuration)));
                     if (AnyPress() || _phaseT >= panDuration) EnterRoundName();
                     break;
 
@@ -455,7 +445,9 @@ namespace Windfall {
                     TickPlaying();
                     if (roundTimeLimit > 0f && _phaseT >= roundTimeLimit)
                         foreach (var r in _runners) if (!r.finished) Finish(r);
-                    UpdateFollowCamera();
+                    _activeBuf.Clear();
+                    foreach (var r in _runners) if (!r.finished && r.glider != null) _activeBuf.Add(r.glider.transform.position);
+                    cameraRig.UpdateFollow(_activeBuf);
                     _hud.SetTimer(roundTimeLimit > 0f, roundTimeLimit > 0f ? Mathf.Clamp01(1f - _phaseT / roundTimeLimit) : 0f);
                     _hud.SetGoalArrow(true, targetRing != null ? targetRing.transform.position : (Vector3)_targetPos);
                     if (AllFinished()) EnterResults();
@@ -488,7 +480,7 @@ namespace Windfall {
             _hud.SetBanner("", 0f);
             _hud.SetTimer(false, 0f);
             _hud.SetGoalArrow(false, Vector3.zero);
-            ApplyPose(_panPoses.Count > 0 ? _panPoses[0] : Home());   // establishing shot behind the black
+            cameraRig.ApplyPanStart();   // establishing shot behind the black
             _hud.SetFade(1f);
             SetPhase(Phase.FadeIn);
         }
@@ -496,7 +488,7 @@ namespace Windfall {
         void EnterPan() { SetPhase(Phase.Pan); }
 
         void EnterRoundName() {
-            ApplyPose(Home());
+            cameraRig.ApplyHome();
             FreezeAll(true);
             _hud.SetBanner(CurrentRoundName(), 0f);
             _hud.SetTimer(false, 0f);
@@ -505,7 +497,7 @@ namespace Windfall {
         }
 
         void EnterPlaying() {
-            ApplyPose(Home());
+            cameraRig.ApplyHome();
             _hud.SetBanner("", 0f);
             _hud.SetBarVisible(true);
             FreezeAll(false);
@@ -568,81 +560,12 @@ namespace Windfall {
 
         // ------------------------------------------------------------------ camera
 
-        void CacheCameraHome() {
-            _cam = Camera.main;
-            if (_cam != null) _camHomeZ = _cam.transform.position.z;
-        }
-
-        // Pan the intended flight: whole-level overview → goal fly-by → settle on the players' start.
-        // Rebuilt each round from the level's actual spawns + target.
-        void BuildPanWaypoints() {
-            _panPoses.Clear();
-            _panPoses.Add(new CamPose(Vector2.zero, _playRadius * 1.05f));                                  // whole-level overview
-            _panPoses.Add(new CamPose(_targetPos, Mathf.Clamp(_playRadius * establishZoom, cameraMinZoom, cameraMaxZoom))); // the goal
-            _panPoses.Add(Home());                                                                          // settle on the start
-        }
-
-        // "Home" = the players' start framing (used as the pan's final pose and the Playing hand-off).
-        CamPose Home() {
-            Vector2 c = SpawnCentroid();
-            float size = Mathf.Clamp(SpawnExtent() + cameraMargin, cameraMinZoom, cameraMaxZoom);
-            return new CamPose(c, size);
-        }
-
-        Vector2 SpawnCentroid() {
-            if (_spawnPositions.Count == 0) return Vector2.zero;
-            Vector2 c = Vector2.zero;
-            foreach (var p in _spawnPositions) c += (Vector2)p;
-            return c / _spawnPositions.Count;
-        }
-
-        float SpawnExtent() {
-            Vector2 c = SpawnCentroid();
-            float e = 0f;
-            foreach (var p in _spawnPositions) e = Mathf.Max(e, Vector2.Distance(c, (Vector2)p));
-            return e;
-        }
-
-        // Follow the active (still-flying) players and zoom to fit them, clamped so they're never too small
-        // and never zoomed out past the cap. Smoothed. Used every frame during Playing.
-        void UpdateFollowCamera() {
-            if (_cam == null) return;
-            bool any = false;
-            Vector2 min = Vector2.zero, max = Vector2.zero;
-            foreach (var r in _runners) {
-                if (r.finished || r.glider == null) continue;
-                Vector2 p = r.glider.transform.position;
-                if (!any) { min = max = p; any = true; }
-                else { min = Vector2.Min(min, p); max = Vector2.Max(max, p); }
-            }
-            if (!any) return;   // nobody flying — hold the last framing
-
-            Vector2 c = (min + max) * 0.5f;
-            float aspect = _cam.aspect > 0.01f ? _cam.aspect : 1.6f;
-            float halfW = (max.x - min.x) * 0.5f, halfH = (max.y - min.y) * 0.5f;
-            float fit = Mathf.Max(halfW / aspect, halfH) + cameraMargin;
-            float size = Mathf.Clamp(fit, cameraMinZoom, cameraMaxZoom);
-
-            float k = 1f - Mathf.Exp(-cameraFollowSpeed * Time.deltaTime);
-            Vector2 np = Vector2.Lerp((Vector2)_cam.transform.position, c, k);
-            _cam.transform.position = new Vector3(np.x, np.y, _camHomeZ);
-            _cam.orthographicSize = Mathf.Lerp(_cam.orthographicSize, size, k);
-        }
-
-        CamPose SamplePan(float u) {
-            int legs = _panPoses.Count - 1;
-            if (legs <= 0) return Home();
-            float f = Mathf.Clamp01(u) * legs;
-            int i = Mathf.Min((int)f, legs - 1);
-            float s = Mathf.SmoothStep(0f, 1f, f - i);
-            var a = _panPoses[i]; var b = _panPoses[i + 1];
-            return new CamPose(Vector2.Lerp(a.pos, b.pos, s), Mathf.Lerp(a.size, b.size, s));
-        }
-
-        void ApplyPose(CamPose pose) {
-            if (_cam == null) return;
-            _cam.transform.position = new Vector3(pose.pos.x, pose.pos.y, _camHomeZ);
-            if (_cam.orthographic) _cam.orthographicSize = pose.size;
+        // The camera rig (pan + follow framing) lives in its own component; create one on this object if the
+        // scene didn't wire one up, then hand it the objects framing needs.
+        void EnsureCameraRig() {
+            if (cameraRig == null) cameraRig = GetComponent<WindfallCamera>();
+            if (cameraRig == null) cameraRig = gameObject.AddComponent<WindfallCamera>();
+            cameraRig.Acquire(targetRing, _hud);
         }
 
         static bool AnyPress() {

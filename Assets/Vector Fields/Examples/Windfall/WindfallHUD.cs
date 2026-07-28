@@ -257,6 +257,19 @@ namespace Windfall {
             if (_bar != null) _bar.gameObject.SetActive(visible);
         }
 
+        /// <summary>
+        /// Height in screen pixels of the top HUD strip (player bar plus the timer bar when shown), so the
+        /// game camera can keep players framed below it rather than behind it. Returns 0 when the bar is
+        /// hidden. The canvas is ConstantPixelSize, so canvas units == screen pixels.
+        /// </summary>
+        public float TopInsetPixels() {
+            if (_bar == null || !_bar.gameObject.activeSelf) return 0f;
+            float inset = BarHeight;
+            if (_timerBg != null && _timerBg.gameObject.activeSelf)
+                inset = BarHeight + 4f + _timerBg.rectTransform.rect.height;   // timer sits just under the bar
+            return inset + 8f;   // a little breathing room below the strip
+        }
+
         public void SetResults(bool visible, string title) {
             _resultsVisible = visible;
             _resultsTitleText = title ?? "";

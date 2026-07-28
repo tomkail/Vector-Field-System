@@ -1,6 +1,9 @@
 # Windfall — Game Design Doc
 
-> **Status:** draft for iteration. Nothing here is implemented yet.
+> **Status:** the game is **built and playable** (`Windfall_Greybox.unity`). This
+> doc is the original design intent; where the shipped build diverged from it, the
+> deltas are recorded in **§14 (Implementation status)** — read that for what the
+> code actually does today, and `HANDOVER.md` for a fresh-session snapshot.
 > Working title: *Windfall*. (Alt names: Drift, Updraft, Gale Golf, Slipstream.)
 
 A local-multiplayer "wind golf" built to show off the Vector Field System. The
@@ -244,10 +247,16 @@ mid-shot; the run ends.
 
 ## 7. Feel, camera, controls
 
-- **Camera:** follows the player, eased; zoom out slightly with speed so fast
-  drifts stay readable. Frame both players in multiplayer (shared or split).
+- **Camera (built — `WindfallCamera`, §14):** a dedicated component drives a
+  skippable **intro pan** (whole-level overview → goal fly-by → players' start)
+  and an in-play **follow-cam** that frames all active players, zooms to fit them
+  (clamped so they're never too small nor past a cap), **leads toward the goal**
+  so players ride the trailing edge and the space ahead stays visible, and
+  reserves the top HUD strip so nobody is framed behind it. Draws Scene-view
+  gizmos of what it's doing.
 - **Controls (single button):**
-  - Keyboard: `Space` (P1), `Enter`/RShift (P2) — or per-player keys.
+  - Keyboard: `Space` (P1), `Enter` (P2), then per-player keys (`A F J L …`); a
+    gamepad player with no pad connected falls back to a keyboard key.
   - Gamepad: one face button per pad. Local MP wants gamepads.
 See §7a for the VFX/SFX that sell these moments.
 
@@ -362,7 +371,11 @@ renderer kept as a toggleable "field vision" assist.
 
 ---
 
-## 9. Local multiplayer (future)
+## 9. Local multiplayer (BUILT — simultaneous)
+
+> **Shipped:** the build runs **simultaneous** local multiplayer (below), managed
+> by `WindfallGame` across a multi-round flow — the turn-based mode was skipped in
+> favour of going straight to the party feel. See §14.
 
 **Player-vs-player collision (§3b) is the heart of MP** — knocking rivals off
 their line and clattering settled pieces out of the ring. Two modes exploit it
@@ -436,19 +449,22 @@ rewrite. Tracked as open question #8.
 
 ## 11. Proposed build order (once the doc settles)
 
-0. **Visualization bake-off** (§8) — one course, screenshot each renderer +
-   the layered composite, pick the base look (or decide we need a custom shader).
-   Cheap and de-risks the biggest unknown.
-1. **Movement prototype** — one player, one Noise field, `WindfallSettings` SO,
-   launch + catch/coast integrator. Get the *feel* right first (this is the whole
-   game), tuning the SO live in play mode. Grey-box, no scoring.
-2. **Scoring** — target ring + patient settle detection + out-of-bounds fail.
-3. **Islands** — resting-on-island → re-launch chaining.
-4. **Juice** — VFX/SFX events (§7a) + camera.
-5. **Real course** — a Tom-authored field + the chosen visualization.
-6. **Local multiplayer** — turn-based first, with **player-player collision (§3b)**
-   and settled pieces as knockable obstacles (the pétanque payoff).
-7. **(Stretch)** items (§9a).
+Status markers reflect the shipped build (see §14).
+
+0. **Visualization bake-off** (§8) — ✅ resolved to the "instrument glow" look
+   (cyan flow lines + drifting motes + bloom).
+1. **Movement prototype** — ✅ `WindGlider` + `WindfallSettings`, tuned live.
+2. **Scoring** — ✅ `TargetRing` zones + patient settle + out-of-bounds fail,
+   plus scattered `Collectible`s and a settle-order rank bonus.
+3. **Islands** — ⏭️ **skipped** — the re-launch/island twist wasn't built; a round
+   is a single simultaneous flight per player instead.
+4. **Juice** — ✅ `WindfallJuice` (§7a) + `WindfallCamera` (§7) + `WindfallPostFx`
+   bloom.
+5. **Real course** — ↩️ **replaced by a random generator** (`WindfallLevelGenerator`,
+   §14) — levels are generated per round, not hand-authored.
+6. **Local multiplayer** — ✅ built **simultaneous** (not turn-based first), wrapped
+   in a multi-round flow with an intro pan, round banner, HUD, and results.
+7. **(Stretch)** items (§9a) — ❌ not built.
 
 ---
 
@@ -513,6 +529,60 @@ or as an item) ever becomes a mechanic. Keeping it pure single-toggle for now.
 
 Art/SFX follow: metal ball-bearings; magnetic hum that rises while catching;
 metallic *clack* on collision; a coil/rail launcher for the golf-style launch.
+
+---
+
+## 14. Implementation status (what's actually built)
+
+The game is playable in `Windfall_Greybox.unity`. Scripts, namespace `Windfall`,
+in this folder, behind the `Windfall` asmdef (references `VectorFields`,
+`UnityX.NoiseSampler`, Input System, UGUI, Splines, Mathematics, URP; the optional
+spline lane is guarded by the `WINDFALL_SPLINES` version-define):
+
+- **`WindfallGame`** — the round manager + state machine. Runs a multi-round flow,
+  each round stepping `FadeIn → Pan → RoundName → Playing → Results → FadeOut`,
+  then a `GameOver` standings screen. Spawns one `WindGlider` per player with its
+  own colour + input, scatters `Collectible`s, tracks cumulative score, ends the
+  round when everyone has finished **or** `roundTimeLimit` elapses. Backspace
+  resets. Auto-fills players from `spawnParent` children if the list is empty, and
+  remaps gamepad players with no connected pad to a keyboard fallback key.
+- **`WindfallCamera`** — the camera rig (§7): intro pan + follow-cam with
+  lead-toward-goal, HUD-strip reservation, and Scene-view gizmos. Auto-created on
+  the game object if not wired. Tunables: min/max zoom, margin, follow speed,
+  `lead`, establish zoom.
+- **`WindfallLevelGenerator`** — builds a random level per round as a
+  `GroupVectorFieldComponent`: a **constant pull toward the goal** (keeps every
+  level winnable), a **noise** meander on top, 0–2 random **stamp** accents, and
+  (with `WINDFALL_SPLINES`) an optional curved **spline "road"** aimed at the goal.
+  Level world size is randomised per round (`levelSizeRange`).
+- **`WindGlider`** — the player: one-button golf launch + catch/coast integrator
+  (§3), CPU field consumer, events, metallic ball-bearing material + a plasma
+  trail tinted to the player's colour. Has a `Frozen` gate so the manager can hold
+  players between phases.
+- **`WindfallInput`** — per-player one-button input (keyboard key or gamepad
+  South), with a human-readable `Label` shown in the HUD.
+- **`WindfallHUD`** — runtime UGUI (`ConstantPixelSize` canvas): the live score
+  bar (scales with screen width, shows each player's input button), fade overlay,
+  round-name banner, "+N" score popups, results panel, round **timer** bar, and a
+  screen-edge **goal arrow**. Exposes `TopInsetPixels()` so the camera can keep
+  players clear of the top strip.
+- **`WindfallJuice`** — §7a feedback: magnetic hum while catching, field-line
+  pulse on catch, metallic clack on collision.
+- **`WindfallPostFx`** — runtime URP **bloom** volume for the instrument-glow look.
+- **`TargetRing`** — concentric scoring zones + `OuterRadius` + gizmos.
+- **`Collectible`** — scattered bonus points.
+- **`WindfallSettings`** — the live-tuned feel SO (§3a).
+
+**Where the build diverged from the spec above:**
+- **Simultaneous, not turn-based-first** (§9) — the party mode was built directly.
+- **Random generator, not hand-authored courses** (§4/§11.5) — `WindfallLevelGenerator`
+  makes each level; a serialized `field` is still supported when `generateLevels`
+  is off.
+- **No islands / re-launch** (§5/§11.3) — a run is a single flight; a safety round
+  timer ends stragglers.
+- **Collectibles + settle-order rank bonus** were added to scoring (§5) on top of
+  the ring zones.
+- **Items** (§9a) remain unbuilt.
 
 ---
 

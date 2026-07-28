@@ -114,5 +114,3 @@ Coverage to keep in mind (a good suite hits each source × consumer at least onc
 - [ ] Decide whether the density controls (variable resolution / spacing / max arrows — currently per-user in the
       scene-view overlay via `EditorPrefs`) should also live in the **Vector Fields** project-settings page as
       project-wide defaults, or stay per-user. (See `VectorFieldDebugSettingsProvider` / `VectorFieldDebugSettings`.)
-- [ ] Minor: the project-settings page is labelled "Vector Fields" but the backing type/file are still
-      `VectorFieldDebugProjectSettings` / `ProjectSettings/VectorFieldDebugSettings.asset` — rename for consistency if desired.

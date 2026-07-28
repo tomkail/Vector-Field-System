@@ -1,6 +1,6 @@
 {
     "name": "VectorFields",
-    "rootNamespace": "",
+    "rootNamespace": "VectorFields",
     "references": [
         "GUID:6bd1473276ae1445fbb1f8589686b716",
         "GUID:6fa48a7bdc1cb47c993414f8d772862e",

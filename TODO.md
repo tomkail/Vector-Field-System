@@ -4,14 +4,6 @@ A living checklist for the Vector Field System. For full context see `HANDOVER.m
 `Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md`. Keep `VECTOR_FIELDS.md` in sync (per `DOCS_GUIDE.md`) when the
 public API changes.
 
-## Packaging / distribution
-To ship as a proper UPM package these are required:
-
-- [ ] **Wrap public types in a `VectorFields` namespace.** The project is currently global-namespace; for distribution,
-      namespacing avoids collisions with consumer code. (The map-family collision with
-      UnityX that would otherwise force this early was sidestepped by giving the vendored maps distinct names —
-      `FieldMap`/`VectorFieldMap`/`ColorFieldMap` — so this is now purely a consumer-collision concern.)
-
 ## Architecture / component consolidation
 - [ ] **Investigate a single Vector Field component with multiple modes** instead of several distinct vector-field
       component types. Evaluate a mode enum (or similar) on one component vs. the current per-type components — weigh

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using VectorFields;
 
 public class Flocking : MonoBehaviour {
 	[System.Serializable]

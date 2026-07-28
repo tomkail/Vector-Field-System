@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.Serialization;
+using VectorFields;
 
 namespace Windfall {
     /// <summary>

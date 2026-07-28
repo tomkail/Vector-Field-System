@@ -1,97 +1,108 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// Runtime arrow visualisation of a vector field. Wraps the same VectorFieldDebugRenderer core that the Scene-view debug
-// overlay uses (which is already pure Graphics.RenderMeshIndirect — no editor APIs), but drives it from a live
-// component instead of an editor hook, so the arrow view works in play mode (and, being [ExecuteAlways], in the Game
-// view in edit mode too). It exposes the same settings the Scene-view renderer has: the full VectorFieldDebugAppearance
-// (glyph, colour mode, colours, max magnitude, opacity) and the variable-resolution density controls.
-//
-// It draws only to Game cameras, so it never double-draws with the editor's Scene-view overlay (which owns the Scene
-// view and draws the selected field). One indirect draw is issued per rendering camera, at the correct point in both
-// the Built-in pipeline (Camera.onPreCull) and any SRP/URP (RenderPipelineManager.beginCameraRendering).
-[ExecuteAlways]
-[AddComponentMenu("Vector Fields/Renderers/Arrow Renderer")]
-public class VectorFieldArrowRenderer : MonoBehaviour {
-	[SerializeField] VectorFieldComponent _vectorFieldComponent;
-	public VectorFieldComponent vectorFieldComponent {
-		get => _vectorFieldComponent;
-		set => _vectorFieldComponent = value;
+namespace VectorFields {
+	// Runtime arrow visualisation of a vector field. Wraps the same VectorFieldDebugRenderer core that the Scene-view debug
+	// overlay uses (which is already pure Graphics.RenderMeshIndirect — no editor APIs), but drives it from a live
+	// component instead of an editor hook, so the arrow view works in play mode (and, being [ExecuteAlways], in the Game
+	// view in edit mode too). It exposes the same settings the Scene-view renderer has: the full VectorFieldDebugAppearance
+	// (glyph, colour mode, colours, max magnitude, opacity) and the variable-resolution density controls.
+	//
+	// It draws only to Game cameras, so it never double-draws with the editor's Scene-view overlay (which owns the Scene
+	// view and draws the selected field). One indirect draw is issued per rendering camera, at the correct point in both
+	// the Built-in pipeline (Camera.onPreCull) and any SRP/URP (RenderPipelineManager.beginCameraRendering).
+	[ExecuteAlways]
+	[AddComponentMenu("Vector Fields/Renderers/Arrow Renderer")]
+	public class VectorFieldArrowRenderer : MonoBehaviour {
+		[SerializeField] VectorFieldComponent _vectorFieldComponent;
+		public VectorFieldComponent vectorFieldComponent {
+			get => _vectorFieldComponent;
+			set => _vectorFieldComponent = value;
+		}
+
+		// Public accessors so the density and look can be configured from code (e.g. a demo wiring up arrow overlays),
+		// not just from the inspector.
+		public VectorFieldArrowResolutionMode ResolutionMode { get => resolutionMode; set => resolutionMode = value; }
+		public int FixedResolution { get => fixedResolution; set => fixedResolution = value; }
+		public float TargetSpacingPixels { get => targetSpacingPixels; set => targetSpacingPixels = value; }
+		public int MaxArrows { get => maxArrows; set => maxArrows = value; }
+		public VectorFieldDebugAppearance Appearance { get => appearance; set => appearance = value; }
+		public bool MatchFieldTransform { get => matchFieldTransform; set => matchFieldTransform = value; }
+
+		// When on (the default) arrows are drawn at the field's own placement, exactly like the Scene-view renderer. Turn
+		// it off to draw them relative to THIS object's transform instead — the grid layout is preserved but mapped into
+		// this GameObject's space, so you can offset / rotate / scale the arrow overlay independently of the field (e.g. a
+		// HUD-style readout, or the same field visualised in two places). The arrow shader is unlit + ZTest-Always, so
+		// following the field never z-fights whatever else is drawn there.
+		[SerializeField] bool matchFieldTransform = true;
+
+		// Arrow look — the same data the Scene-view renderer reads (edited there under Project Settings > Vector Fields).
+		// Leave arrowTexture empty to fall back to the built-in glyph; note that glyph currently lives under an Editor/
+		// folder, so at runtime you'll want to assign your own arrow texture here (see the renderer's Resources.Load note).
+		[SerializeField] VectorFieldDebugAppearance appearance = new VectorFieldDebugAppearance();
+
+		// Density — serialized on the component so it travels with the scene.
+		//   Native  = one arrow per field cell.
+		//   Fixed   = a fixed number of arrows along the long axis (fixedResolution), independent of the camera.
+		//   Adaptive = decimated so on-screen spacing stays roughly constant as the camera moves.
+		[Tooltip("How the arrow density is chosen. Native = one per cell; Fixed = a set count regardless of camera; Adaptive = scales with the camera.")]
+		[SerializeField] VectorFieldArrowResolutionMode resolutionMode = VectorFieldArrowResolutionMode.Adaptive;
+		[Tooltip("Number of arrows along the field's long axis (Fixed mode only).")]
+		[Range(2, 256)] [SerializeField] int fixedResolution = 32;
+		[Tooltip("Desired screen-space gap between arrows, in pixels (Adaptive mode only).")]
+		[Range(8f, 128f)] [SerializeField] float targetSpacingPixels = 36f;
+		[Tooltip("Upper bound on the number of arrows along the long axis (Adaptive mode only).")]
+		[Range(8, 256)] [SerializeField] int maxArrows = 64;
+
+		VectorFieldDebugRenderer debugRenderer;
+
+		void OnEnable() {
+			Camera.onPreCull += DrawForCamera;                                     // Built-in RP (no-op under an SRP)
+			RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;  // URP/HDRP (no-op under Built-in)
+		}
+
+		void OnDisable() {
+			Camera.onPreCull -= DrawForCamera;
+			RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+			debugRenderer?.Dispose();
+			debugRenderer = null;
+		}
+
+		void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera) => DrawForCamera(camera);
+
+		// Issue the arrow draw for one camera. Draw to Game and Scene-view cameras (so the overlay is visible while
+		// authoring too); skip reflection/preview cameras. Note the editor's own debug overlay also draws in the Scene view,
+		// but only for the *selected* field — so selecting this component's field can briefly double up the arrows there.
+		void DrawForCamera(Camera camera) {
+			if (_vectorFieldComponent == null || camera == null) return;
+			if (camera.cameraType != CameraType.Game && camera.cameraType != CameraType.SceneView) return;
+			debugRenderer ??= new VectorFieldDebugRenderer();
+			debugRenderer.Draw(_vectorFieldComponent, camera, appearance, resolutionMode, targetSpacingPixels, maxArrows, fixedResolution,
+				matchFieldTransform ? (Matrix4x4?)null : GridToThisTransform());
+		}
+
+		// Map the field's grid layout into this object's transform instead of the field's: strip the field's own world
+		// transform off its grid->world matrix (leaving grid->field-local), then re-anchor that to our transform. Setting
+		// our transform equal to the field's reproduces the field's placement exactly; from there you can offset it.
+		Matrix4x4 GridToThisTransform() {
+			var gridToFieldLocal = _vectorFieldComponent.transform.worldToLocalMatrix * _vectorFieldComponent.GridToWorldMatrix;
+			return transform.localToWorldMatrix * gridToFieldLocal;
+		}
+
+	#if UNITY_EDITOR
+		// RenderMeshIndirect draws aren't part of Scene-view picking, so clicking the arrows wouldn't select us. Draw a
+		// near-invisible gizmo quad over the field's rect (in the same space the arrows use) purely so the whole area is
+		// clickable. Gizmo picking is geometry-based, so the tiny alpha is imperceptible yet still selectable.
+		void OnDrawGizmos() {
+			if (_vectorFieldComponent == null) return;
+			var gridSize = _vectorFieldComponent.GridSize;
+			if (gridSize.x < 1 || gridSize.y < 1) return;
+
+			Gizmos.matrix = matchFieldTransform ? _vectorFieldComponent.GridToWorldMatrix : GridToThisTransform();
+			Gizmos.color = new Color(1f, 1f, 1f, 0.002f);
+			// Cell 0..gridSize-1 with half-cell margins spans grid space [-0.5, gridSize-0.5] — matching the arrows' extent.
+			Gizmos.DrawCube(new Vector3((gridSize.x - 1) * 0.5f, (gridSize.y - 1) * 0.5f, 0f), new Vector3(gridSize.x, gridSize.y, 0f));
+		}
+	#endif
 	}
-
-	// When on (the default) arrows are drawn at the field's own placement, exactly like the Scene-view renderer. Turn
-	// it off to draw them relative to THIS object's transform instead — the grid layout is preserved but mapped into
-	// this GameObject's space, so you can offset / rotate / scale the arrow overlay independently of the field (e.g. a
-	// HUD-style readout, or the same field visualised in two places). The arrow shader is unlit + ZTest-Always, so
-	// following the field never z-fights whatever else is drawn there.
-	[SerializeField] bool matchFieldTransform = true;
-
-	// Arrow look — the same data the Scene-view renderer reads (edited there under Project Settings > Vector Fields).
-	// Leave arrowTexture empty to fall back to the built-in glyph; note that glyph currently lives under an Editor/
-	// folder, so at runtime you'll want to assign your own arrow texture here (see the renderer's Resources.Load note).
-	[SerializeField] VectorFieldDebugAppearance appearance = new VectorFieldDebugAppearance();
-
-	// Density — serialized on the component so it travels with the scene.
-	//   Native  = one arrow per field cell.
-	//   Fixed   = a fixed number of arrows along the long axis (fixedResolution), independent of the camera.
-	//   Adaptive = decimated so on-screen spacing stays roughly constant as the camera moves.
-	[Tooltip("How the arrow density is chosen. Native = one per cell; Fixed = a set count regardless of camera; Adaptive = scales with the camera.")]
-	[SerializeField] VectorFieldArrowResolutionMode resolutionMode = VectorFieldArrowResolutionMode.Adaptive;
-	[Tooltip("Number of arrows along the field's long axis (Fixed mode only).")]
-	[Range(2, 256)] [SerializeField] int fixedResolution = 32;
-	[Tooltip("Desired screen-space gap between arrows, in pixels (Adaptive mode only).")]
-	[Range(8f, 128f)] [SerializeField] float targetSpacingPixels = 36f;
-	[Tooltip("Upper bound on the number of arrows along the long axis (Adaptive mode only).")]
-	[Range(8, 256)] [SerializeField] int maxArrows = 64;
-
-	VectorFieldDebugRenderer debugRenderer;
-
-	void OnEnable() {
-		Camera.onPreCull += DrawForCamera;                                     // Built-in RP (no-op under an SRP)
-		RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;  // URP/HDRP (no-op under Built-in)
-	}
-
-	void OnDisable() {
-		Camera.onPreCull -= DrawForCamera;
-		RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
-		debugRenderer?.Dispose();
-		debugRenderer = null;
-	}
-
-	void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera) => DrawForCamera(camera);
-
-	// Issue the arrow draw for one camera. Draw to Game and Scene-view cameras (so the overlay is visible while
-	// authoring too); skip reflection/preview cameras. Note the editor's own debug overlay also draws in the Scene view,
-	// but only for the *selected* field — so selecting this component's field can briefly double up the arrows there.
-	void DrawForCamera(Camera camera) {
-		if (_vectorFieldComponent == null || camera == null) return;
-		if (camera.cameraType != CameraType.Game && camera.cameraType != CameraType.SceneView) return;
-		debugRenderer ??= new VectorFieldDebugRenderer();
-		debugRenderer.Draw(_vectorFieldComponent, camera, appearance, resolutionMode, targetSpacingPixels, maxArrows, fixedResolution,
-			matchFieldTransform ? (Matrix4x4?)null : GridToThisTransform());
-	}
-
-	// Map the field's grid layout into this object's transform instead of the field's: strip the field's own world
-	// transform off its grid->world matrix (leaving grid->field-local), then re-anchor that to our transform. Setting
-	// our transform equal to the field's reproduces the field's placement exactly; from there you can offset it.
-	Matrix4x4 GridToThisTransform() {
-		var gridToFieldLocal = _vectorFieldComponent.transform.worldToLocalMatrix * _vectorFieldComponent.GridToWorldMatrix;
-		return transform.localToWorldMatrix * gridToFieldLocal;
-	}
-
-#if UNITY_EDITOR
-	// RenderMeshIndirect draws aren't part of Scene-view picking, so clicking the arrows wouldn't select us. Draw a
-	// near-invisible gizmo quad over the field's rect (in the same space the arrows use) purely so the whole area is
-	// clickable. Gizmo picking is geometry-based, so the tiny alpha is imperceptible yet still selectable.
-	void OnDrawGizmos() {
-		if (_vectorFieldComponent == null) return;
-		var gridSize = _vectorFieldComponent.GridSize;
-		if (gridSize.x < 1 || gridSize.y < 1) return;
-
-		Gizmos.matrix = matchFieldTransform ? _vectorFieldComponent.GridToWorldMatrix : GridToThisTransform();
-		Gizmos.color = new Color(1f, 1f, 1f, 0.002f);
-		// Cell 0..gridSize-1 with half-cell margins spans grid space [-0.5, gridSize-0.5] — matching the arrows' extent.
-		Gizmos.DrawCube(new Vector3((gridSize.x - 1) * 0.5f, (gridSize.y - 1) * 0.5f, 0f), new Vector3(gridSize.x, gridSize.y, 0f));
-	}
-#endif
 }

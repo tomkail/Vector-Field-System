@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityX.Inputs;
+using VectorFields;
 
 [System.Serializable]
 public struct DragParams

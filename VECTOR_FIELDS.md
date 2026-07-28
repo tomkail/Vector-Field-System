@@ -36,6 +36,7 @@ A Unity toolkit for authoring, generating, simulating, blending, sampling, and v
 
 ## Concepts
 
+- All plugin types live in the **`VectorFields` namespace** — add `using VectorFields;` to scripts that use them (the code snippets below assume it).
 - A **field** is a grid of `Vector2` values laid out on a plane. The component's transform sets the plane (the field's "up" is `transform.forward` / `planeNormal`); grid size and world↔cell mapping come from the component's own serialized `grid` (a **`GridTransform`**), so no separate grid component is needed.
 - Every field is a **`VectorFieldComponent`** (a MonoBehaviour). Different field *types* subclass it (painted, noise, mesh, spline, stamp, simulated, wave, group). One field per GameObject — compose co‑located fields under a **Group**, don't stack components.
 - Fields render lazily: they re‑render only when something changes (transform, parameters, the grid). The result lives in a GPU `renderTexture`; a CPU mirror (`VectorFieldMap vectorField`) is produced only when a consumer asks for it.

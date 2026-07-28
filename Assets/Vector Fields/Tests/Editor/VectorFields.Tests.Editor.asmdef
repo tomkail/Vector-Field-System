@@ -1,6 +1,6 @@
 {
     "name": "VectorFields.Tests.Editor",
-    "rootNamespace": "",
+    "rootNamespace": "VectorFields",
     "references": [
         "GUID:4c8303856b11407a9b8a317ee44f22c9",
         "GUID:3e2033ed916642b3b4978cbbbe3940e7",

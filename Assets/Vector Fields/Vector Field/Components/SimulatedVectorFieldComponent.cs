@@ -1,388 +1,390 @@
 using UnityEngine;
 
-// A *stateful* vector field: instead of recomputing its output from parameters each frame (like noise/stamp/polygon),
-// it integrates an incompressible 2D fluid forward in time. The field at frame N is derived from the field at frame
-// N-1 — that statefulness is what makes wind swirl around obstacles, form wakes, and conserve mass rather than just
-// scrolling a noise function.
-//
-// It is the one component that breaks the "render only when dirty" model: while playing it marks itself dirty every
-// frame and advances the solver on a FIXED timestep (sims go unstable on variable dt). The solver runs on its own
-// raw-float velocity ping-pong textures and only encodes into the base renderTexture at the end, so the rest of the
-// toolset (particle force field, group blend, GPU/CPU sampling, visualizer) consumes it exactly like any other field.
-//
-// Inputs that compose with the existing toolset:
-//   forceField  — another VectorFieldComponent whose output is injected as a continuous force each step. Point a
-//                 NoiseVectorFieldComponent at it for gusty wind, or a StampVectorFieldComponent for a fan/emitter.
-//   obstacles   — a mask texture (e.g. rasterized from a MeshVectorField) the fluid flows around.
-[ExecuteAlways]
-[AddComponentMenu("Vector Fields/Simulated Vector Field")]
-public class SimulatedVectorFieldComponent : VectorFieldComponent {
+namespace VectorFields {
+	// A *stateful* vector field: instead of recomputing its output from parameters each frame (like noise/stamp/polygon),
+	// it integrates an incompressible 2D fluid forward in time. The field at frame N is derived from the field at frame
+	// N-1 — that statefulness is what makes wind swirl around obstacles, form wakes, and conserve mass rather than just
+	// scrolling a noise function.
+	//
+	// It is the one component that breaks the "render only when dirty" model: while playing it marks itself dirty every
+	// frame and advances the solver on a FIXED timestep (sims go unstable on variable dt). The solver runs on its own
+	// raw-float velocity ping-pong textures and only encodes into the base renderTexture at the end, so the rest of the
+	// toolset (particle force field, group blend, GPU/CPU sampling, visualizer) consumes it exactly like any other field.
+	//
+	// Inputs that compose with the existing toolset:
+	//   forceField  — another VectorFieldComponent whose output is injected as a continuous force each step. Point a
+	//                 NoiseVectorFieldComponent at it for gusty wind, or a StampVectorFieldComponent for a fan/emitter.
+	//   obstacles   — a mask texture (e.g. rasterized from a MeshVectorField) the fluid flows around.
+	[ExecuteAlways]
+	[AddComponentMenu("Vector Fields/Simulated Vector Field")]
+	public class SimulatedVectorFieldComponent : VectorFieldComponent {
 
-	static ComputeShader fluidComputeShader;
-	static ComputeShader FluidComputeShader => fluidComputeShader ? fluidComputeShader : (fluidComputeShader = Resources.Load<ComputeShader>("FluidSimulation"));
+		static ComputeShader fluidComputeShader;
+		static ComputeShader FluidComputeShader => fluidComputeShader ? fluidComputeShader : (fluidComputeShader = Resources.Load<ComputeShader>("FluidSimulation"));
 
-	[Tooltip("Fixed solver rate. The sim steps in increments of 1/this regardless of frame rate.")]
-	public float simulationFps = 60f;
-	[Tooltip("Cap on solver steps per frame, so a hitch can't spiral into a death-loop of catch-up steps.")]
-	public int maxSubstepsPerFrame = 4;
-	[Tooltip("Simulated seconds per real second — how fast the fluid evolves, independent of step rate. " +
-		"simulationFps controls smoothness; this controls speed. At fps=60 each step covers a sub-texel distance " +
-		"and advection stalls, so raise this (e.g. 10-30) to get visible flow while keeping a high, smooth step rate.")]
-	public float timeScale = 1f;
-	[Tooltip("Jacobi iterations for the pressure solve. More = more accurately incompressible, but costlier. 20-40 is typical.")]
-	public int pressureIterations = 30;
-	[Range(0f, 1f), Tooltip("Per-step velocity damping. 1 = inviscid (energy persists), lower fakes viscosity / drag.")]
-	public float viscosityDamp = 0.999f;
-	[Tooltip("Run the sim in edit mode too. Off by default — sims are usually only meaningful while playing.")]
-	public bool simulateInEditMode = false;
+		[Tooltip("Fixed solver rate. The sim steps in increments of 1/this regardless of frame rate.")]
+		public float simulationFps = 60f;
+		[Tooltip("Cap on solver steps per frame, so a hitch can't spiral into a death-loop of catch-up steps.")]
+		public int maxSubstepsPerFrame = 4;
+		[Tooltip("Simulated seconds per real second — how fast the fluid evolves, independent of step rate. " +
+			"simulationFps controls smoothness; this controls speed. At fps=60 each step covers a sub-texel distance " +
+			"and advection stalls, so raise this (e.g. 10-30) to get visible flow while keeping a high, smooth step rate.")]
+		public float timeScale = 1f;
+		[Tooltip("Jacobi iterations for the pressure solve. More = more accurately incompressible, but costlier. 20-40 is typical.")]
+		public int pressureIterations = 30;
+		[Range(0f, 1f), Tooltip("Per-step velocity damping. 1 = inviscid (energy persists), lower fakes viscosity / drag.")]
+		public float viscosityDamp = 0.999f;
+		[Tooltip("Run the sim in edit mode too. Off by default — sims are usually only meaningful while playing.")]
+		public bool simulateInEditMode = false;
 
-	public enum AdvectionMode {
-		// Plain semi-Lagrangian: stable and cheap, but heavily diffusive — flow smooths to mush and decays fast.
-		SemiLagrangian,
-		// MacCormack: a forward + reverse pass that cancels most of that diffusion. ~2x advection cost; vortices and
-		// detail persist far longer. The recommended default.
-		MacCormack,
-	}
-	[Tooltip("MacCormack cancels most of the numerical diffusion that makes plain semi-Lagrangian flow decay to mush.")]
-	public AdvectionMode advectionMode = AdvectionMode.MacCormack;
-
-	[Tooltip("Re-injects the small-scale swirl that diffusion eats, keeping the flow lively. 0 disables it; " +
-		"0.1-0.5 is a useful range. Too high looks turbulent/noisy.")]
-	public float vorticityStrength = 0.2f;
-
-	// Ordered by how much spatial information they use, least to most. Integer values must stay in sync with the
-	// FORCE_* defines in FluidSimulation.compute.
-	public enum ForceMapping {
-		// Stretches the whole force field to fill the sim, regardless of resolution. Ignores position/rotation/scale —
-		// it just maps the field's full extent onto the sim's full extent. Vectors are applied as-is (not rotated).
-		Stretched,
-		// 1:1 grid-cell copy: sim cell (x,y) reads force texel (x,y). Ignores the force field's transform and assumes
-		// the two grids share resolution and alignment. Cheapest.
-		DirectTexel,
-		// Samples the force field by world position and rotates its vectors into the sim's frame. Moving, rotating, or
-		// resizing the force field now affects the sim, and differing resolutions/placements just work.
-		WorldSpace,
-	}
-	public VectorFieldComponent forceField;
-	[Tooltip("DirectTexel: 1:1 cell copy (grids must match), transform ignored. WorldSpace: transform-aware — " +
-		"move/rotate/resize the force field and it pushes the fluid accordingly. Stretched: fill the sim with the " +
-		"whole force field at any resolution, ignoring transform.")]
-	public ForceMapping forceMapping = ForceMapping.Stretched;
-	public float forceStrength = 1f;
-
-	public enum BoundaryMode {
-		// Periodic: flow leaving one edge re-enters the opposite edge. Best for seamless/tiling wind & sea maps.
-		Wrap,
-		// Solid no-slip border: the fluid is contained in a box and deflects off the edges.
-		Wall,
-		// Outflow / absorbing: fluid flows out of the edges without reflecting back.
-		Open,
-	}
-	[Tooltip("What happens at the domain edges. Interior obstacle masks apply regardless of this.")]
-	public BoundaryMode boundaryMode = BoundaryMode.Wrap;
-	[Tooltip("Optional mask the fluid flows around (>0.5 = solid). Independent of the edge mode above.")]
-	public Texture2D obstacles;
-
-	[Tooltip("Scales raw solver velocity into the encoded [-1,1] field range before it enters the pipeline.")]
-	public float outputScale = 1f;
-
-	// Raw-float solver state (NOT encoded). Velocity is ping-ponged; velC is the MacCormack scratch buffer;
-	// pressure/divergence/curl are scratch.
-	RenderTexture velA, velB, velC;
-	RenderTexture pressureA, pressureB;
-	RenderTexture divergence;
-	RenderTexture curl;
-	Vector2Int allocatedSize = new Vector2Int(-1, -1);
-	bool seeded;
-
-	// Leftover sub-frame time carried between frames so the fixed-step accumulator stays exact.
-	float accumulator;
-
-	int kAddForces, kAdvect, kAdvectMacCormack, kComputeVorticity, kVorticityConfinement, kDivergence, kPressure, kProject, kEncode;
-	bool kernelsResolved;
-
-	const int ThreadsX = 8, ThreadsY = 8;
-
-	// Cached shader property IDs. Set*(string, …) re-hashes the name via Shader.PropertyToID on every call; the solver
-	// binds hundreds of these per frame (the pressure Jacobi loop alone rebinds two textures × pressureIterations ×
-	// substeps), which showed up in the profiler. Resolve each name once.
-	static readonly int ID_width = Shader.PropertyToID("width");
-	static readonly int ID_height = Shader.PropertyToID("height");
-	static readonly int ID_dt = Shader.PropertyToID("dt");
-	static readonly int ID_viscosityDamp = Shader.PropertyToID("viscosityDamp");
-	static readonly int ID_boundaryMode = Shader.PropertyToID("boundaryMode");
-	static readonly int ID_hasObstacles = Shader.PropertyToID("hasObstacles");
-	static readonly int ID_hasForce = Shader.PropertyToID("hasForce");
-	static readonly int ID_forceStrength = Shader.PropertyToID("forceStrength");
-	static readonly int ID_forceMapping = Shader.PropertyToID("forceMapping");
-	static readonly int ID_vorticityStrength = Shader.PropertyToID("vorticityStrength");
-	static readonly int ID_outputScale = Shader.PropertyToID("outputScale");
-	static readonly int ID_simGridToWorld = Shader.PropertyToID("simGridToWorld");
-	static readonly int ID_forceWorldToGrid = Shader.PropertyToID("forceWorldToGrid");
-	static readonly int ID_forceGridSize = Shader.PropertyToID("forceGridSize");
-	static readonly int ID_forceToSimDir = Shader.PropertyToID("forceToSimDir");
-	static readonly int ID_ForceField = Shader.PropertyToID("ForceField");
-	static readonly int ID_VelocityIn = Shader.PropertyToID("VelocityIn");
-	static readonly int ID_VelocityOut = Shader.PropertyToID("VelocityOut");
-	static readonly int ID_ForwardVelocity = Shader.PropertyToID("ForwardVelocity");
-	static readonly int ID_CurlIn = Shader.PropertyToID("CurlIn");
-	static readonly int ID_CurlOut = Shader.PropertyToID("CurlOut");
-	static readonly int ID_DivergenceIn = Shader.PropertyToID("DivergenceIn");
-	static readonly int ID_DivergenceOut = Shader.PropertyToID("DivergenceOut");
-	static readonly int ID_PressureIn = Shader.PropertyToID("PressureIn");
-	static readonly int ID_PressureOut = Shader.PropertyToID("PressureOut");
-	static readonly int ID_Result = Shader.PropertyToID("Result");
-	static readonly int ID_Obstacles = Shader.PropertyToID("Obstacles");
-
-	bool ShouldSimulate => Application.isPlaying || simulateInEditMode;
-
-	// The tick wrinkle: drive the fixed-step accumulator and force a re-render every frame while simulating, so the
-	// base pump runs RenderInternal (which steps the solver). When not simulating we fall back to normal dirty-only
-	// behaviour and just keep showing the last encoded state.
-	public override void Update() {
-		if (ShouldSimulate && isActiveAndEnabled) {
-			accumulator += Application.isPlaying ? Time.deltaTime : (1f / Mathf.Max(1f, simulationFps));
-			SetDirty();
+		public enum AdvectionMode {
+			// Plain semi-Lagrangian: stable and cheap, but heavily diffusive — flow smooths to mush and decays fast.
+			SemiLagrangian,
+			// MacCormack: a forward + reverse pass that cancels most of that diffusion. ~2x advection cost; vortices and
+			// detail persist far longer. The recommended default.
+			MacCormack,
 		}
-		base.Update();
-	}
+		[Tooltip("MacCormack cancels most of the numerical diffusion that makes plain semi-Lagrangian flow decay to mush.")]
+		public AdvectionMode advectionMode = AdvectionMode.MacCormack;
 
-	protected override void RenderInternal() {
-		EnsureHasValidRenderTexture();
-		EnsureSimTextures();
-		ResolveKernels();
+		[Tooltip("Re-injects the small-scale swirl that diffusion eats, keeping the flow lively. 0 disables it; " +
+			"0.1-0.5 is a useful range. Too high looks turbulent/noisy.")]
+		public float vorticityStrength = 0.2f;
 
-		if (!seeded) { ClearSimState(); seeded = true; }
+		// Ordered by how much spatial information they use, least to most. Integer values must stay in sync with the
+		// FORCE_* defines in FluidSimulation.compute.
+		public enum ForceMapping {
+			// Stretches the whole force field to fill the sim, regardless of resolution. Ignores position/rotation/scale —
+			// it just maps the field's full extent onto the sim's full extent. Vectors are applied as-is (not rotated).
+			Stretched,
+			// 1:1 grid-cell copy: sim cell (x,y) reads force texel (x,y). Ignores the force field's transform and assumes
+			// the two grids share resolution and alignment. Cheapest.
+			DirectTexel,
+			// Samples the force field by world position and rotates its vectors into the sim's frame. Moving, rotating, or
+			// resizing the force field now affects the sim, and differing resolutions/placements just work.
+			WorldSpace,
+		}
+		public VectorFieldComponent forceField;
+		[Tooltip("DirectTexel: 1:1 cell copy (grids must match), transform ignored. WorldSpace: transform-aware — " +
+			"move/rotate/resize the force field and it pushes the fluid accordingly. Stretched: fill the sim with the " +
+			"whole force field at any resolution, ignoring transform.")]
+		public ForceMapping forceMapping = ForceMapping.Stretched;
+		public float forceStrength = 1f;
 
-		if (ShouldSimulate) {
-			// fixedDt is the real-time cadence we consume the accumulator at (smoothness); the solver advances by
-			// fixedDt * timeScale of *simulated* time per step (speed). Decoupling them lets the flow move fast
-			// while still stepping often enough that advection doesn't stall on sub-texel back-traces.
-			float fixedDt = 1f / Mathf.Max(1f, simulationFps);
-			float simDt = fixedDt * timeScale;
-			int steps = 0;
-			while (accumulator >= fixedDt && steps < maxSubstepsPerFrame) {
-				Step(simDt);
-				accumulator -= fixedDt;
-				steps++;
+		public enum BoundaryMode {
+			// Periodic: flow leaving one edge re-enters the opposite edge. Best for seamless/tiling wind & sea maps.
+			Wrap,
+			// Solid no-slip border: the fluid is contained in a box and deflects off the edges.
+			Wall,
+			// Outflow / absorbing: fluid flows out of the edges without reflecting back.
+			Open,
+		}
+		[Tooltip("What happens at the domain edges. Interior obstacle masks apply regardless of this.")]
+		public BoundaryMode boundaryMode = BoundaryMode.Wrap;
+		[Tooltip("Optional mask the fluid flows around (>0.5 = solid). Independent of the edge mode above.")]
+		public Texture2D obstacles;
+
+		[Tooltip("Scales raw solver velocity into the encoded [-1,1] field range before it enters the pipeline.")]
+		public float outputScale = 1f;
+
+		// Raw-float solver state (NOT encoded). Velocity is ping-ponged; velC is the MacCormack scratch buffer;
+		// pressure/divergence/curl are scratch.
+		RenderTexture velA, velB, velC;
+		RenderTexture pressureA, pressureB;
+		RenderTexture divergence;
+		RenderTexture curl;
+		Vector2Int allocatedSize = new Vector2Int(-1, -1);
+		bool seeded;
+
+		// Leftover sub-frame time carried between frames so the fixed-step accumulator stays exact.
+		float accumulator;
+
+		int kAddForces, kAdvect, kAdvectMacCormack, kComputeVorticity, kVorticityConfinement, kDivergence, kPressure, kProject, kEncode;
+		bool kernelsResolved;
+
+		const int ThreadsX = 8, ThreadsY = 8;
+
+		// Cached shader property IDs. Set*(string, …) re-hashes the name via Shader.PropertyToID on every call; the solver
+		// binds hundreds of these per frame (the pressure Jacobi loop alone rebinds two textures × pressureIterations ×
+		// substeps), which showed up in the profiler. Resolve each name once.
+		static readonly int ID_width = Shader.PropertyToID("width");
+		static readonly int ID_height = Shader.PropertyToID("height");
+		static readonly int ID_dt = Shader.PropertyToID("dt");
+		static readonly int ID_viscosityDamp = Shader.PropertyToID("viscosityDamp");
+		static readonly int ID_boundaryMode = Shader.PropertyToID("boundaryMode");
+		static readonly int ID_hasObstacles = Shader.PropertyToID("hasObstacles");
+		static readonly int ID_hasForce = Shader.PropertyToID("hasForce");
+		static readonly int ID_forceStrength = Shader.PropertyToID("forceStrength");
+		static readonly int ID_forceMapping = Shader.PropertyToID("forceMapping");
+		static readonly int ID_vorticityStrength = Shader.PropertyToID("vorticityStrength");
+		static readonly int ID_outputScale = Shader.PropertyToID("outputScale");
+		static readonly int ID_simGridToWorld = Shader.PropertyToID("simGridToWorld");
+		static readonly int ID_forceWorldToGrid = Shader.PropertyToID("forceWorldToGrid");
+		static readonly int ID_forceGridSize = Shader.PropertyToID("forceGridSize");
+		static readonly int ID_forceToSimDir = Shader.PropertyToID("forceToSimDir");
+		static readonly int ID_ForceField = Shader.PropertyToID("ForceField");
+		static readonly int ID_VelocityIn = Shader.PropertyToID("VelocityIn");
+		static readonly int ID_VelocityOut = Shader.PropertyToID("VelocityOut");
+		static readonly int ID_ForwardVelocity = Shader.PropertyToID("ForwardVelocity");
+		static readonly int ID_CurlIn = Shader.PropertyToID("CurlIn");
+		static readonly int ID_CurlOut = Shader.PropertyToID("CurlOut");
+		static readonly int ID_DivergenceIn = Shader.PropertyToID("DivergenceIn");
+		static readonly int ID_DivergenceOut = Shader.PropertyToID("DivergenceOut");
+		static readonly int ID_PressureIn = Shader.PropertyToID("PressureIn");
+		static readonly int ID_PressureOut = Shader.PropertyToID("PressureOut");
+		static readonly int ID_Result = Shader.PropertyToID("Result");
+		static readonly int ID_Obstacles = Shader.PropertyToID("Obstacles");
+
+		bool ShouldSimulate => Application.isPlaying || simulateInEditMode;
+
+		// The tick wrinkle: drive the fixed-step accumulator and force a re-render every frame while simulating, so the
+		// base pump runs RenderInternal (which steps the solver). When not simulating we fall back to normal dirty-only
+		// behaviour and just keep showing the last encoded state.
+		public override void Update() {
+			if (ShouldSimulate && isActiveAndEnabled) {
+				accumulator += Application.isPlaying ? Time.deltaTime : (1f / Mathf.Max(1f, simulationFps));
+				SetDirty();
 			}
-			// If we hit the substep cap we're behind real time; drop the backlog rather than accumulate lag.
-			if (steps == maxSubstepsPerFrame) accumulator = 0f;
+			base.Update();
 		}
 
-		Encode(); // raw velocity (velA) -> encoded base renderTexture for the rest of the pipeline
-	}
+		protected override void RenderInternal() {
+			EnsureHasValidRenderTexture();
+			EnsureSimTextures();
+			ResolveKernels();
 
-	// One fixed-dt solver step: forces -> advect -> project (divergence, pressure solve, gradient subtract).
-	void Step(float dt) {
-		var cs = FluidComputeShader;
-		cs.SetInt(ID_width, grid.Size.x);
-		cs.SetInt(ID_height, grid.Size.y);
-		cs.SetFloat(ID_dt, dt);
-		cs.SetFloat(ID_viscosityDamp, viscosityDamp);
-		cs.SetInt(ID_boundaryMode, (int)boundaryMode);
+			if (!seeded) { ClearSimState(); seeded = true; }
 
-		// The advection/MacCormack samplers honour the texture wrap mode, so it must match the boundary mode:
-		// Repeat for periodic edges, Clamp otherwise.
-		var wrap = boundaryMode == BoundaryMode.Wrap ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
-		velA.wrapMode = velB.wrapMode = velC.wrapMode = wrap;
+			if (ShouldSimulate) {
+				// fixedDt is the real-time cadence we consume the accumulator at (smoothness); the solver advances by
+				// fixedDt * timeScale of *simulated* time per step (speed). Decoupling them lets the flow move fast
+				// while still stepping often enough that advection doesn't stall on sub-texel back-traces.
+				float fixedDt = 1f / Mathf.Max(1f, simulationFps);
+				float simDt = fixedDt * timeScale;
+				int steps = 0;
+				while (accumulator >= fixedDt && steps < maxSubstepsPerFrame) {
+					Step(simDt);
+					accumulator -= fixedDt;
+					steps++;
+				}
+				// If we hit the substep cap we're behind real time; drop the backlog rather than accumulate lag.
+				if (steps == maxSubstepsPerFrame) accumulator = 0f;
+			}
 
-		bool hasObstacles = obstacles != null;
-		cs.SetInt(ID_hasObstacles, hasObstacles ? 1 : 0);
-
-		// 1) Inject forces (+ apply viscosity damp). velA -> velB.
-		// Ignore a force field pointed back at ourselves — it would feed the solver its own encoded output as a force.
-		bool hasForce = forceField != null && forceField != this && forceField.renderTexture != null;
-		cs.SetInt(ID_hasForce, hasForce ? 1 : 0);
-		cs.SetFloat(ID_forceStrength, forceStrength);
-		cs.SetInt(ID_forceMapping, (int)forceMapping);
-		cs.SetTexture(kAddForces, ID_ForceField, hasForce ? forceField.renderTexture : (Texture)Texture2D.blackTexture);
-
-		// WorldSpace mapping needs the grid<->world transforms of both fields and the relative rotation that brings the
-		// force field's local vectors into ours. (Only consulted when hasForce && forceMapping == WorldSpace.)
-		if (hasForce && forceMapping == ForceMapping.WorldSpace) {
-			cs.SetMatrix(ID_simGridToWorld, grid.GridToWorldMatrix);
-			cs.SetMatrix(ID_forceWorldToGrid, forceField.GridToWorldMatrix.inverse);
-			cs.SetVector(ID_forceGridSize, new Vector4(forceField.GridSize.x, forceField.GridSize.y, 0, 0));
-			var relativeRotation = Quaternion.Inverse(transform.rotation) * forceField.transform.rotation;
-			cs.SetMatrix(ID_forceToSimDir, Matrix4x4.Rotate(relativeRotation));
+			Encode(); // raw velocity (velA) -> encoded base renderTexture for the rest of the pipeline
 		}
-		BindObstacles(kAddForces, hasObstacles);
-		cs.SetTexture(kAddForces, ID_VelocityIn, velA);
-		cs.SetTexture(kAddForces, ID_VelocityOut, velB);
-		Dispatch(kAddForces);
-		Swap(ref velA, ref velB);
 
-		// 2) Advect velocity through itself.
-		// Forward semi-Lagrangian: velA -> velB.
-		BindObstacles(kAdvect, hasObstacles);
-		cs.SetTexture(kAdvect, ID_VelocityIn, velA);
-		cs.SetTexture(kAdvect, ID_VelocityOut, velB);
-		Dispatch(kAdvect);
+		// One fixed-dt solver step: forces -> advect -> project (divergence, pressure solve, gradient subtract).
+		void Step(float dt) {
+			var cs = FluidComputeShader;
+			cs.SetInt(ID_width, grid.Size.x);
+			cs.SetInt(ID_height, grid.Size.y);
+			cs.SetFloat(ID_dt, dt);
+			cs.SetFloat(ID_viscosityDamp, viscosityDamp);
+			cs.SetInt(ID_boundaryMode, (int)boundaryMode);
 
-		if (advectionMode == AdvectionMode.MacCormack) {
-			// Correction pass: original velA (φ) + forward velB (φ̂) -> corrected velC. Then velC becomes current.
-			BindObstacles(kAdvectMacCormack, hasObstacles);
-			cs.SetTexture(kAdvectMacCormack, ID_VelocityIn, velA);
-			cs.SetTexture(kAdvectMacCormack, ID_ForwardVelocity, velB);
-			cs.SetTexture(kAdvectMacCormack, ID_VelocityOut, velC);
-			Dispatch(kAdvectMacCormack);
-			Swap(ref velA, ref velC);
-		} else {
-			// Plain semi-Lagrangian: the forward result is the answer.
+			// The advection/MacCormack samplers honour the texture wrap mode, so it must match the boundary mode:
+			// Repeat for periodic edges, Clamp otherwise.
+			var wrap = boundaryMode == BoundaryMode.Wrap ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
+			velA.wrapMode = velB.wrapMode = velC.wrapMode = wrap;
+
+			bool hasObstacles = obstacles != null;
+			cs.SetInt(ID_hasObstacles, hasObstacles ? 1 : 0);
+
+			// 1) Inject forces (+ apply viscosity damp). velA -> velB.
+			// Ignore a force field pointed back at ourselves — it would feed the solver its own encoded output as a force.
+			bool hasForce = forceField != null && forceField != this && forceField.renderTexture != null;
+			cs.SetInt(ID_hasForce, hasForce ? 1 : 0);
+			cs.SetFloat(ID_forceStrength, forceStrength);
+			cs.SetInt(ID_forceMapping, (int)forceMapping);
+			cs.SetTexture(kAddForces, ID_ForceField, hasForce ? forceField.renderTexture : (Texture)Texture2D.blackTexture);
+
+			// WorldSpace mapping needs the grid<->world transforms of both fields and the relative rotation that brings the
+			// force field's local vectors into ours. (Only consulted when hasForce && forceMapping == WorldSpace.)
+			if (hasForce && forceMapping == ForceMapping.WorldSpace) {
+				cs.SetMatrix(ID_simGridToWorld, grid.GridToWorldMatrix);
+				cs.SetMatrix(ID_forceWorldToGrid, forceField.GridToWorldMatrix.inverse);
+				cs.SetVector(ID_forceGridSize, new Vector4(forceField.GridSize.x, forceField.GridSize.y, 0, 0));
+				var relativeRotation = Quaternion.Inverse(transform.rotation) * forceField.transform.rotation;
+				cs.SetMatrix(ID_forceToSimDir, Matrix4x4.Rotate(relativeRotation));
+			}
+			BindObstacles(kAddForces, hasObstacles);
+			cs.SetTexture(kAddForces, ID_VelocityIn, velA);
+			cs.SetTexture(kAddForces, ID_VelocityOut, velB);
+			Dispatch(kAddForces);
+			Swap(ref velA, ref velB);
+
+			// 2) Advect velocity through itself.
+			// Forward semi-Lagrangian: velA -> velB.
+			BindObstacles(kAdvect, hasObstacles);
+			cs.SetTexture(kAdvect, ID_VelocityIn, velA);
+			cs.SetTexture(kAdvect, ID_VelocityOut, velB);
+			Dispatch(kAdvect);
+
+			if (advectionMode == AdvectionMode.MacCormack) {
+				// Correction pass: original velA (φ) + forward velB (φ̂) -> corrected velC. Then velC becomes current.
+				BindObstacles(kAdvectMacCormack, hasObstacles);
+				cs.SetTexture(kAdvectMacCormack, ID_VelocityIn, velA);
+				cs.SetTexture(kAdvectMacCormack, ID_ForwardVelocity, velB);
+				cs.SetTexture(kAdvectMacCormack, ID_VelocityOut, velC);
+				Dispatch(kAdvectMacCormack);
+				Swap(ref velA, ref velC);
+			} else {
+				// Plain semi-Lagrangian: the forward result is the answer.
+				Swap(ref velA, ref velB);
+			}
+
+			// 2b) Vorticity confinement: re-inject the swirl diffusion eats. velA -> curl, then (velA, curl) -> velB.
+			if (vorticityStrength > 0f) {
+				cs.SetFloat(ID_vorticityStrength, vorticityStrength);
+				BindObstacles(kComputeVorticity, hasObstacles);
+				cs.SetTexture(kComputeVorticity, ID_VelocityIn, velA);
+				cs.SetTexture(kComputeVorticity, ID_CurlOut, curl);
+				Dispatch(kComputeVorticity);
+
+				BindObstacles(kVorticityConfinement, hasObstacles);
+				cs.SetTexture(kVorticityConfinement, ID_VelocityIn, velA);
+				cs.SetTexture(kVorticityConfinement, ID_CurlIn, curl);
+				cs.SetTexture(kVorticityConfinement, ID_VelocityOut, velB);
+				Dispatch(kVorticityConfinement);
+				Swap(ref velA, ref velB);
+			}
+
+			// 3a) Divergence of velA -> divergence.
+			BindObstacles(kDivergence, hasObstacles);
+			cs.SetTexture(kDivergence, ID_VelocityIn, velA);
+			cs.SetTexture(kDivergence, ID_DivergenceOut, divergence);
+			Dispatch(kDivergence);
+
+			// 3b) Solve ∇²p = div with Jacobi iterations, ping-ponging pressureA/pressureB. Start from zero.
+			ClearTexture(pressureA);
+			BindObstacles(kPressure, hasObstacles);
+			cs.SetTexture(kPressure, ID_DivergenceIn, divergence);
+			for (int i = 0; i < pressureIterations; i++) {
+				cs.SetTexture(kPressure, ID_PressureIn, pressureA);
+				cs.SetTexture(kPressure, ID_PressureOut, pressureB);
+				Dispatch(kPressure);
+				Swap(ref pressureA, ref pressureB);
+			}
+
+			// 3c) Subtract pressure gradient: velA - ∇pressureA -> velB.
+			BindObstacles(kProject, hasObstacles);
+			cs.SetTexture(kProject, ID_VelocityIn, velA);
+			cs.SetTexture(kProject, ID_PressureIn, pressureA);
+			cs.SetTexture(kProject, ID_VelocityOut, velB);
+			Dispatch(kProject);
 			Swap(ref velA, ref velB);
 		}
 
-		// 2b) Vorticity confinement: re-inject the swirl diffusion eats. velA -> curl, then (velA, curl) -> velB.
-		if (vorticityStrength > 0f) {
-			cs.SetFloat(ID_vorticityStrength, vorticityStrength);
-			BindObstacles(kComputeVorticity, hasObstacles);
-			cs.SetTexture(kComputeVorticity, ID_VelocityIn, velA);
-			cs.SetTexture(kComputeVorticity, ID_CurlOut, curl);
-			Dispatch(kComputeVorticity);
-
-			BindObstacles(kVorticityConfinement, hasObstacles);
-			cs.SetTexture(kVorticityConfinement, ID_VelocityIn, velA);
-			cs.SetTexture(kVorticityConfinement, ID_CurlIn, curl);
-			cs.SetTexture(kVorticityConfinement, ID_VelocityOut, velB);
-			Dispatch(kVorticityConfinement);
-			Swap(ref velA, ref velB);
+		void Encode() {
+			var cs = FluidComputeShader;
+			cs.SetInt(ID_width, grid.Size.x);
+			cs.SetInt(ID_height, grid.Size.y);
+			cs.SetInt(ID_boundaryMode, (int)boundaryMode);
+			cs.SetFloat(ID_outputScale, outputScale);
+			cs.SetTexture(kEncode, ID_VelocityIn, velA);
+			cs.SetTexture(kEncode, ID_Result, renderTexture);
+			// Encode calls InBounds, which the compiler ties to the same boundary block as Obstacles — so the kernel's
+			// resource table includes Obstacles and Unity demands it be bound even though Encode never samples it.
+			BindObstacles(kEncode, obstacles != null);
+			Dispatch(kEncode);
 		}
 
-		// 3a) Divergence of velA -> divergence.
-		BindObstacles(kDivergence, hasObstacles);
-		cs.SetTexture(kDivergence, ID_VelocityIn, velA);
-		cs.SetTexture(kDivergence, ID_DivergenceOut, divergence);
-		Dispatch(kDivergence);
-
-		// 3b) Solve ∇²p = div with Jacobi iterations, ping-ponging pressureA/pressureB. Start from zero.
-		ClearTexture(pressureA);
-		BindObstacles(kPressure, hasObstacles);
-		cs.SetTexture(kPressure, ID_DivergenceIn, divergence);
-		for (int i = 0; i < pressureIterations; i++) {
-			cs.SetTexture(kPressure, ID_PressureIn, pressureA);
-			cs.SetTexture(kPressure, ID_PressureOut, pressureB);
-			Dispatch(kPressure);
-			Swap(ref pressureA, ref pressureB);
+		// Every kernel declares Obstacles, so it must be bound on each even when unused — bind a black (all-zero, i.e.
+		// "no solid") fallback when there's no mask. Unity errors on any declared-but-unbound texture property.
+		void BindObstacles(int kernel, bool hasObstacles) {
+			FluidComputeShader.SetTexture(kernel, ID_Obstacles, hasObstacles ? (Texture)obstacles : Texture2D.blackTexture);
 		}
 
-		// 3c) Subtract pressure gradient: velA - ∇pressureA -> velB.
-		BindObstacles(kProject, hasObstacles);
-		cs.SetTexture(kProject, ID_VelocityIn, velA);
-		cs.SetTexture(kProject, ID_PressureIn, pressureA);
-		cs.SetTexture(kProject, ID_VelocityOut, velB);
-		Dispatch(kProject);
-		Swap(ref velA, ref velB);
-	}
-
-	void Encode() {
-		var cs = FluidComputeShader;
-		cs.SetInt(ID_width, grid.Size.x);
-		cs.SetInt(ID_height, grid.Size.y);
-		cs.SetInt(ID_boundaryMode, (int)boundaryMode);
-		cs.SetFloat(ID_outputScale, outputScale);
-		cs.SetTexture(kEncode, ID_VelocityIn, velA);
-		cs.SetTexture(kEncode, ID_Result, renderTexture);
-		// Encode calls InBounds, which the compiler ties to the same boundary block as Obstacles — so the kernel's
-		// resource table includes Obstacles and Unity demands it be bound even though Encode never samples it.
-		BindObstacles(kEncode, obstacles != null);
-		Dispatch(kEncode);
-	}
-
-	// Every kernel declares Obstacles, so it must be bound on each even when unused — bind a black (all-zero, i.e.
-	// "no solid") fallback when there's no mask. Unity errors on any declared-but-unbound texture property.
-	void BindObstacles(int kernel, bool hasObstacles) {
-		FluidComputeShader.SetTexture(kernel, ID_Obstacles, hasObstacles ? (Texture)obstacles : Texture2D.blackTexture);
-	}
-
-	void Dispatch(int kernel) {
-		int gx = Mathf.CeilToInt((float)grid.Size.x / ThreadsX);
-		int gy = Mathf.CeilToInt((float)grid.Size.y / ThreadsY);
-		FluidComputeShader.Dispatch(kernel, gx, gy, 1);
-	}
-
-	static void Swap(ref RenderTexture a, ref RenderTexture b) { (a, b) = (b, a); }
-
-	// --- solver texture lifecycle ---------------------------------------------------------------------------------
-	void EnsureSimTextures() {
-		var size = new Vector2Int(grid.Size.x, grid.Size.y);
-		if (allocatedSize == size && velA != null) return;
-
-		ReleaseSimTextures();
-		velA       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
-		velB       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
-		velC       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
-		pressureA  = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
-		pressureB  = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
-		divergence = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
-		curl       = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
-		allocatedSize = size;
-		seeded = false;   // re-seed (clear) on resize
-	}
-
-	static RenderTexture NewSimTexture(Vector2Int size, RenderTextureFormat format, bool bilinear) {
-		var rt = new RenderTexture(size.x, size.y, 0, format, RenderTextureReadWrite.Linear) {
-			enableRandomWrite = true,
-			filterMode = bilinear ? FilterMode.Bilinear : FilterMode.Point,
-			wrapMode = TextureWrapMode.Clamp,
-		};
-		rt.Create();
-		return rt;
-	}
-
-	void ClearSimState() {
-		ClearTexture(velA); ClearTexture(velB); ClearTexture(velC);
-		ClearTexture(pressureA); ClearTexture(pressureB);
-		ClearTexture(divergence); ClearTexture(curl);
-		accumulator = 0f;
-	}
-
-	static void ClearTexture(RenderTexture rt) {
-		if (rt == null) return;
-		var prev = RenderTexture.active;
-		RenderTexture.active = rt;
-		GL.Clear(false, true, Color.clear);
-		RenderTexture.active = prev;
-	}
-
-	void ReleaseSimTextures() {
-		foreach (var rt in new[] { velA, velB, velC, pressureA, pressureB, divergence, curl }) {
-			if (rt == null) continue;
-			if (RenderTexture.active == rt) RenderTexture.active = null;
-			rt.Release();
+		void Dispatch(int kernel) {
+			int gx = Mathf.CeilToInt((float)grid.Size.x / ThreadsX);
+			int gy = Mathf.CeilToInt((float)grid.Size.y / ThreadsY);
+			FluidComputeShader.Dispatch(kernel, gx, gy, 1);
 		}
-		velA = velB = velC = pressureA = pressureB = divergence = curl = null;
-		allocatedSize = new Vector2Int(-1, -1);
-	}
 
-	void ResolveKernels() {
-		if (kernelsResolved) return;
-		var cs = FluidComputeShader;
-		kAddForces            = cs.FindKernel("AddForces");
-		kAdvect               = cs.FindKernel("Advect");
-		kAdvectMacCormack     = cs.FindKernel("AdvectMacCormack");
-		kComputeVorticity     = cs.FindKernel("ComputeVorticity");
-		kVorticityConfinement = cs.FindKernel("VorticityConfinement");
-		kDivergence           = cs.FindKernel("Divergence");
-		kPressure             = cs.FindKernel("PressureJacobi");
-		kProject              = cs.FindKernel("Project");
-		kEncode               = cs.FindKernel("Encode");
-		kernelsResolved = true;
-	}
+		static void Swap(ref RenderTexture a, ref RenderTexture b) { (a, b) = (b, a); }
 
-	protected override void OnDisable() {
-		base.OnDisable();
-		ReleaseSimTextures();
-		seeded = false;
-	}
+		// --- solver texture lifecycle ---------------------------------------------------------------------------------
+		void EnsureSimTextures() {
+			var size = new Vector2Int(grid.Size.x, grid.Size.y);
+			if (allocatedSize == size && velA != null) return;
 
-	// The forceField participates in our output, so we must re-render when it changes. The base already re-renders
-	// every frame while simulating, so this mainly matters for the edit-mode-paused case.
-	protected override void CollectParameters(ref System.HashCode hash) {
-		base.CollectParameters(ref hash);
-		hash.Add(forceField != null ? forceField.GetHashCode() : 0);
-		hash.Add(forceStrength);
-		hash.Add(outputScale);
-		hash.Add(viscosityDamp);
+			ReleaseSimTextures();
+			velA       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
+			velB       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
+			velC       = NewSimTexture(size, RenderTextureFormat.RGFloat, bilinear: true);
+			pressureA  = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
+			pressureB  = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
+			divergence = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
+			curl       = NewSimTexture(size, RenderTextureFormat.RFloat,  bilinear: false);
+			allocatedSize = size;
+			seeded = false;   // re-seed (clear) on resize
+		}
+
+		static RenderTexture NewSimTexture(Vector2Int size, RenderTextureFormat format, bool bilinear) {
+			var rt = new RenderTexture(size.x, size.y, 0, format, RenderTextureReadWrite.Linear) {
+				enableRandomWrite = true,
+				filterMode = bilinear ? FilterMode.Bilinear : FilterMode.Point,
+				wrapMode = TextureWrapMode.Clamp,
+			};
+			rt.Create();
+			return rt;
+		}
+
+		void ClearSimState() {
+			ClearTexture(velA); ClearTexture(velB); ClearTexture(velC);
+			ClearTexture(pressureA); ClearTexture(pressureB);
+			ClearTexture(divergence); ClearTexture(curl);
+			accumulator = 0f;
+		}
+
+		static void ClearTexture(RenderTexture rt) {
+			if (rt == null) return;
+			var prev = RenderTexture.active;
+			RenderTexture.active = rt;
+			GL.Clear(false, true, Color.clear);
+			RenderTexture.active = prev;
+		}
+
+		void ReleaseSimTextures() {
+			foreach (var rt in new[] { velA, velB, velC, pressureA, pressureB, divergence, curl }) {
+				if (rt == null) continue;
+				if (RenderTexture.active == rt) RenderTexture.active = null;
+				rt.Release();
+			}
+			velA = velB = velC = pressureA = pressureB = divergence = curl = null;
+			allocatedSize = new Vector2Int(-1, -1);
+		}
+
+		void ResolveKernels() {
+			if (kernelsResolved) return;
+			var cs = FluidComputeShader;
+			kAddForces            = cs.FindKernel("AddForces");
+			kAdvect               = cs.FindKernel("Advect");
+			kAdvectMacCormack     = cs.FindKernel("AdvectMacCormack");
+			kComputeVorticity     = cs.FindKernel("ComputeVorticity");
+			kVorticityConfinement = cs.FindKernel("VorticityConfinement");
+			kDivergence           = cs.FindKernel("Divergence");
+			kPressure             = cs.FindKernel("PressureJacobi");
+			kProject              = cs.FindKernel("Project");
+			kEncode               = cs.FindKernel("Encode");
+			kernelsResolved = true;
+		}
+
+		protected override void OnDisable() {
+			base.OnDisable();
+			ReleaseSimTextures();
+			seeded = false;
+		}
+
+		// The forceField participates in our output, so we must re-render when it changes. The base already re-renders
+		// every frame while simulating, so this mainly matters for the edit-mode-paused case.
+		protected override void CollectParameters(ref System.HashCode hash) {
+			base.CollectParameters(ref hash);
+			hash.Add(forceField != null ? forceField.GetHashCode() : 0);
+			hash.Add(forceStrength);
+			hash.Add(outputScale);
+			hash.Add(viscosityDamp);
+		}
 	}
 }

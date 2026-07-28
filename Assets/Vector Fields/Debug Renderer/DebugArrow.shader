@@ -40,6 +40,14 @@ Shader "Vector Fields/Debug/Instance Debug Renderer" {
     float4 lowColor;         // Magnitude mode colour at zero magnitude
     float4 highColor;        // Magnitude mode colour at (and above) maxMagnitude
 
+    // Optional height-drape (global, set by e.g. a terrain visualiser). When _VFHeightDrape > 0.5 each arrow vertex's
+    // world Y is overridden with the height sampled from _VFHeightMap at its world XZ, so the arrow grid follows a
+    // heightmap (Unity Terrain etc.) instead of lying on the flat field plane. Defaults keep it off (unchanged look).
+    sampler2D _VFHeightMap;  // R = normalized height in [0,1]
+    float _VFHeightDrape;    // 0 = flat (default), 1 = drape
+    float4 _VFHeightRect;    // xy = world XZ origin, zw = world XZ size
+    float4 _VFHeightParams;  // x = base world Y, y = world height scale, z = extra lift above the surface
+
     float4x4 TranslationMatrix(float3 translation)
     {
         return float4x4(
@@ -139,7 +147,15 @@ Shader "Vector Fields/Debug/Instance Debug Renderer" {
         float4x4 transformation = mul(TranslationMatrix(worldPoint), rotationMatrix);
         transformation = mul(transformation, ScaleMatrix(scaleFactor));
 
-        o.vertex = UnityObjectToClipPos(mul(transformation, v.vertex));
+        // World-space vertex (the draw uses an identity model matrix, so this "object space" position is world space).
+        float3 wpos = mul(transformation, v.vertex).xyz;
+        // Optional: drape over a heightmap by overriding world Y with the sampled terrain height at this world XZ.
+        if (_VFHeightDrape > 0.5) {
+            float2 huv = (wpos.xz - _VFHeightRect.xy) / _VFHeightRect.zw;
+            float h = tex2Dlod(_VFHeightMap, float4(saturate(huv), 0, 0)).r;
+            wpos.y = _VFHeightParams.x + h * _VFHeightParams.y + _VFHeightParams.z;
+        }
+        o.vertex = UnityObjectToClipPos(wpos);
         // Where this vertex lands in cell space (= cell centre + the rotated/scaled quad offset). gridToWorldMatrix is
         // linear so applying it to (cell + offset) equals worldPoint + gridToWorld*offset; we keep the pre-world value
         // here so the fragment shader can clip anything that spills past the field's [-0.5, fieldSize-0.5] bounds.

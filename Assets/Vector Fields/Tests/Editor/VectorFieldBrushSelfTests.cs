@@ -1,96 +1,124 @@
-using UnityEditor;
+using NUnit.Framework;
 using UnityEngine;
 
-// Runnable regression checks for the brush ops and shape falloff — the pure, bug-prone parts of the painting system
-// (an op-level check like this would have caught the inverted Erase). Run via Tools > Vector Field > Run Brush
-// Self-Tests; results are logged, failures as errors.
-//
-// Historically a menu item rather than a proper NUnit test because the project had no assembly definitions; the
-// VectorFields asmdefs now exist (this file lives in VectorFields.Tests.Editor), so these could be converted to
-// [Test] methods runnable from the Test Runner — kept as a menu item for now since the conversion is mechanical.
+// Regression checks for the brush ops and shape falloff — the pure, bug-prone parts of the painting system (an
+// op-level check like this would have caught the inverted Erase). Run from the Test Runner (EditMode,
+// VectorFields.Tests.Editor).
 // (The stroke geometry — coverage accumulation, frame-rate independence — needs an in-scene/play test; not covered here.)
-public static class VectorFieldBrushSelfTests {
+public class VectorFieldBrushSelfTests {
     const float Eps = 1e-3f;
 
-    [MenuItem("Tools/Vector Field/Run Brush Self-Tests")]
-    public static void Run() {
-        int pass = 0, fail = 0;
-        void Check(bool cond, string msg) {
-            if (cond) pass++;
-            else { fail++; Debug.LogError($"[Vector Field self-test] FAIL: {msg}"); }
-        }
-        bool Approx(Vector2 a, Vector2 b) => (a - b).magnitude <= Eps;
+    // Helper: brushForce/finalForce carry the weight as magnitude (ctx.Weight); strokeForce is the unit direction.
+    static BrushApplyContext<Vector2> Ctx(Vector2 current, Vector2 dir, float weight, float pressure, Vector2Int gp, Vector2 center) {
+        Vector2 u = dir.sqrMagnitude > 0f ? dir.normalized : Vector2.zero;
+        Vector2 f = u * weight;
+        return new BrushApplyContext<Vector2>(current, f, f, u, pressure, gp, center, null);
+    }
 
-        // --- Ops: construct a per-cell context and assert the op's core behaviour ------------------------------------
-        // Helper: brushForce/finalForce carry the weight as magnitude (ctx.Weight); strokeForce is the unit direction.
-        BrushApplyContext<Vector2> Ctx(Vector2 current, Vector2 dir, float weight, float pressure, Vector2Int gp, Vector2 center) {
-            Vector2 u = dir.sqrMagnitude > 0f ? dir.normalized : Vector2.zero;
-            Vector2 f = u * weight;
-            return new BrushApplyContext<Vector2>(current, f, f, u, pressure, gp, center, null);
-        }
-        var origin = new Vector2Int(0, 0);
+    static void AssertApprox(Vector2 expected, Vector2 actual, string message) =>
+        Assert.LessOrEqual((actual - expected).magnitude, Eps, $"{message} (expected {expected}, got {actual})");
 
-        // Draw: sets an empty cell toward the stroke direction at full pressure.
-        Check(Approx(VectorFieldBrushOpRegistry.Draw.Apply(
-            Ctx(Vector2.zero, Vector2.right, 1f, 1f, origin, Vector2.zero)), Vector2.right),
+    static readonly Vector2Int Origin = new Vector2Int(0, 0);
+
+    // --- Ops: construct a per-cell context and assert the op's core behaviour ------------------------------------
+
+    [Test]
+    public void Draw_OnEmptyCellAtFullWeight_IsStrokeDirectionTimesPressure() {
+        AssertApprox(Vector2.right, VectorFieldBrushOpRegistry.Draw.Apply(
+            Ctx(Vector2.zero, Vector2.right, 1f, 1f, Origin, Vector2.zero)),
             "Draw on an empty cell at weight 1 should be the stroke direction * pressure");
+    }
 
-        // Erase: full weight+pressure clears the cell; zero weight leaves it untouched. (Guards the inversion bug.)
-        Check(Approx(VectorFieldBrushOpRegistry.Erase.Apply(
-            Ctx(new Vector2(2f, 0f), Vector2.right, 1f, 1f, origin, Vector2.zero)), Vector2.zero),
+    // Guards the inversion bug: full weight+pressure clears the cell; zero weight leaves it untouched.
+    [Test]
+    public void Erase_AtFullWeightAndPressure_ClearsTheCell() {
+        AssertApprox(Vector2.zero, VectorFieldBrushOpRegistry.Erase.Apply(
+            Ctx(new Vector2(2f, 0f), Vector2.right, 1f, 1f, Origin, Vector2.zero)),
             "Erase at weight 1, pressure 1 should clear the cell (strongest at the centre)");
-        Check(Approx(VectorFieldBrushOpRegistry.Erase.Apply(
-            Ctx(new Vector2(2f, 0f), Vector2.right, 0f, 1f, origin, Vector2.zero)), new Vector2(2f, 0f)),
+    }
+
+    [Test]
+    public void Erase_AtZeroWeight_LeavesTheCellUnchanged() {
+        AssertApprox(new Vector2(2f, 0f), VectorFieldBrushOpRegistry.Erase.Apply(
+            Ctx(new Vector2(2f, 0f), Vector2.right, 0f, 1f, Origin, Vector2.zero)),
             "Erase at weight 0 should leave the cell unchanged");
+    }
 
-        // Additive: adds the brush vector.
-        Check(Approx(VectorFieldBrushOpRegistry.Additive.Apply(
-            Ctx(new Vector2(1f, 0f), Vector2.up, 1f, 1f, origin, Vector2.zero)), new Vector2(1f, 1f)),
+    [Test]
+    public void Additive_AddsTheBrushVectorToTheCurrentValue() {
+        AssertApprox(new Vector2(1f, 1f), VectorFieldBrushOpRegistry.Additive.Apply(
+            Ctx(new Vector2(1f, 0f), Vector2.up, 1f, 1f, Origin, Vector2.zero)),
             "Additive should add the brush vector to the current value");
+    }
 
-        // Burn grows magnitude along the current direction; Dodge shrinks it.
-        Check(VectorFieldBrushOpRegistry.Burn.Apply(
-            Ctx(new Vector2(1f, 0f), Vector2.right, 1f, 1f, origin, Vector2.zero)).magnitude > 1f + Eps,
-            "Burn should increase magnitude");
-        Check(VectorFieldBrushOpRegistry.Dodge.Apply(
-            Ctx(new Vector2(2f, 0f), Vector2.right, 1f, 1f, origin, Vector2.zero)).magnitude < 2f - Eps,
-            "Dodge should decrease magnitude");
+    [Test]
+    public void Burn_IncreasesMagnitude() {
+        Assert.Greater(VectorFieldBrushOpRegistry.Burn.Apply(
+            Ctx(new Vector2(1f, 0f), Vector2.right, 1f, 1f, Origin, Vector2.zero)).magnitude, 1f + Eps);
+    }
 
-        // Clamp caps magnitude at pressure; Normalize drives it to pressure.
-        Check(VectorFieldBrushOpRegistry.Clamp.Apply(
-            Ctx(new Vector2(3f, 0f), Vector2.right, 1f, 1f, origin, Vector2.zero)).magnitude <= 1f + Eps,
-            "Clamp should cap magnitude at the pressure value");
-        Check(Mathf.Abs(VectorFieldBrushOpRegistry.Normalize.Apply(
-            Ctx(new Vector2(0.5f, 0f), Vector2.right, 1f, 1f, origin, Vector2.zero)).magnitude - 1f) <= Eps,
-            "Normalize should drive magnitude to the pressure value");
+    [Test]
+    public void Dodge_DecreasesMagnitude() {
+        Assert.Less(VectorFieldBrushOpRegistry.Dodge.Apply(
+            Ctx(new Vector2(2f, 0f), Vector2.right, 1f, 1f, Origin, Vector2.zero)).magnitude, 2f - Eps);
+    }
 
-        // Radial ops derive direction from the offset to the brush centre (they ignore the stroke direction), so `dir`
-        // here just carries weight = 1. Cell at (2,0), centre at origin:
-        var atRight = new Vector2Int(2, 0);
-        Check(Approx(VectorFieldBrushOpRegistry.Repel.Apply(
-            Ctx(Vector2.zero, Vector2.right, 1f, 1f, atRight, Vector2.zero)), Vector2.right),
+    [Test]
+    public void Clamp_CapsMagnitudeAtThePressureValue() {
+        Assert.LessOrEqual(VectorFieldBrushOpRegistry.Clamp.Apply(
+            Ctx(new Vector2(3f, 0f), Vector2.right, 1f, 1f, Origin, Vector2.zero)).magnitude, 1f + Eps);
+    }
+
+    [Test]
+    public void Normalize_DrivesMagnitudeToThePressureValue() {
+        Assert.LessOrEqual(Mathf.Abs(VectorFieldBrushOpRegistry.Normalize.Apply(
+            Ctx(new Vector2(0.5f, 0f), Vector2.right, 1f, 1f, Origin, Vector2.zero)).magnitude - 1f), Eps);
+    }
+
+    // Radial ops derive direction from the offset to the brush centre (they ignore the stroke direction), so `dir`
+    // below just carries weight = 1. Cell at (2,0), centre at origin:
+
+    [Test]
+    public void Repel_PointsOutwardFromTheCentre() {
+        AssertApprox(Vector2.right, VectorFieldBrushOpRegistry.Repel.Apply(
+            Ctx(Vector2.zero, Vector2.right, 1f, 1f, new Vector2Int(2, 0), Vector2.zero)),
             "Repel should point outward (away from the centre)");
-        Check(Approx(VectorFieldBrushOpRegistry.Attract.Apply(
-            Ctx(Vector2.zero, Vector2.right, 1f, 1f, atRight, Vector2.zero)), Vector2.left),
+    }
+
+    [Test]
+    public void Attract_PointsInwardTowardTheCentre() {
+        AssertApprox(Vector2.left, VectorFieldBrushOpRegistry.Attract.Apply(
+            Ctx(Vector2.zero, Vector2.right, 1f, 1f, new Vector2Int(2, 0), Vector2.zero)),
             "Attract should point inward (toward the centre)");
-        Check(Approx(VectorFieldBrushOpRegistry.Swirl.Apply(
-            Ctx(Vector2.zero, Vector2.right, 1f, 1f, atRight, Vector2.zero)), Vector2.up),
+    }
+
+    [Test]
+    public void Swirl_PointsTangentAroundTheCentre() {
+        AssertApprox(Vector2.up, VectorFieldBrushOpRegistry.Swirl.Apply(
+            Ctx(Vector2.zero, Vector2.right, 1f, 1f, new Vector2Int(2, 0), Vector2.zero)),
             "Swirl should point tangent (90 deg CCW) around the centre");
+    }
 
-        // --- Shape falloff -------------------------------------------------------------------------------------------
+    // --- Shape falloff -------------------------------------------------------------------------------------------
+
+    [Test]
+    public void RadialShape_FalloffProfile() {
         var soft = BrushShape.Radial(0.5f);
-        Check(Mathf.Abs(soft.Weight(0f) - 1f) <= Eps, "Radial weight at the centre should be 1");
-        Check(Mathf.Abs(soft.Weight(1f)) <= Eps, "Radial weight at the edge should be 0");
-        Check(soft.Weight(0.75f) > Eps && soft.Weight(0.75f) < 1f - Eps,
+        Assert.LessOrEqual(Mathf.Abs(soft.Weight(0f) - 1f), Eps, "Radial weight at the centre should be 1");
+        Assert.LessOrEqual(Mathf.Abs(soft.Weight(1f)), Eps, "Radial weight at the edge should be 0");
+        Assert.That(soft.Weight(0.75f), Is.GreaterThan(Eps).And.LessThan(1f - Eps),
             "Radial weight inside the falloff band should be between 0 and 1");
-        Check(soft.Weight(0.2f) >= soft.Weight(0.8f), "Radial weight should be monotonically non-increasing outward");
+        Assert.GreaterOrEqual(soft.Weight(0.2f), soft.Weight(0.8f),
+            "Radial weight should be monotonically non-increasing outward");
+    }
 
-        // --- Registry ------------------------------------------------------------------------------------------------
-        Check(VectorFieldBrushOpRegistry.Draw.Id == "draw" && VectorFieldBrushOpRegistry.Erase.Id == "erase",
-            "Named accessors should match their ids");
-        Check(ReferenceEquals(VectorFieldBrushOpRegistry.ById("repel"), VectorFieldBrushOpRegistry.Repel),
+    // --- Registry ------------------------------------------------------------------------------------------------
+
+    [Test]
+    public void Registry_NamedAccessorsMatchTheirIdsAndInstances() {
+        Assert.AreEqual("draw", VectorFieldBrushOpRegistry.Draw.Id);
+        Assert.AreEqual("erase", VectorFieldBrushOpRegistry.Erase.Id);
+        Assert.IsTrue(ReferenceEquals(VectorFieldBrushOpRegistry.ById("repel"), VectorFieldBrushOpRegistry.Repel),
             "ById should return the same instance as the named accessor");
-
-        Debug.Log($"[Vector Field self-tests] {pass} passed, {fail} failed.");
     }
 }

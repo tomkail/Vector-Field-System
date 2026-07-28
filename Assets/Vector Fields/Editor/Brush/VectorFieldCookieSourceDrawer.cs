@@ -27,14 +27,18 @@ public class VectorFieldCookieSourceDrawer : PropertyDrawer {
 			"Strength as a function of normalized distance from the centre (0 at centre, 1 at the edge)."));
 		var texture = Indented(Tip(new PropertyField(property.FindPropertyRelative("texture"), "Texture"),
 			"Explicit mask texture; samples the red channel as strength."));
+		var invert = Indented(Tip(new PropertyField(property.FindPropertyRelative("invert"), "Invert"),
+			"Flip the mask (1-x): full strength where it was empty and vice versa — rings, edge-weighted masks."));
 		root.Add(softness);
 		root.Add(curve);
 		root.Add(texture);
+		root.Add(invert);
 
 		bool Is(VectorFieldCookieSource.Mode m) => (VectorFieldCookieSource.Mode)modeProp.enumValueIndex == m;
 		VectorFieldInspectorUI.ShowIf(softness, modeProp, () => Is(VectorFieldCookieSource.Mode.Falloff));
 		VectorFieldInspectorUI.ShowIf(curve, modeProp, () => Is(VectorFieldCookieSource.Mode.Curve));
 		VectorFieldInspectorUI.ShowIf(texture, modeProp, () => Is(VectorFieldCookieSource.Mode.Texture));
+		VectorFieldInspectorUI.ShowIf(invert, modeProp, () => !Is(VectorFieldCookieSource.Mode.None));
 
 		return root;
 	}

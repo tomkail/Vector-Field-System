@@ -357,7 +357,8 @@ Full design in [Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md](Assets/Vect
 `VectorFieldCookieSource` shapes a brush stamp or masks a whole field's strength.
 
 - **Mode** — `None`, `Falloff` (radial **softness** 0–1), `Curve` (radial profile via `AnimationCurve`), `Texture` (red channel = mask).
-- `Texture Resolve(Vector2Int size)` → the mask texture (generated on demand for Falloff/Curve).
+- **Invert** — flip the mask (`1-x`): full strength where it was empty and vice versa (rings, edge-weighted masks). Applies to every mode; baked into the mask `Resolve` returns, so all consumers see the effective mask. (An unassigned `Texture` still means "no masking", inverted or not.)
+- `Texture Resolve(Vector2Int size)` → the effective mask texture (generated on demand for Falloff/Curve, and for an inverted Texture).
 - `Apply(RenderTexture target, Vector2Int size, float strength = 1, RectInt? region = null)` → apply a field's output transform in place: multiply its strength by `strength` (the field's magnitude) **and** by this cookie's mask. `strength` alone (with `Mode.None`) is a pure magnitude scale; `region` limits the pass to a sub-rect (the drawable's region upload uses this). No-op when `strength ≈ 1` and mode is `None`.
 - `Dispose()` → release generated textures.
 

@@ -7,8 +7,6 @@ public API changes.
 ## Packaging / distribution
 To ship as a proper UPM package these are required:
 
-- [ ] **Convert the brush self-tests to NUnit.** They were a menu item only because the project had no asmdefs; now
-      that `VectorFields.Tests.Editor` exists the conversion is mechanical (menu item kept for now).
 - [ ] **Wrap public types in a `VectorFields` namespace.** The project is currently global-namespace; for distribution,
       namespacing avoids collisions with consumer code. (The map-family collision with
       UnityX that would otherwise force this early was sidestepped by giving the vendored maps distinct names —
@@ -65,9 +63,6 @@ cap it in one layer).
   a zone is just a stamp layer).
 
 ## Cookie source
-- [ ] **`invert` toggle on `VectorFieldCookieSource`** (~3 lines: bool, `1-m` in resolve/apply, content hash). Not
-      needed for the zone work above (coverage semantics makes the default falloff correct), but independently
-      useful for ring shapes and edge-weighted masks.
 - [ ] **Paintable cookie mode** (`Mode.Painted` alongside Falloff/Curve/Texture): a scalar float map stored on the
       owning component (matching the fields-on-components convention), painted with the existing brush pipeline via
       a magnitude-only-style op, resolved by the cookie instead of a generated falloff. Key property: because the

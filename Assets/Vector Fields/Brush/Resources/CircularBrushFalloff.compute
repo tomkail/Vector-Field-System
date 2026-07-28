@@ -9,7 +9,13 @@ RWTexture2D<float4> ResultTexture;
 StructuredBuffer<float> CurvePoints;
 int CurvePointCount;
 float falloffSoftness;
-int maskMode;      // 0 = radial falloff (softness), 1 = authored curve
+int maskMode;      // 0 = radial falloff (softness), 1 = authored curve, 2 = explicit texture (red channel)
+int invert;        // 1 = flip the mask (1-x) so the result is the inverted effective mask
+
+// Mode 2 source (always bound, like CurvePoints — the other branches just never sample it). Used to bake an
+// inverted copy of an explicit mask texture, so Resolve() can return the effective mask for every mode.
+Texture2D<float4> SourceTexture;
+SamplerState sampler_SourceTexture;
 
 int textureWidth;  // New parameter for texture width
 int textureHeight; // New parameter for texture height
@@ -38,13 +44,18 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
     distFromCenter = clamp(distFromCenter*2, 0.0, 1.0);
 
     float falloff;
-    if (maskMode == 1) {
+    if (maskMode == 2) {
+        // Explicit texture: sample the red channel at this texel's UV (the radial distance is irrelevant).
+        falloff = SourceTexture.SampleLevel(sampler_SourceTexture, (id.xy + 0.5) / float2(textureWidth, textureHeight), 0).r;
+    } else if (maskMode == 1) {
         // Sample the falloff from the curve buffer
         falloff = SampleCurve(distFromCenter);
     } else {
         // Linear ramp for hardness 0, circle for hardness 1
         falloff = saturate(smoothstep(0, falloffSoftness, 1-distFromCenter));
     }
+
+    if (invert != 0) falloff = 1.0 - falloff;
 
     // Set the result texture based on the falloff
     ResultTexture[id.xy] = float4(falloff, falloff, falloff, 1.0);

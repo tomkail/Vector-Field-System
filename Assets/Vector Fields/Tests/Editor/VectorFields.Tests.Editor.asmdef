@@ -3,17 +3,23 @@
     "rootNamespace": "",
     "references": [
         "GUID:4c8303856b11407a9b8a317ee44f22c9",
-        "GUID:3e2033ed916642b3b4978cbbbe3940e7"
+        "GUID:3e2033ed916642b3b4978cbbbe3940e7",
+        "GUID:27619889b8ba8c24980f49ee34dbb44a",
+        "GUID:0acc523941302664db1f4e527237feb3"
     ],
     "includePlatforms": [
         "Editor"
     ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

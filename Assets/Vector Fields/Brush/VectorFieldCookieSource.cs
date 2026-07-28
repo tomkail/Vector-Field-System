@@ -35,6 +35,10 @@ public class VectorFieldCookieSource : IDisposable {
 	// Texture mode: explicit mask (samples the red channel).
 	public Texture2D texture;
 
+	// Flip the mask (1-x): full strength where it was empty and vice versa — rings, edge-weighted masks. Baked into
+	// the mask Resolve() returns (all modes), so every consumer sees the effective mask.
+	public bool invert;
+
 	static ComputeShader circularBrushFalloffShader;
 	static ComputeShader CircularBrushFalloffShader => circularBrushFalloffShader ? circularBrushFalloffShader : (circularBrushFalloffShader = Resources.Load<ComputeShader>("CircularBrushFalloff"));
 
@@ -59,7 +63,10 @@ public class VectorFieldCookieSource : IDisposable {
 	public Texture Resolve(Vector2Int size) {
 		if (mode == Mode.None)
 			return null;
-		if (mode == Mode.Texture)
+		// Texture mode passes the assigned texture straight through — except when inverted, where the compute below
+		// bakes 1-x into a generated copy so Resolve always returns the effective mask. An unassigned texture means
+		// "no masking" (solid white), which inversion deliberately leaves alone.
+		if (mode == Mode.Texture && (!invert || texture == null))
 			return texture != null ? (Texture)texture : Texture2D.whiteTexture;
 		if (size.x <= 0 || size.y <= 0)
 			return Texture2D.whiteTexture;
@@ -84,10 +91,14 @@ public class VectorFieldCookieSource : IDisposable {
 			curveBuffer.SetData(curveData);
 		}
 
-		shader.SetInt("maskMode", mode == Mode.Curve ? 1 : 0);
+		shader.SetInt("maskMode", mode == Mode.Texture ? 2 : mode == Mode.Curve ? 1 : 0);
+		shader.SetInt("invert", invert ? 1 : 0);
 		shader.SetFloat("falloffSoftness", falloffSoftness);
 		shader.SetBuffer(kernel, "CurvePoints", curveBuffer);
 		shader.SetInt("CurvePointCount", resolution);
+		// Like CurvePoints, SourceTexture is referenced unconditionally so it must always be bound; only the
+		// Texture branch (maskMode 2) ever samples it.
+		shader.SetTexture(kernel, "SourceTexture", mode == Mode.Texture ? (Texture)texture : Texture2D.whiteTexture);
 
 		shader.SetInt("textureWidth", size.x);
 		shader.SetInt("textureHeight", size.y);
@@ -147,6 +158,7 @@ public class VectorFieldCookieSource : IDisposable {
 	public int GetContentHash() {
 		var hash = new HashCode();
 		hash.Add((int)mode);
+		hash.Add(invert);
 		hash.Add(falloffSoftness);
 		if (curve != null) {
 			hash.Add(curve.length);

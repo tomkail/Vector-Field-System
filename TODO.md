@@ -37,6 +37,62 @@ To ship as a proper UPM package these are required:
       component types. Evaluate a mode enum (or similar) on one component vs. the current per-type components — weigh
       inspector clarity, serialization, and how much behaviour actually differs between the modes.
 
+## Layer blending — scalar magnitude ops (zones) [designed, not started]
+Motivation: "areas that add/multiply magnitude" (slow zones, boost zones, speed caps) currently require an awkward
+recipe — a `Blend + Magnitude` stamp with a *reversed* falloff cookie, which only behaves over a uniform-magnitude
+base because it lerps toward an absolute value instead of scaling. Root cause: the combiner has no multiplicative
+op, and `Blend` is the wrong operator for attenuation. (`Add + Magnitude` zones already work fine with a normal
+falloff — only reduce/scale is broken.)
+
+Agreed design — give each `GroupVectorFieldComponent.VectorFieldLayer` **two op slots** instead of growing one enum:
+
+- **`vectorOp`: None | Add | Blend** — the current `BlendMode`, renamed (`FormerlySerializedAs`). These are the
+  coupled true-vector ops (superposition / lerp) that can't be decomposed per-aspect; the `components` mask keeps
+  selecting the decomposed variants exactly as today.
+- **`magnitudeOp`: None | Multiply | Add | Min | Max | Set** + a per-layer float `magnitudeValue` — a scalar
+  post-op on the blended result's magnitude, applied after `vectorOp` inside the same layer blit. Direction is
+  never touched.
+
+Every scalar op uses one coverage-blended formula, where `w` = saturate(incoming layer's magnitude — i.e. its
+normal, un-reversed falloff cookie used as *coverage*), `s` = layer strength, `k` = `magnitudeValue`:
+
+    mag' = lerp(mag, op(mag, k), w · s)      // op: mag·k | mag+k | min(mag,k) | max(mag,k) | k (Set)
+
+Because it lerps from the current magnitude, every op is identity where the falloff hits 0 — default cookie shape
+works as-is, footprint edges are always seamless, no inverted masks needed anywhere. Multiply gives slow/boost/dead
+zones (k = 0.3 / 2 / 0), Min a speed cap, Set an exact-speed zone (fully retires the reversed-cookie recipe).
+A pure zone is `vectorOp: None + magnitudeOp: Multiply`; both slots on one layer compose (e.g. add turbulence AND
+cap it in one layer).
+
+- [ ] **Implement the two-op layer model.** Shader: `ApplyMagnitudeOp` after `BlendVectors` in
+      `CombineVectorFields.shader` + keep the C# `BlendVector` mirror in sync. `VectorFieldCombiner.Layer` +
+      `VectorFieldLayer` gain `magnitudeOp`/`magnitudeValue` (into the layer hash). Fix the skip condition: a layer
+      is skipped only when *both* slots are no-ops (today `Component.None` skips outright, which would drop pure
+      zones). Migration is near-zero: `blendMode {Add, Blend}` → `vectorOp` 1:1, `magnitudeOp` defaults None.
+      Wire Multiply/Min/Set first; Add/Max are one line each once the plumbing exists.
+- [ ] **Inspector: two dropdowns, each revealing only its own controls.** `components` hidden when `vectorOp` is
+      None; `magnitudeValue` shown only when `magnitudeOp` is active (per-op label: ×, +, cap, floor, target).
+      A zone should read as "Multiply ×0.3" and nothing else.
+- [ ] Document the zero-magnitude caveat once on the enum: `Add`/`Max`/`Set` can't create flow where the field is
+      zero (no direction to scale along — same caveat `Add + Magnitude` has today); Multiply/Min only reduce, so
+      they're unaffected.
+- Deliberately **not** building now (don't design them out): a `useIncomingMagnitudeAsValue` toggle
+  (field-modulating-field, `k' = k · incomingMag` — reintroduces the edge-identity problem, which is why coverage
+  semantics is the default); a third `directionOp` slot (RotateBy/RotateToward, same coverage-blend pattern) if the
+  direction family ever grows; a dedicated ModifierZone component (rejected as a second concept — with Multiply,
+  a zone is just a stamp layer).
+
+## Cookie source
+- [ ] **`invert` toggle on `VectorFieldCookieSource`** (~3 lines: bool, `1-m` in resolve/apply, content hash). Not
+      needed for the zone work above (coverage semantics makes the default falloff correct), but independently
+      useful for ring shapes and edge-weighted masks.
+- [ ] **Paintable cookie mode** (`Mode.Painted` alongside Falloff/Curve/Texture): a scalar float map stored on the
+      owning component (matching the fields-on-components convention), painted with the existing brush pipeline via
+      a magnitude-only-style op, resolved by the cookie instead of a generated falloff. Key property: because the
+      canvas lives on whatever component owns the cookie, a Multiply stamp zone can have a hand-painted *shape*
+      while staying a transform-positioned, reusable scene object — painting composes with componentisation instead
+      of replacing it. On a group it doubles as a whole-field painted mask. Orthogonal to the zone work.
+
 ## Runtime painting API (first cut → finish the spec)
 See `RUNTIME_PAINTING_SPEC.md` for the intended design; the code in `Assets/Vector Fields/Brush/` is a deliberate
 first cut.

@@ -93,24 +93,11 @@ cap it in one layer).
       while staying a transform-positioned, reusable scene object — painting composes with componentisation instead
       of replacing it. On a group it doubles as a whole-field painted mask. Orthogonal to the zone work.
 
-## Runtime painting API (first cut → finish the spec)
-See `RUNTIME_PAINTING_SPEC.md` for the intended design; the code in `Assets/Vector Fields/Brush/` is a deliberate
-first cut.
-
-- [ ] **Centripetal Catmull-Rom** for `VectorFieldStroke` (currently uniform → overshoots on uneven spacing).
-- [ ] **`TipMode` toggle** (Smoothed / Leading) — wanted as a per-stroke setting; currently zero-lag tip only.
-- [ ] **Exact snapshot + max-coverage overlap path** for compounding ops (`CompoundsOnReapply`/`NeedsSnapshot`:
-      add/smudge/burn/dodge/erase) so frame joins don't double-apply. Currently correct only for set ops.
-- [ ] **Pool the per-stroke cell buffers** (avoid per-stroke allocation for many short-lived strokes).
-- [ ] **Directional `Stamp`** — add an angle param (`Stamp` currently paints with `Vector2.up`; fine for radial ops).
-- [ ] **`VectorFieldBrushShape.FromMap`** — wrap the editor's GPU cookie brush for textured/directional brushes.
-- [ ] **Unify editor + runtime** (spec step 7): repoint `VectorFieldDrawingTool` onto the runtime API to delete its
-      duplicate cell-building. Touches the working editor — do carefully.
-
 ## Demos
-- [ ] `VectorFieldDecay` dependency in the burst/trail demos is implicit — consider a warning guard.
 - [ ] Validate `Demo_VectorFieldSimFade` impulse-clear timing and `Demo_VectorFieldGroupFade` field pool in-editor.
-- [ ] Build additional demos (directional beam, persistent wind via sim, vortex field), each exercising a fade strategy.
+- [ ] Build scenes for the additional demos (directional beam, persistent wind via sim, vortex field) — the
+      `Demo_VectorFieldBeam`/`Wind`/`Vortex` scripts exist (each guards its fade-strategy dependency via
+      `WarnIfNoFadeStrategy`) but aren't referenced by any scene yet.
 
 ## Demo suite — examples + showcases
 Two goals, deliberately separate:
@@ -139,8 +126,6 @@ Coverage to keep in mind (a good suite hits each source × consumer at least onc
       combined result visualised — shows fields stack like layers.
 
 ### Showcase demos (impressive, show range)
-- [ ] **Flocking / crowd flow.** Agents read the field via `EvaluateVector` to bias heading; drop a moving Vortex/Repel
-      stamp and watch them part and swirl. Best proof the field is code-usable, not just a particle toy.
 - [ ] **River / racetrack current.** `PolygonVectorField` defines a channel; rigidbody props get swept downstream by
       force sampled from the field. Exercises the polygon source + real physics (both currently unshown).
 - [ ] **Player in the current.** Top-down character pushed by the field — headwind, sweeping current, a Repel "force
@@ -160,9 +145,10 @@ Coverage to keep in mind (a good suite hits each source × consumer at least onc
       axis (Texture2DArray + float[] tier uniforms, `VectorFieldSpeedTiers.cginc` bracket/blend), edited via the shared
       LODGroup-style tier bar (`VectorFieldTierBarGUI`, extracted from the flow-map editor). Texture-array packing is
       consolidated in `VectorFieldRendererUtils.BakeTextureArray`.
-- [ ] **Demo materials/scenes for the new tiered renderers** — nothing in `Examples/` exercises them yet.
 - [ ] **Sanity-pass the tiered defaults in-editor** (tier params were chosen to read well, not yet eyeballed live);
-      check the tiered LIC cost on a big quad (it marches up to 2×).
+      check the tiered LIC cost on a big quad (it marches up to 2×). The Rendering Demo scene exercises the tiered
+      Flow Map / LIC / Flow-Aligned materials; the `Vector Field Flow IBFV (Tiered)` material exists but isn't
+      referenced by the scene yet — wire it in while passing.
 
 ## Debug renderer / settings
 - [ ] Decide whether the density controls (variable resolution / spacing / max arrows — currently per-user in the

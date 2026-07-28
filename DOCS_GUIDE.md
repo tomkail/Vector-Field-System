@@ -24,19 +24,19 @@ Everything lives under `Assets/Vector Fields/`, plus a few editor tools it depen
 
 | Doc section | Code |
 |---|---|
-| Field components | `Vector Field/Components/` (`VectorFieldComponent` + subclasses: Drawable, Noise, Polygon, Stamp, Simulated, Group) |
+| Field components | `Vector Field/Components/` (`VectorFieldComponent` + subclasses: Drawable, Noise, Mesh, Spline, Stamp, Simulated, Wave, Group) |
 | Reading a field from code | `Vector Field/Components/VectorFieldComponent.cs` (Register/Unregister CpuConsumer, Evaluate*, TrySample*, SampleWorldVectorAsync) |
-| Painting tool | `VectorFieldWorldEditor/VectorFieldDrawingTool.cs`, `VectorFieldDrawingToolSettingsOverlay.cs` |
+| Painting tool | `Editor/VectorFieldWorldEditor/VectorFieldDrawingTool.cs`, `VectorFieldDrawingToolSettingsOverlay.cs` |
 | Brush ops | `Brush/Ops/VectorFieldBrushOps.cs` (op list + `Tooltip`/group), `VectorFieldBrushOp.cs` (interface), `VectorFieldBrushKernel.cs` (Apply) |
 | Cookies | `Brush/VectorFieldCookieSource.cs` |
 | Brush emitters | `Brush/VectorFieldBrushSettings.cs`, `Brush/VectorFieldBrushTextureCreator.cs` |
 | Combining fields | `Vector Field/VectorFieldCombiner.cs` |
 | Grid data | `Vector Field/FieldMap.cs` (`FieldMap<T>` / `VectorFieldMap` / `ColorFieldMap`) |
-| Procedural generators | `Vector Field/NoiseVectorField.cs`, `Vector Field/PolygonVectorFieldGenerator.cs` |
-| Saving as assets | `SO/VectorFieldScriptableObject.cs`, `SO/TypeMapScriptableObject.cs` |
-| Driving particles | `Particles/ParticleSystemVectorField.cs`, `KillOutOfBoundsParticles.cs`, `KillZeroSpeedParticles.cs` |
-| Visualization & debugging | `Debug Renderer/`, `Vector Field/Components/Editor/VectorFieldDebugOverlay.cs`, `Texture Renderer/`, `Visualisation/` |
-| Utilities | `Vector Field/VectorFieldRenderTextureUtils.cs`, `Vector Field/VectorFieldUtils.cs` |
+| Procedural generators | `Vector Field/NoiseVectorField.cs`, `MeshVectorFieldGenerator.cs` (+ `MeshVectorFieldSources.cs`), `SplineVectorFieldGenerator.cs`, `WaveVectorField.cs` |
+| Saving as assets | `Vector Field/VectorFieldAsset.cs`, `Vector Field/VectorFieldStorage.cs` |
+| Driving particles | `Particles/ParticleSystemVectorField.cs`, `Examples/Particle System Force Field/KillOutOfBoundsParticles.cs`, `KillZeroSpeedParticles.cs` |
+| Visualization & debugging | `Debug Renderer/` (incl. `VectorFieldArrowRenderer`), `Editor/Vector Field/Components/VectorFieldDebugOverlay.cs`, `Renderers/` (Flow Map / Flow Lit / IBFV / LIC / Flow-Aligned + `(Tiered)` variants, on `VectorFieldTextureRenderer`) |
+| Utilities | `Vector Field/VectorFieldRenderTextureUtils.cs`, `VectorFieldUtils.cs`, `VectorFieldStorage.cs`, `VectorFieldMaxMagnitude.cs` |
 
 Related design docs that the reference should *link to*, not absorb:
 - `Assets/Vector Fields/Brush/RUNTIME_PAINTING_SPEC.md` — the planned runtime stroke‑painting layer (mark as "not yet implemented" until it ships).
@@ -45,8 +45,8 @@ Related design docs that the reference should *link to*, not absorb:
 
 1. **Re‑inventory.** List `Assets/Vector Fields/**/*.cs`. Diff against the section→code table above; add sections for new subsystems, remove sections for deleted ones.
 2. **Extract the public surface** for each area. Work through three areas in turn (do it yourself; if you delegate to sub‑agents, you must still gather their results and write the final file — don't stop after delegating):
-   - **Components** — for each `VectorFieldComponent` subclass: purpose, meaningful Inspector fields, public methods, and how they relate (group/blend/sampling).
-   - **Core/utilities/cookie** — `VectorFieldMap`/`FieldMap` read‑write API, `VectorFieldUtils`, `VectorFieldCombiner`, `VectorFieldRenderTextureUtils`, `VectorFieldCookieSource`, brush emitter (`BrushSettings`/`TextureCreator`), `NoiseVectorField`/`PolygonVectorFieldGenerator`, ScriptableObject storage.
+   - **Components** — for each `VectorFieldComponent` subclass (Drawable, Noise, Mesh, Spline, Stamp, Simulated, Wave, Group): purpose, meaningful Inspector fields, public methods, and how they relate (group/blend/sampling).
+   - **Core/utilities/cookie** — `VectorFieldMap`/`FieldMap` read‑write API, `VectorFieldUtils`, `VectorFieldCombiner`, `VectorFieldRenderTextureUtils`, `VectorFieldCookieSource`, brush emitter (`BrushSettings`/`TextureCreator`), `NoiseVectorField`/`MeshVectorFieldGenerator`/`SplineVectorFieldGenerator`/`WaveVectorField`, `VectorFieldAsset`/`VectorFieldStorage` asset storage.
    - **Tools/visualisation** — drawing tool + overlay, brush ops + kernel API, particles, debug/visualisation renderers, texture renderer.
    For each item capture: one‑line purpose, the Inspector fields a user sets, the public methods/signatures they'd call, and whether a snippet helps.
 3. **Write/update sections** per the house style. Prefer updating existing sections in place to preserve structure and links.
@@ -58,7 +58,7 @@ Related design docs that the reference should *link to*, not absorb:
 - Internal helpers, private fields, and anything not part of the user‑facing API.
 - Commented‑out / disabled features (e.g. the Shapes‑package debug renderer) — skip until active.
 - Test/scratch scripts (e.g. `*Tester`, EXR test) unless they're a real feature.
-- **Legacy code that depends on `VectorFieldManager`** (now only under `Assets/Legacy/`) — notably the particle‑based debug views under `Assets/Vector Fields/Visualisation/`. They don't work with the current `VectorFieldComponent` model; omit them with a one‑line "legacy" note rather than documenting a broken API. (Check with `grep -rl VectorFieldManager "Assets/Vector Fields"` — any hit is legacy.)
+- **Legacy code that depends on `VectorFieldManager`** — the old particle‑based debug views (once under `Assets/Vector Fields/Visualisation/`) have since been removed; that folder no longer exists and `grep -rl VectorFieldManager "Assets/Vector Fields"` currently returns nothing. Keep running that check when regenerating — any new hit is legacy and should be omitted with a one‑line "legacy" note rather than documented as a working API.
 
 ## Verification
 
